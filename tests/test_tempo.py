@@ -3,7 +3,8 @@ smoothing. Mostly pure math; the smoothing tests need numpy."""
 import unittest
 
 from tabforge.audio.transcribe import (FALLBACK_BPM, collapse_tempo_candidates,
-                                       fold_tempo, guard_tempo, smooth_beats)
+                                       fold_tempo, guard_tempo,
+                                       repair_beats, smooth_beats)
 
 try:
     import numpy as np
@@ -129,6 +130,36 @@ class TestSmoothBeats(unittest.TestCase):
     def test_short_grids_pass_through(self):
         self.assertEqual(smooth_beats([]), [])
         self.assertEqual(smooth_beats([0.0, 0.5, 1.0]), [0.0, 0.5, 1.0])
+
+
+@unittest.skipUnless(HAVE_NUMPY, "numpy is not installed")
+class TestRepairBeats(unittest.TestCase):
+    """A skipped tracker beat makes one 'beat' twice as long: its slots
+    double and every bar after it is off by a beat — the audible
+    'rhythm breaks at barlines'. Repair fills skips and drops phantoms
+    locally, WITHOUT forcing global rigidity (real tempo wanders)."""
+
+    def test_skipped_beat_is_filled(self):
+        beats = [k * 0.4 for k in range(50)]
+        del beats[20]
+        out = repair_beats(beats)
+        self.assertEqual(len(out), 50)
+        self.assertAlmostEqual(out[20], 8.0, places=6)
+        iv = np.diff(out)
+        self.assertLess(float(np.abs(iv - 0.4).max()), 1e-6)
+
+    def test_phantom_beat_is_dropped(self):
+        beats = [k * 0.4 for k in range(50)]
+        beats.insert(11, 10 * 0.4 + 0.05)      # ghost 50 ms after beat 10
+        out = repair_beats(beats)
+        self.assertEqual(len(out), 50)
+        self.assertLess(float(np.abs(np.diff(out) - 0.4).max()), 1e-6)
+
+    def test_wandering_tempo_is_untouched(self):
+        intervals = np.linspace(0.5, 0.7, 60)   # real ritardando
+        beats = np.concatenate([[0.0], np.cumsum(intervals)]).tolist()
+        out = repair_beats(beats)
+        self.assertEqual(out, beats, "no glitches — nothing to repair")
 
 
 if __name__ == "__main__":

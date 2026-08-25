@@ -295,6 +295,40 @@ def guard_tempo(bpm: float, beats: list[float],
     return FALLBACK_BPM, [], False
 
 
+def repair_beats(beats: list[float], skip_ratio: float = 1.6,
+                 insert_ratio: float = 0.6) -> list[float]:
+    """Fix the tracker's LOCAL glitches without forcing global rigidity.
+
+    The tempo of real (and generated) songs genuinely wanders, so the
+    grid must keep following the audio — but the tracker occasionally
+    SKIPS a beat (one interval ~2x its neighbors: that 'beat' would get
+    double-length slots and every bar after it would be off by a beat)
+    or inserts a phantom one. An interval much longer than the local
+    median gets evenly spaced beats filled in; one much shorter loses
+    the extra beat."""
+    if len(beats) < 8:
+        return beats
+    import numpy as np
+
+    b = list(float(t) for t in beats)
+    intervals = np.diff(b)
+    local = float(np.median(intervals))
+    out: list[float] = [b[0]]
+    for t in b[1:]:
+        gap = t - out[-1]
+        if gap < insert_ratio * local:
+            continue                     # phantom beat: drop it
+        missing = int(round(gap / local)) - 1
+        if gap > skip_ratio * local and missing >= 1:
+            step = gap / (missing + 1)   # skipped beats: fill evenly
+            for k in range(1, missing + 1):
+                out.append(out[-1] + step)
+            out.append(t)
+        else:
+            out.append(t)
+    return out
+
+
 def detect_tempo(audio: Path,
                  audio_data: tuple | None = None) -> tuple[float, list[float], bool]:
     """Returns (BPM, beat times in seconds, reliable).
@@ -327,12 +361,16 @@ def detect_tempo(audio: Path,
             h = round(fold_tempo(bpm * ratio), 4)
             hypotheses[h] = max(hypotheses.get(h, 0), weight)
 
+    def _finish(bpm: float, beats: list[float], ok: bool):
+        if not ok:
+            return bpm, beats, ok
+        return bpm, smooth_beats(repair_beats(beats)), ok
+
     if not hypotheses:
         tempo, beats = librosa.beat.beat_track(onset_envelope=oenv, sr=sr,
                                                units="time", trim=False)
-        bpm, grid, ok = guard_tempo(float(np.atleast_1d(tempo)[0]),
-                                    [float(b) for b in beats])
-        return bpm, smooth_beats(grid), ok
+        return _finish(*guard_tempo(float(np.atleast_1d(tempo)[0]),
+                                    [float(b) for b in beats]))
 
     best_bpm, best_beats, best_score = 0.0, [], -1.0
     for bpm, weight in sorted(hypotheses.items()):
@@ -345,8 +383,7 @@ def detect_tempo(audio: Path,
             best_score = score
             best_bpm = bpm
             best_beats = [float(t) for t in librosa.frames_to_time(frames, sr=sr)]
-    bpm, grid, ok = guard_tempo(best_bpm, best_beats)
-    return bpm, smooth_beats(grid), ok
+    return _finish(*guard_tempo(best_bpm, best_beats))
 
 
 def cleanup(notes: list[NoteEvent], *, min_duration: float = 0.05,

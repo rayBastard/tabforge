@@ -147,6 +147,25 @@ class TestTwoStepFlow(ServerTestCase):
         r = self.client.post(f"/api/jobs/{job_id}/transcribe",
                              json={"stems": []})
         self.assertEqual(r.status_code, 400)
+
+    def test_subdivision_is_validated_and_reaches_options(self):
+        job_id, _ = self._analyzed_job()
+        r = self.client.post(f"/api/jobs/{job_id}/transcribe",
+                             json={"stems": ["guitar"], "subdivision": 5})
+        self.assertEqual(r.status_code, 400)
+        r = self.client.post(f"/api/jobs/{job_id}/transcribe",
+                             json={"stems": ["guitar"], "subdivision": 3})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(srv.JOBS[job_id].opts.subdivision, 3)
+        for _ in range(100):               # let the stubbed run finish
+            if self.client.get(f"/api/jobs/{job_id}").json()["status"] == "done":
+                break
+            time.sleep(0.02)
+        # default is the steady eighth grid
+        r = self.client.post(f"/api/jobs/{job_id}/transcribe",
+                             json={"stems": ["guitar"]})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(srv.JOBS[job_id].opts.subdivision, 2)
         r = self.client.post(f"/api/jobs/{job_id}/transcribe",
                              json={"stems": ["theremin"]})
         self.assertEqual(r.status_code, 400)

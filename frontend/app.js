@@ -191,6 +191,7 @@ async function startTranscribe() {
       body: JSON.stringify({
         stems: picked,
         tuning: tuningSel ? tuningSel.value : "standard",
+        subdivision: parseInt($("#instPrecision")?.value || "2", 10),
         split_guitars: $("#splitGuitars").checked,
       }),
     });
@@ -257,6 +258,18 @@ function showInstruments(job) {
       box.appendChild(note);
     }
   }
+  // rhythm precision: eighths are steady, sixteenths catch fast runs
+  // but amplify transcription timing noise
+  const prec = document.createElement("div");
+  prec.className = "inst-tuning";
+  prec.innerHTML =
+    `rhythm precision: <select id="instPrecision">
+       <option value="2" selected>Eighth notes — steady</option>
+       <option value="3">Triplets — shuffle feel</option>
+       <option value="4">Sixteenths — max detail</option>
+     </select>`;
+  box.appendChild(prec);
+
   box.hidden = false;
   $("#splitRow").hidden = !hasGuitar;
   neck.classList.remove("playing");
@@ -409,16 +422,15 @@ function finish(job) {
 
 /* ---------- the unified project player (one alphaTab, all tracks) ---- */
 
-const unified = { api: null, armed: false, mixer: new Map(), view: "all" };
+const unified = { api: null, armed: false, mixer: new Map(), view: null };
 window._tf = unified;                 // exposed for tests
 
 function renderView() {
-  // one instrument per tab, or everything at once — display only:
-  // every track still SOUNDS, mute/solo stay in charge of the mix
+  // one instrument per tab — display only: every track still SOUNDS,
+  // mute/solo stay in charge of the mix
   const api = unified.api;
   if (!api || !api.score) return;
-  const picked = unified.view === "all" ? api.score.tracks
-    : api.score.tracks.filter((t) => t.name === unified.view);
+  const picked = api.score.tracks.filter((t) => t.name === unified.view);
   api.renderTracks(picked.length ? picked : api.score.tracks);
   document.querySelectorAll("#scoreTabs button").forEach((b) =>
     b.classList.toggle("active", b.dataset.view === unified.view));
@@ -427,14 +439,14 @@ function renderView() {
 function buildScoreTabs(job) {
   const nav = $("#scoreTabs");
   nav.innerHTML = "";
-  const views = [["all", "All"],
-                 ...job.results.map((r) => [r.stem, STEM_NAMES[r.stem] || r.stem])];
-  if (!job.results.some((r) => r.stem === unified.view)) unified.view = "all";
-  for (const [view, label] of views) {
+  if (!job.results.some((r) => r.stem === unified.view)) {
+    unified.view = job.results[0]?.stem ?? null;
+  }
+  for (const r of job.results) {
     const b = document.createElement("button");
-    b.dataset.view = view;
-    b.textContent = label;
-    b.addEventListener("click", () => { unified.view = view; renderView(); });
+    b.dataset.view = r.stem;
+    b.textContent = STEM_NAMES[r.stem] || r.stem;
+    b.addEventListener("click", () => { unified.view = r.stem; renderView(); });
     nav.appendChild(b);
   }
   nav.hidden = job.results.length < 2;

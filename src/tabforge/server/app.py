@@ -360,10 +360,16 @@ async def transcribe_job(job_id: str, selection: dict) -> dict:
     tuning = selection.get("tuning", "standard")
     if tuning not in TUNINGS:
         raise HTTPException(400, f"Unknown tuning: {tuning}")
+    # rhythm precision: transcription onsets carry ±50 ms of noise, so
+    # eighths are the steady default — sixteenths are opt-in detail
+    subdivision = selection.get("subdivision", 2)
+    if subdivision not in (2, 3, 4):
+        raise HTTPException(400, "subdivision must be 2, 3, or 4")
 
     opts = PipelineOptions(
         stems=stems,
         tuning=tuning,
+        subdivision=subdivision,
         split_guitars=bool(selection.get("split_guitars", False)),
     )
     job.opts = opts
