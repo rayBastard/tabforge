@@ -29,7 +29,7 @@ at the server's address, on a phone — as a PWA. The logic is never rewritten.
 - [x] CI on GitHub Actions (Python 3.10–3.12)
 - [x] MIT license, .gitignore
 
-### Phase 1 — core ✅ (done, 18 tests)
+### Phase 1 — core ✅ (done)
 - [x] `core/fretboard.py`: note → string+fret. Viterbi with a
       "fingering + hand position" state. Verified: the C major scale lands
       in first position, Em/G/C/D chords in open shapes,
@@ -37,27 +37,37 @@ at the server's address, on a phone — as a PWA. The logic is never rewritten.
 - [x] `core/quantize.py`: snapping to the beat grid, note durations
 - [x] tunings: standard, drop D, E♭, DADGAD, open G, 4/5-string bass, ukulele
 
-### Phase 2 — audio pipeline 🔧 (code written, needs a run)
+### Phase 2 — audio pipeline ✅ (done)
 - [x] `audio/transcribe.py`: Demucs (stems) + Basic Pitch (notes) + librosa (tempo)
 - [x] `pipeline.py`: a single entry point for CLI/server/desktop
-- [ ] **run it on a real Suno track** ← you are here
-- [ ] tune Basic Pitch thresholds for the character of Suno tracks
-- [ ] ghost-overtone cleanup: currently a heuristic, could be smarter
+- [x] run it on real Suno tracks
+- [x] tune Basic Pitch thresholds for the character of Suno tracks
+- [x] ghost-overtone cleanup (minimum note length + polyphony cap;
+      the heuristic could still be smarter)
+- [x] stable tempo: detected once per track (drums stem with an
+      audibility check, falling back to the mix), tempo-multiple
+      disambiguation, sanity guard with a 120 BPM fallback
+- [x] optional lead/rhythm guitar split (`--split-guitars`)
 
-### Phase 3 — export 🔧 (code written, needs verification)
+### Phase 3 — export ✅ (done)
 - [x] MIDI, ASCII tab
-- [x] .gp5 (PyGuitarPro) — **verify it opens in Guitar Pro/TuxGuitar**,
-      the library is picky about the Beat/Voice structure
+- [x] .gp5 (PyGuitarPro) — verified via alphaTab rendering and a
+      round-trip check (`scripts/check_gp5.py`: pitches, positions,
+      key signatures, effects)
 - [x] MusicXML (music21) for MuseScore
-- [ ] key signatures (needs key detection)
-- [ ] techniques: hammer-on/pull-off, slides, bends from pitch-bend data
+- [x] key signatures (Krumhansl-Schmuckler key detection)
+- [x] techniques: hammer-on/pull-off, slides, bends and vibrato from
+      pitch-bend data — in gp5 effects and the ASCII tab (5h7, /, ~)
+- [x] time signature (n/4) and grid subdivision (including triplets)
+      written through to the gp5
 
-### Phase 4 — laptop app 🔧 (code written)
+### Phase 4 — laptop app ✅ (done)
 - [x] server: POST /api/jobs, progress, file download
 - [x] UI: upload, "fretboard-style" progress, ASCII tab,
-      notes+tabs rendering via alphaTab from .gp5
+      notes+tabs rendering via alphaTab from .gp5, per-part Play
+      button (lazy-loaded synth)
 - [x] `desktop.py`: native window (pywebview)
-- [ ] verify end-to-end
+- [x] verified end-to-end (browser-driven tests with screenshots)
 - [x] app bundle build: `pyinstaller TabForge.spec` → `dist/TabForge.app`
       (see the Building section; Demucs models download on first run
       into `~/.cache`)
@@ -145,5 +155,5 @@ All behavior lives in `TabConfig` (`src/tabforge/core/fretboard.py`):
   check this first.
 - Suno tracks are generated, not played: physically unplayable voicings
   do occur. The algorithm finds the closest playable one.
-- The time signature is hardcoded to 4/4; tempo changes within a track
-  are averaged for now.
+- Tempo changes within a track are averaged for now (the grid assumes
+  one tempo per track).
