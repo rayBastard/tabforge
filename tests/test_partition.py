@@ -54,3 +54,25 @@ class TestSplitLeadRhythm(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSplitHands(unittest.TestCase):
+    """A piano on one treble staff drowns its bass in ledger lines: the
+    grand staff needs a register split into two tracks."""
+
+    def test_mixed_register_splits_at_middle_c(self):
+        from tabforge.core.partition import split_hands
+        notes = ([NoteEvent(48 + i % 8, i * 0.25, 0.2) for i in range(20)]
+                 + [NoteEvent(72 + i % 8, i * 0.25, 0.2) for i in range(20)])
+        result = split_hands(notes)
+        self.assertIsNotNone(result)
+        right, left = result
+        self.assertTrue(all(n.pitch >= 60 for n in right))
+        self.assertTrue(all(n.pitch < 60 for n in left))
+        self.assertEqual(len(right) + len(left), len(notes))
+
+    def test_one_register_stays_single_staff(self):
+        from tabforge.core.partition import split_hands
+        notes = [NoteEvent(72 + i % 8, i * 0.25, 0.2) for i in range(30)]
+        self.assertIsNone(split_hands(notes),
+                          "no left hand — one staff is honest")

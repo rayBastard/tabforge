@@ -336,7 +336,8 @@ function fail(msg) {
 /* ---------- results ---------- */
 
 const STEM_NAMES = { guitar: "Guitar", bass: "Bass", vocals: "Vocals",
-                     piano: "Keys", drums: "Drums", other: "Other",
+                     piano: "Keys", piano_left: "Keys · left hand",
+                     drums: "Drums", other: "Other",
                      mix: "Full mix",
                      guitar_lead: "Guitar · Lead",
                      guitar_rhythm: "Guitar · Rhythm" };
@@ -401,12 +402,18 @@ const unified = { api: null, armed: false, mixer: new Map(), view: null,
                   tabByName: {} };
 window._tf = unified;                 // exposed for tests
 
+// a grand staff is two TRACKS but one instrument: group them everywhere
+function groupOf(stem) {
+  return stem === "piano_left" ? "piano" : stem;
+}
+
 function renderView() {
   // one instrument per tab — display only: every track still SOUNDS,
   // mute/solo stay in charge of the mix
   const api = unified.api;
   if (!api || !api.score) return;
-  const picked = api.score.tracks.filter((t) => t.name === unified.view);
+  const picked = api.score.tracks.filter(
+    (t) => groupOf(t.name) === unified.view);
   api.renderTracks(picked.length ? picked : api.score.tracks);
   document.querySelectorAll("#scoreTabs .tab-chip").forEach((c) =>
     c.classList.toggle("active", c.dataset.view === unified.view));
@@ -415,13 +422,21 @@ function renderView() {
 
 function buildScoreTabs(job) {
   // one chip per instrument at the bottom: the name switches the view,
-  // M/S mute and solo THAT track right on the tab
+  // M/S mute and solo THAT track right on the tab. Grouped parts
+  // (the piano's two hands) share a single chip.
   const nav = $("#scoreTabs");
   nav.innerHTML = "";
-  if (!job.results.some((r) => r.stem === unified.view)) {
-    unified.view = job.results[0]?.stem ?? null;
-  }
+  const groups = [];
   for (const r of job.results) {
+    const g = groupOf(r.stem);
+    const known = groups.find((x) => x.group === g);
+    if (known) known.notes += r.notes;
+    else groups.push({ group: g, stem: g, notes: r.notes });
+  }
+  if (!groups.some((r) => r.stem === unified.view)) {
+    unified.view = groups[0]?.stem ?? null;
+  }
+  for (const r of groups) {
     const chip = document.createElement("div");
     chip.className = "tab-chip";
     chip.dataset.view = r.stem;
@@ -487,6 +502,12 @@ function initUnifiedScore(job) {
             stave.showStandardNotation = false;
           }
         }
+        // the left hand of the grand staff reads in bass clef
+        if (t.name === "piano_left") {
+          for (const stave of t.staves) {
+            for (const b of stave.bars) b.clef = alphaTab.model.Clef.F4;
+          }
+        }
       }
       posEl.textContent = `${score.masterBars.length} bars`;
       renderView();                     // honors the selected tab
@@ -500,9 +521,11 @@ function initUnifiedScore(job) {
       });
       // the virtual instrument lights the notes of the ACTIVE tab
       api.activeBeatsChanged.on((args) => {
+        if (!virtual.track) return;
+        const group = groupOf(virtual.track.name);
         const notes = [];
         for (const beat of args.activeBeats || []) {
-          if (beat.voice.bar.staff.track.name !== virtual.track?.name) continue;
+          if (groupOf(beat.voice.bar.staff.track.name) !== group) continue;
           for (const note of beat.notes) notes.push(note);
         }
         virtualLiveHighlight(notes);
@@ -511,7 +534,9 @@ function initUnifiedScore(job) {
     // clicking ANYWHERE in the score shows that beat's notes on the
     // virtual instrument — no need to catch them during playback
     api.beatMouseDown.on((beat) => {
-      if (beat && beat.voice.bar.staff.track.name === virtual.track?.name) {
+      if (beat && virtual.track
+          && groupOf(beat.voice.bar.staff.track.name)
+             === groupOf(virtual.track.name)) {
         virtualLiveHighlight(beat.notes);
       }
     });
@@ -635,7 +660,7 @@ function svgEl(name, attrs) {
 function currentViewTrack() {
   const api = unified.api;
   if (!api || !api.score) return null;
-  return api.score.tracks.find((t) => t.name === unified.view)
+  return api.score.tracks.find((t) => groupOf(t.name) === unified.view)
     || api.score.tracks[0];
 }
 
@@ -985,9 +1010,18 @@ $("#approveBtn")?.addEventListener("click", () => {
 });
 
 function toggleTrack(name, what, btn) {
-  const st = unified.mixer.get(name) || { mute: false, solo: false };
-  st[what] = !st[what];
-  unified.mixer.set(name, st);
-  btn.classList.toggle("active", st[what]);
+  // `name` is a GROUP: the Keys chip must mute both piano hands
+  const members = unified.api?.score
+    ? unified.api.score.tracks.filter((t) => groupOf(t.name) === name)
+        .map((t) => t.name)
+    : [name];
+  let on = false;
+  for (const member of members.length ? members : [name]) {
+    const st = unified.mixer.get(member) || { mute: false, solo: false };
+    st[what] = !st[what];
+    on = st[what];
+    unified.mixer.set(member, st);
+  }
+  btn.classList.toggle("active", on);
   applyMixer();
 }

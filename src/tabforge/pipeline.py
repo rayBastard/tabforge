@@ -20,7 +20,7 @@ from .core.articulation import detect_legato_pairs
 from .core.fretboard import (NoteEvent, TUNINGS, TabConfig, assign_tab,
                              render_ascii)
 from .core.instruments import profile_for
-from .core.partition import split_lead_rhythm
+from .core.partition import split_hands, split_lead_rhythm
 from .core.quantize import Grid, gather_chords, quantize
 
 ProgressFn = Callable[[str, str], None]  # (stage, message)
@@ -306,6 +306,16 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
             notes = quantize(notes, grid, strength=opts.quantize_strength)
 
         parts = [(name, notes)]
+        if name == "piano":
+            # a grand staff is two tracks: right hand (treble) and left
+            # hand (bass); the frontend renders them as one Keys view
+            hands = split_hands(notes)
+            if hands is not None:
+                right, left = hands
+                parts = [("piano", right), ("piano_left", left)]
+                progress("fingering",
+                         f"piano: grand staff — {len(right)} right-hand "
+                         f"and {len(left)} left-hand notes")
         if opts.split_guitars and name == "guitar":
             split = split_lead_rhythm(notes)
             if split is not None:

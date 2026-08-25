@@ -89,3 +89,21 @@ def split_lead_rhythm(
     if smaller < max(20, min_part_fraction * len(notes)):
         return None
     return lead, rhythm
+
+
+def split_hands(
+    notes: Sequence[NoteEvent],
+    split_pitch: int = 60,               # middle C — the classical divide
+    min_notes: int = 8,
+) -> tuple[list[NoteEvent], list[NoteEvent]] | None:
+    """Right/left hand split for keys, by register.
+
+    A piano part written on one treble staff drowns its low register in
+    ledger lines; a grand staff needs the notes split into two tracks.
+    Returns (right, left) or None when everything lives on one side —
+    then a single staff is honest."""
+    right = [n for n in notes if n.pitch >= split_pitch]
+    left = [n for n in notes if n.pitch < split_pitch]
+    if len(right) < min_notes or len(left) < min_notes:
+        return None
+    return right, left

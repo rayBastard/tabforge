@@ -80,6 +80,7 @@ PROFILES: dict[str, InstrumentProfile] = {
     "guitar_rhythm": replace(_GUITAR, name="guitar_rhythm"),
     "bass": _BASS,
     "piano": _PIANO,
+    "piano_left": replace(_PIANO, name="piano_left"),
     "vocals": _VOCALS,
     "drums": _DRUMS,
 }
