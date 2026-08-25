@@ -13,6 +13,9 @@ license = { text = "MIT" }
 dependencies = []
 
 [project.optional-dependencies]
+# The ml extra needs Python <= 3.11: basic-pitch 0.4.0 requires
+# tensorflow(-macos) < 2.15.1 on Python 3.12+, which was never released.
+# On macOS use Python 3.11 (basic-pitch runs on the CoreML backend there).
 ml = [
     "basic-pitch>=0.4.0",
     "demucs>=4.0.1",
