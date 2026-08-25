@@ -216,6 +216,21 @@ def make_tracks() -> dict:
         dr.append((41, bar * 4 + 3.5, 0.4))
     tracks["metal_drop_c"] = {"bpm": 140, "guitar": g, "bass": b, "drums": dr}
 
+    # 5b. the low-register pit: drop-C guitar chugs + a 5-string bass
+    # line down to B0 — F1-below-C3 is THE metric here (task 50)
+    g, b = [], []
+    for bar in range(8):
+        for e in range(6):
+            g += _power(36, bar * 4 + e * 0.5, 0.4)      # C2 chugs
+        g.append((41 if bar % 2 else 43, bar * 4 + 3, 0.9))
+        line = [23, 23, 26, 28] if bar % 2 else [23, 30, 28, 26]
+        for beat, p in enumerate(line):                   # B0..E1
+            b.append((p, bar * 4 + beat, 0.9))
+    dr = [(36, i, 0.4) for i in range(32)] \
+        + [(38, i * 2 + 1, 0.4) for i in range(16)]
+    tracks["low_register"] = {"bpm": 110, "guitar": g, "bass": b,
+                              "drums": dr}
+
     # 5. funk: syncopated bass, high guitar stabs, a ride pattern
     g, b = [], []
     for bar in range(8):
@@ -306,13 +321,15 @@ def _octave_error_rate(ref: list, est: list) -> float:
 
 def evaluate_track(name: str, spec: dict, work: Path,
                    separator: str = "demucs",
-                   leak_margin: float = 2.0) -> list[dict]:
+                   leak_margin: float = 2.0,
+                   low_pass: bool = True) -> list[dict]:
     from tabforge.pipeline import PipelineOptions, run_pipeline
 
     truth = render_track(spec, work)
     opts = PipelineOptions(stems=("guitar", "bass", "piano", "vocals",
                                   "other", "drums"), subdivision=2,
-                           separator=separator, leak_margin=leak_margin)
+                           separator=separator, leak_margin=leak_margin,
+                           low_pass=low_pass)
     results = run_pipeline(work / "mix.wav", work / "out", opts)
 
     # transcribed notes per part, from the saved parts.json + drums
@@ -339,6 +356,9 @@ def evaluate_track(name: str, spec: dict, work: Path,
         foreign = [n for part_name, notes in est_by_part.items()
                    if part_name not in HOME[inst] for n in notes]
         p, r, f = _match_stats(ref, est_home)
+        ref_low = [n for n in ref if n[0] < 48]
+        est_low = [n for n in est_home if n[0] < 48]
+        f_low = _match_stats(ref_low, est_low)[2] if ref_low else None
         # leakage: reference notes of THIS instrument found in parts
         # where they do not belong
         leaked = sum(
@@ -351,6 +371,7 @@ def evaluate_track(name: str, spec: dict, work: Path,
             "precision": p, "recall": r, "f1": f,
             "octave_err": _octave_error_rate(ref, est_home),
             "leak_rate": leaked / len(ref) if ref else 0.0,
+            "f1_low": f_low,
         })
     return rows
 
@@ -363,6 +384,9 @@ def main() -> None:
                     choices=("demucs", "roformer"))
     ap.add_argument("--leak-margin", type=float, default=2.0,
                     help="harmonic leak filter margin (0 = off)")
+    ap.add_argument("--low-pass", action="store_true",
+                    help="enable the low-register octave double-pass "
+                         "(measured: no win — off by default)")
     args = ap.parse_args()
 
     tracks = make_tracks()
@@ -373,18 +397,21 @@ def main() -> None:
         work = Path(args.out) / f"{args.separator}_lm{args.leak_margin}" / name
         rows = evaluate_track(name, tracks[name], work,
                               separator=args.separator,
-                              leak_margin=args.leak_margin)
+                              leak_margin=args.leak_margin,
+                              low_pass=args.low_pass)
         all_rows += rows
 
     header = (f"{'track':14s} {'inst':7s} {'ref':>4s} {'est':>4s} "
-              f"{'P':>5s} {'R':>5s} {'F1':>5s} {'oct':>5s} {'leak':>5s}")
+              f"{'P':>5s} {'R':>5s} {'F1':>5s} {'oct':>5s} {'leak':>5s} "
+              f"{'F1<C3':>5s}")
     print("\n" + header)
     print("-" * len(header))
     for r in all_rows:
         print(f"{r['track']:14s} {r['instrument']:7s} "
               f"{r['ref_notes']:4d} {r['est_notes']:4d} "
               f"{r['precision']:5.2f} {r['recall']:5.2f} {r['f1']:5.2f} "
-              f"{r['octave_err']:5.2f} {r['leak_rate']:5.2f}")
+              f"{r['octave_err']:5.2f} {r['leak_rate']:5.2f} "
+              + (f"{r['f1_low']:5.2f}" if r['f1_low'] is not None else "    -"))
     by_inst: dict[str, list] = {}
     for r in all_rows:
         by_inst.setdefault(r["instrument"], []).append(r)
@@ -393,8 +420,10 @@ def main() -> None:
         f1 = np.mean([r["f1"] for r in rows])
         oct_ = np.mean([r["octave_err"] for r in rows])
         leak = np.mean([r["leak_rate"] for r in rows])
+        lows = [r["f1_low"] for r in rows if r["f1_low"] is not None]
+        low_s = f"{np.mean(lows):5.2f}" if lows else "    -"
         print(f"{'MEAN':14s} {inst:7s} {'':4s} {'':4s} "
-              f"{'':5s} {'':5s} {f1:5.2f} {oct_:5.2f} {leak:5.2f}")
+              f"{'':5s} {'':5s} {f1:5.2f} {oct_:5.2f} {leak:5.2f} {low_s}")
 
 
 if __name__ == "__main__":

@@ -48,6 +48,12 @@ class PipelineOptions:
     # harmonic leak validation: drop a note when another stem holds
     # more than leak_margin times its harmonic energy (0 = off)
     leak_margin: float = 2.0
+    # low-register octave double-pass for bass/guitar/vocals.
+    # Default OFF: on the stand it made bass WORSE (0.15 -> 0.07 mean
+    # F1) and left guitar flat — the low-register misery there is
+    # separation mush, not Basic Pitch's frequency resolution. The
+    # machinery stays for re-testing on real golden fragments.
+    low_pass: bool = False
 
 
 @dataclass(slots=True)
@@ -347,7 +353,14 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
                 results.append(result)
             continue
         progress("transcribe", f"{name}: detecting notes")
-        notes = transcribe.transcribe_stem(wav, **transcribe.PRESETS.get(name, {}))
+        preset = transcribe.PRESETS.get(name, {})
+        if opts.low_pass and name in ("bass", "guitar", "vocals"):
+            # the low register reads badly at native pitch — a second,
+            # octave-shifted pass owns everything below ~A2
+            from .audio.lowregister import transcribe_with_low_pass
+            notes = transcribe_with_low_pass(wav, preset)
+        else:
+            notes = transcribe.transcribe_stem(wav, **preset)
         # ten fingers: a cap of 6 voices silently dropped the QUIETEST
         # notes of dense piano writing — the high melody first
         notes = transcribe.cleanup(

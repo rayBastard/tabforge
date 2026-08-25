@@ -115,7 +115,42 @@ Measured verdicts (demucs, margin 2):
   the filter either way. Bigger fixtures / averaged runs are future
   stand work.
 
+## Low-register octave double-pass — 2026-08-26 (task 50)
+
+The theory: Basic Pitch's frequency resolution collapses below
+~100 Hz, so a second pass over the audio declared at 2× sample rate
+(+12 semitones, zero shifter artifacts; times doubled and pitches
+dropped back afterwards) should own everything below A2
+(`audio/lowregister.py`, `--low-pass`).
+
+The stand said NO — on a dedicated register fixture (drop-C chugs +
+a 5-string bass down to B0) plus the two low pieces:
+
+- bass mean F1 **0.15 → 0.07** with the pass on (synth_pop bass
+  collapsed 0.20 → 0.03); F1-below-C3 0.17 → 0.09;
+- guitar flat (0.45 → 0.50 overall, 0.44 → 0.42 below C3);
+- octave-error rate was ALREADY low without the pass (bass 0.05 on
+  the register fixture): on this stand the low-register misery is
+  separation mush (metal bass stem yields 8 est notes of 64 either
+  way), not the transcriber's resolution.
+
+**Verdict**: default OFF. The machinery ships behind
+`PipelineOptions.low_pass` / `--low-pass` for re-testing on real
+golden fragments, where separation of a real bass is far better and
+the theory may yet hold. The Fulgrim insight also lands here: that
+track's "bass problem" was piano misattribution all along — golden
+fragments beat synthetic guesses.
+
 ## Golden fragments (real material) — TODO
+
+Now with real ground truth for one track: the user provided the
+actual sheet music for FulgrimUpd.wav — it is a PIANO piece (dense
+two-hand writing, faint background orchestra, no guitar, likely no
+drums) at quarter = 73–82. Expectations for the analyzer: piano
+found, guitar absent, drums quiet; and the detected 152 BPM is a
+DOUBLE-TIME error (152 ≈ 2×76) — the tempo family chooser needs an
+octave-of-tempo fix. Guitar checks live on Techno_2_sliv (drop-A
+rhythm, 7-string suggestion).
 
 2–3 real tracks × 8 flagged bars with hand-written correct MIDI, to
 check the stand's conclusions against reality. Needs the user's ears;
