@@ -23,6 +23,10 @@ TUNINGS: dict[str, tuple[int, ...]] = {
     "bass_4": (28, 33, 38, 43),                # E1 A1 D2 G2
     "bass_5": (23, 28, 33, 38, 43),
     "ukulele": (67, 60, 64, 69),
+    # Internal encoder for notation-only instruments (piano, vocals):
+    # gp5 stores every note as string+fret, so seven "strings" in fifths
+    # cover C1..F#6+. The tab staff is never shown for these profiles.
+    "notation_wide": (24, 31, 38, 45, 52, 59, 66),
 }
 
 

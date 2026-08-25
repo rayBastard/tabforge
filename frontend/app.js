@@ -186,7 +186,9 @@ function finish(job) {
       nav.appendChild(a);
     }
 
-    card.querySelector(".asciitab").textContent = r.ascii;
+    const asciiEl = card.querySelector(".asciitab");
+    asciiEl.textContent = r.ascii;
+    asciiEl.hidden = !r.ascii;      // notation-only instruments have no tab
 
     const atEl = card.querySelector(".alphatab");
     // grab the button before appendChild empties the template fragment
@@ -200,7 +202,8 @@ function finish(job) {
       atEl.hidden = false;
       const makeApi = (withPlayer) => new alphaTab.AlphaTabApi(atEl, {
         file: withToken(r.files.gp5),
-        display: { staveProfile: "ScoreTab" },
+        // notation-only instruments (piano, vocals) get no tab staff
+        display: { staveProfile: r.tablature === false ? "Score" : "ScoreTab" },
         player: withPlayer ? {
           enablePlayer: true,
           soundFont: "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.4.0/dist/soundfont/sonivox.sf2",

@@ -11,6 +11,7 @@ from typing import Sequence
 from ..audio.keydetect import Key
 from ..core.articulation import classify_articulation
 from ..core.fretboard import Shape, TabConfig
+from ..core.instruments import InstrumentProfile, profile_for
 
 # A bend is only notated when it is at least this deep (semitones):
 # drawing every 0.3-semitone wobble of a distorted guitar as a bend
@@ -44,7 +45,8 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
                title: str = "TabForge", artist: str = "",
                key: Key | None = None, origin: float = 0.0,
                legato: Sequence[tuple] | None = None,
-               grid=None) -> None:
+               grid=None,
+               profile: InstrumentProfile | None = None) -> None:
     """
     Builds a .gp5. In PyGuitarPro string #1 is the THINNEST,
     while our index 0 is the thickest. Hence the flip.
@@ -65,8 +67,13 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
     legato: (first, second, kind) triples from detect_legato_pairs;
     the first note of a pair gets Note.effect.hammer. Per-note bend
     trajectories become vibrato / slide / bend effects.
+
+    profile: which articulations this instrument may carry (a piano has
+    no bends; its legato is a plain slur). Default: guitar.
     """
     import guitarpro as gp
+
+    profile = profile or profile_for("guitar")
 
     song = gp.Song()
     song.title = title
@@ -176,29 +183,32 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
         voice.beats.append(beat)
         return used
 
-    # A hammer flag is only written when the pair actually landed on one
-    # string — a legato candidate that the fingering laid out across two
-    # strings is played picked, and notating it would be a lie.
+    # String technique (hammer-on/pull-off): only when the pair actually
+    # landed on one string — a candidate laid out across two strings is
+    # played picked, and notating it would be a lie. A slur (piano/vocal
+    # legato) is just an arc: no string constraint, gp5 encodes both via
+    # the hammer flag and notation-only staves render it as a slur.
     hammer_ids = frozenset()
-    if legato:
+    if legato and (profile.allow_hammer or profile.legato_as_slur):
         placement_of = {id(p.note): p for s in shapes for p in s.placements}
         hammer_ids = frozenset(
             id(pair[0]) for pair in legato
-            if (a := placement_of.get(id(pair[0]))) is not None
-            and (b := placement_of.get(id(pair[1]))) is not None
-            and a.string == b.string)
+            if profile.legato_as_slur
+            or ((a := placement_of.get(id(pair[0]))) is not None
+                and (b := placement_of.get(id(pair[1]))) is not None
+                and a.string == b.string))
 
     def _apply_effects(gp_note, src) -> None:
         if id(src) in hammer_ids:
             gp_note.effect.hammer = True
         kind = classify_articulation(src.bends)
-        if kind == "vibrato":
+        if kind == "vibrato" and profile.allow_vibrato:
             gp_note.effect.vibrato = True
-        elif kind == "slide":
+        elif kind == "slide" and profile.allow_slides:
             net = src.bends[-1] - src.bends[0]
             gp_note.effect.slides = [gp.SlideType.outUpwards if net > 0
                                      else gp.SlideType.outDownwards]
-        elif kind == "bend":
+        elif kind == "bend" and profile.allow_bends:
             peak = max(abs(b - src.bends[0]) for b in src.bends)
             if peak >= NOTATED_BEND_MIN:
                 # GP bend values are quarter-tones: a whole-tone bend is 4

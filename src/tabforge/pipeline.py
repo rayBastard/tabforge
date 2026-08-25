@@ -11,13 +11,11 @@ from typing import Callable
 
 from .core.articulation import detect_legato_pairs
 from .core.fretboard import TUNINGS, TabConfig, assign_tab, render_ascii
+from .core.instruments import profile_for
 from .core.partition import split_lead_rhythm
 from .core.quantize import Grid, quantize
 
 ProgressFn = Callable[[str, str], None]  # (stage, message)
-
-STEM_TUNING = {"bass": "bass_4"}
-STEM_PROGRAM = {"bass": 33, "guitar": 25, "vocals": 25, "piano": 0, "other": 25}
 
 STAGES = ("separate", "tempo", "transcribe", "fingering", "export")
 
@@ -42,6 +40,7 @@ class StemResult:
     ascii_tab: str
     files: dict[str, Path] = field(default_factory=dict)  # ext -> path
     warnings: list[str] = field(default_factory=list)
+    tablature: bool = True     # False = notation-only instrument (piano)
 
     def to_dict(self, file_url) -> dict:
         """Wire form of the result; the pipeline owns this schema so a new
@@ -54,6 +53,7 @@ class StemResult:
             "notes": self.note_count,
             "ascii": self.ascii_tab,
             "warnings": list(self.warnings),
+            "tablature": self.tablature,
             "files": {ext: file_url(self.stem, p)
                       for ext, p in self.files.items()},
         }
@@ -150,12 +150,17 @@ def run_pipeline(audio: Path, out_dir: Path,
 
         for part_name, part_notes in parts:
             progress("fingering", f"{part_name}: choosing the fingering")
-            cfg = TabConfig(tuning=TUNINGS[STEM_TUNING.get(name, opts.tuning)])
-            legato = detect_legato_pairs(part_notes)
+            profile = profile_for(part_name)
+            tuning_key = profile.tuning or opts.tuning
+            cfg = TabConfig(tuning=TUNINGS[tuning_key],
+                            max_fret=profile.max_fret)
+            legato = (detect_legato_pairs(part_notes)
+                      if profile.wants_legato_pairs else [])
             if legato:
                 progress("fingering",
                          f"{part_name}: {len(legato)} legato pair(s) detected")
-            shapes = assign_tab(part_notes, cfg, legato=legato)
+            shapes = assign_tab(part_notes, cfg,
+                                legato=legato if profile.allow_hammer else None)
 
             progress("export", f"{part_name}: writing files")
             stem_dir = out_dir / part_name
@@ -163,12 +168,13 @@ def run_pipeline(audio: Path, out_dir: Path,
             files: dict[str, Path] = {}
 
             midi = stem_dir / f"{part_name}.mid"
-            writers.export_midi(shapes, midi, program=STEM_PROGRAM.get(name, 25))
+            writers.export_midi(shapes, midi, program=profile.midi_program)
             files["mid"] = midi
 
-            txt = stem_dir / f"{part_name}.txt"
-            writers.export_ascii(shapes, txt, cfg, legato=legato)
-            files["txt"] = txt
+            if profile.tablature:      # an ASCII tab makes no sense for keys
+                txt = stem_dir / f"{part_name}.txt"
+                writers.export_ascii(shapes, txt, cfg, legato=legato)
+                files["txt"] = txt
 
             try:
                 gp5 = stem_dir / f"{part_name}.gp5"
@@ -176,7 +182,8 @@ def run_pipeline(audio: Path, out_dir: Path,
                                    beats_per_measure=opts.beats_per_measure,
                                    subdivision=opts.subdivision,
                                    title=part_name, key=key,
-                                   legato=legato, grid=grid)
+                                   legato=legato, grid=grid,
+                                   profile=profile)
                 files["gp5"] = gp5
             except Exception as e:
                 progress("export", f"{part_name}: gp5 failed to build ({e})")
@@ -191,7 +198,10 @@ def run_pipeline(audio: Path, out_dir: Path,
                 stem=part_name, bpm=bpm,
                 key=key.name if key else "unknown key",
                 note_count=len(part_notes),
-                ascii_tab=render_ascii(shapes, cfg, legato=legato), files=files,
+                ascii_tab=(render_ascii(shapes, cfg, legato=legato)
+                           if profile.tablature else ""),
+                files=files,
                 warnings=list(warnings),
+                tablature=profile.tablature,
             ))
     return results
