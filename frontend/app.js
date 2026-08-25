@@ -479,6 +479,9 @@ function initUnifiedScore(job) {
   const makeApi = (withPlayer) => {
     const api = new alphaTab.AlphaTabApi(atEl, {
       file: withToken(job.song),
+      // per-note hit boxes are OFF by default — without them
+      // noteMouseDown never fires and clicking a tab digit does nothing
+      core: { includeNoteBounds: true },
       player: withPlayer ? {
         enablePlayer: true,
         soundFont: "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.4.0/dist/soundfont/sonivox.sf2",
