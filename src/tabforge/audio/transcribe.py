@@ -67,8 +67,12 @@ def transcribe_stem(
 PRESETS: dict[str, dict] = {
     "bass":   dict(onset_threshold=0.45, frame_threshold=0.25,
                    min_note_length_ms=90, min_freq=30, max_freq=400),
-    "guitar": dict(onset_threshold=0.55, frame_threshold=0.32,
-                   min_note_length_ms=60, min_freq=70, max_freq=1400),
+    # Tuned on a Suno track (distorted rhythm + lead): a longer minimum note
+    # removes ghost fragments, and softer onset/frame thresholds compensate
+    # the lost sensitivity and hold chord sustain together. 100 ms still
+    # keeps sixteenths up to 150 BPM.
+    "guitar": dict(onset_threshold=0.5, frame_threshold=0.28,
+                   min_note_length_ms=100, min_freq=70, max_freq=1400),
     "vocals": dict(onset_threshold=0.5, frame_threshold=0.3,
                    min_note_length_ms=90, min_freq=80, max_freq=1200),
     "piano":  dict(onset_threshold=0.5, frame_threshold=0.3,
