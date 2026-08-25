@@ -121,8 +121,13 @@ PRESETS: dict[str, dict] = {
     # removes ghost fragments, and softer onset/frame thresholds compensate
     # the lost sensitivity and hold chord sustain together. 100 ms still
     # keeps sixteenths up to 150 BPM.
+    # min_freq must clear the LOWEST real guitar note, not standard
+    # tuning's E2: drop A rides A1 = 55 Hz and an 8-string reaches
+    # F#1 = 46 Hz — a 70 Hz floor silently deleted every downtuned
+    # rhythm part. 38 Hz covers 8-string drop E; the bass is separated
+    # away by demucs, so the floors may overlap.
     "guitar": dict(onset_threshold=0.5, frame_threshold=0.28,
-                   min_note_length_ms=100, min_freq=70, max_freq=1400),
+                   min_note_length_ms=100, min_freq=38, max_freq=1400),
     "vocals": dict(onset_threshold=0.5, frame_threshold=0.3,
                    min_note_length_ms=90, min_freq=80, max_freq=1200),
     "piano":  dict(onset_threshold=0.5, frame_threshold=0.3,

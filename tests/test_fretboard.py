@@ -153,3 +153,23 @@ class TestAscii(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTuningCatalog(unittest.TestCase):
+    def test_all_tunings_ascend_low_to_high(self):
+        for name, tuning in TUNINGS.items():
+            if name in ("ukulele", "notation_wide", "percussion"):
+                continue
+            self.assertEqual(list(tuning), sorted(tuning),
+                             f"{name} must go low string -> high string")
+
+    def test_downtuned_suggestions(self):
+        from tabforge.pipeline import suggest_tuning
+        self.assertEqual(suggest_tuning("guitar", 40), "standard")
+        self.assertEqual(suggest_tuning("guitar", 38), "drop_d")
+        self.assertEqual(suggest_tuning("guitar", 36), "drop_c")
+        # drop A territory is 7-string territory, as players expect
+        self.assertEqual(suggest_tuning("guitar", 33), "seven_drop_a")
+        self.assertEqual(suggest_tuning("guitar", 31), "eight_string")
+        self.assertEqual(suggest_tuning("guitar", 25), "eight_string")
+        self.assertEqual(suggest_tuning("bass", 27), "bass_5")

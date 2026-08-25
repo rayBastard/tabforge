@@ -236,8 +236,19 @@ const NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 const noteName = (m) => m == null ? "?" : NOTE_NAMES[m % 12] + (Math.floor(m / 12) - 1);
 const GUITAR_TUNINGS = [
   ["standard", "Standard (E A D G B E)"],
-  ["drop_d", "Drop D"],
   ["eb_standard", "Half step down (E♭)"],
+  ["drop_d", "Drop D"],
+  ["d_standard", "D standard"],
+  ["drop_db", "Drop C♯"],
+  ["c_standard", "C standard"],
+  ["drop_c", "Drop C"],
+  ["b_standard", "B standard"],
+  ["drop_b", "Drop B"],
+  ["drop_bb", "Drop A♯"],
+  ["drop_a", "Drop A (6-string)"],
+  ["seven_string", "7-string · B standard"],
+  ["seven_drop_a", "7-string · Drop A"],
+  ["eight_string", "8-string · F♯ standard"],
   ["dadgad", "DADGAD"],
   ["open_g", "Open G"],
 ];

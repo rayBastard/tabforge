@@ -123,21 +123,28 @@ def choose_tempo_source(stems: dict[str, Path], mix: Path,
     return mix, "mix"
 
 
+# the tuning ladder for guitars: the highest tuning whose lowest string
+# still reaches the part's lowest note; drop shapes win in the middle
+# (that's how downtuned rhythm parts are actually played), and from
+# drop A down a 7-string is the usual instrument
+_GUITAR_LADDER = (
+    (40, "standard"), (39, "eb_standard"), (38, "drop_d"),
+    (37, "drop_db"), (36, "drop_c"), (35, "drop_b"),
+    (34, "drop_bb"), (33, "seven_drop_a"), (30, "eight_string"),
+)
+
+
 def suggest_tuning(stem: str, min_pitch: int | None) -> str | None:
     """Tuning suggestion from the lowest transcribed note.
-
-    Guitar: E2 (40) and up fits standard; 39 wants Eb; 38 wants drop D;
-    anything lower still maps to drop D (the closest we have) — the user
-    can override. Bass: below E1 (28) suggests a 5-string.
-    Non-string stems get no suggestion."""
+    Bass: below E1 (28) suggests a 5-string. Non-string stems get no
+    suggestion."""
     if min_pitch is None:
         return None
     if stem.startswith("guitar") or stem == "other":
-        if min_pitch >= 40:
-            return "standard"
-        if min_pitch == 39:
-            return "eb_standard"
-        return "drop_d"
+        for low, name in _GUITAR_LADDER:
+            if min_pitch >= low:
+                return name
+        return "eight_string"
     if stem == "bass":
         return "bass_4" if min_pitch >= 28 else "bass_5"
     return None
@@ -170,8 +177,13 @@ def _quick_note_stats(wav: Path, stem: str, work_dir: Path,
         notes, max_polyphony=1 if stem == "bass" else 6)
     if not notes:
         return 0, None, None
-    pitches = [n.pitch for n in notes]
-    return len(notes), min(pitches), max(pitches)
+    # ROBUST range: a single ghost note an octave below the riff must
+    # not drive the tuning suggestion (one stray 27 turned a drop-A
+    # seven-string into an 8-string suggestion). The extremes must
+    # repeat — at least 2% of the notes (min 3) at or beyond them.
+    pitches = sorted(n.pitch for n in notes)
+    need = min(max(3, len(pitches) // 50), len(pitches))
+    return len(notes), pitches[need - 1], pitches[-need]
 
 
 RMS_FOUND = 0.005      # same threshold family as stem_is_audible

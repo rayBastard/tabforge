@@ -14,7 +14,9 @@ class TestSuggestTuning(unittest.TestCase):
         self.assertEqual(pipeline.suggest_tuning("guitar", 45), "standard")
         self.assertEqual(pipeline.suggest_tuning("guitar", 39), "eb_standard")
         self.assertEqual(pipeline.suggest_tuning("guitar", 38), "drop_d")
-        self.assertEqual(pipeline.suggest_tuning("guitar", 35), "drop_d")
+        # 35 used to clamp to drop D (the lowest we had); with the full
+        # catalog it honestly suggests drop B
+        self.assertEqual(pipeline.suggest_tuning("guitar", 35), "drop_b")
 
     def test_bass(self):
         self.assertEqual(pipeline.suggest_tuning("bass", 28), "bass_4")
