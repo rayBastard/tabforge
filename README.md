@@ -77,7 +77,9 @@ at the server's address, on a phone — as a PWA. The logic is never rewritten.
       audio validation, optional API token, configurable workers
 - [x] Docker image + compose (model cache in a volume) — see Deployment
 - [ ] deploy the server (needs GPU hosting or patience on CPU)
-- [ ] a job queue instead of ThreadPool (e.g. arq/Celery)
+
+(A real job queue is deliberately deferred until multi-user load exists —
+see issue #6; the ThreadPool + limits are enough for the current scale.)
 
 ### Phase 6 — mobile
 - [ ] PWA manifest + offline shell (the UI is already responsive)
@@ -128,10 +130,19 @@ docker compose up -d --build     # serves http://localhost:8000
   load), and demucs is pinned to 4.0.x inside the image (4.1's `sphn`
   dependency ships no linux/arm64 wheels).
 
-**Honest CPU speed warning:** there is no GPU path in this image. A
-3-minute track (guitar + bass) took **~1.5 minutes** end to end in a
-4-CPU container on an Apple M5 Max — a cloud VM with slower cores will
-take several times that, and every job holds a worker for the whole run
+**Honest CPU speed warning:** there is no GPU path in this image.
+Measured in a 4-CPU container on an Apple M5 Max, one 3-minute track
+(guitar + bass), end to end through the UI:
+
+| run | time |
+|---|---|
+| first ever (clean volume, includes the ~53 MB model download) | 86 s |
+| warm (model cached in the volume) | 87 s |
+
+On a fast connection the first run costs nothing extra — the model
+downloads faster than demucs computes; on a slow link add the time to
+fetch ~53 MB. A cloud VM with slower cores will take several times
+these numbers, and every job holds a worker for the whole run
 (`TABFORGE_WORKERS` defaults to 1, so queued jobs wait). Budget roughly
 0.5–2× track duration per job on typical server CPUs, and put a GPU
 behind it before inviting more than a handful of users.
