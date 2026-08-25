@@ -45,6 +45,9 @@ class PipelineOptions:
     treat: dict = field(default_factory=dict)
     # separation backend: "demucs" (default) or "roformer" (BS-Roformer-SW)
     separator: str = "demucs"
+    # harmonic leak validation: drop a note when another stem holds
+    # more than leak_margin times its harmonic energy (0 = off)
+    leak_margin: float = 2.0
 
 
 @dataclass(slots=True)
@@ -328,6 +331,11 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
     warnings = list(analyzed.warnings)
     grid = Grid(beats, subdivision=opts.subdivision) if len(beats) > 1 else None
 
+    # shared spectrogram cache for the leak filter (one STFT per stem)
+    from .audio.validate import _StemSpectra, filter_leaked_notes
+    spectra = (_StemSpectra(analyzed.stems)
+               if opts.leak_margin > 0 else None)
+
     results: list[StemResult] = []
     song_parts: list = []          # writers.SongPart, one per produced part
     for name, wav in stems.items():
@@ -345,6 +353,19 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
         notes = transcribe.cleanup(
             notes, max_polyphony=1 if name == "bass"
             else 10 if name == "piano" else 6)
+        # Validate only the CATCH-BASIN stems (other/vocals/piano):
+        # that is where everyone else's bleed collects as junk notes.
+        # Guitar and bass are exempt — their own stems separate weakly,
+        # so their true notes' energy often sits elsewhere and the
+        # filter would slaughter real lines (measured on the stand).
+        if spectra is not None and name in ("piano", "vocals", "other"):
+            kept = filter_leaked_notes(notes, name, analyzed.stems,
+                                       spectra, margin=opts.leak_margin)
+            if len(kept) < len(notes):
+                progress("transcribe",
+                         f"{name}: {len(notes) - len(kept)} leaked "
+                         f"note(s) filtered out")
+            notes = kept
         if not notes:
             progress("transcribe", f"{name}: no notes found, skipped")
             continue

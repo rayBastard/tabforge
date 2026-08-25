@@ -305,13 +305,14 @@ def _octave_error_rate(ref: list, est: list) -> float:
 
 
 def evaluate_track(name: str, spec: dict, work: Path,
-                   separator: str = "demucs") -> list[dict]:
+                   separator: str = "demucs",
+                   leak_margin: float = 2.0) -> list[dict]:
     from tabforge.pipeline import PipelineOptions, run_pipeline
 
     truth = render_track(spec, work)
     opts = PipelineOptions(stems=("guitar", "bass", "piano", "vocals",
                                   "other", "drums"), subdivision=2,
-                           separator=separator)
+                           separator=separator, leak_margin=leak_margin)
     results = run_pipeline(work / "mix.wav", work / "out", opts)
 
     # transcribed notes per part, from the saved parts.json + drums
@@ -360,6 +361,8 @@ def main() -> None:
     ap.add_argument("--out", default=str(ROOT / "eval_out"))
     ap.add_argument("--separator", default="demucs",
                     choices=("demucs", "roformer"))
+    ap.add_argument("--leak-margin", type=float, default=2.0,
+                    help="harmonic leak filter margin (0 = off)")
     args = ap.parse_args()
 
     tracks = make_tracks()
@@ -367,9 +370,10 @@ def main() -> None:
     all_rows = []
     for name in picked:
         print(f"=== {name} ({args.separator}) ===", flush=True)
-        work = Path(args.out) / args.separator / name
+        work = Path(args.out) / f"{args.separator}_lm{args.leak_margin}" / name
         rows = evaluate_track(name, tracks[name], work,
-                              separator=args.separator)
+                              separator=args.separator,
+                              leak_margin=args.leak_margin)
         all_rows += rows
 
     header = (f"{'track':14s} {'inst':7s} {'ref':>4s} {'est':>4s} "

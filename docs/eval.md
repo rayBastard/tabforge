@@ -90,6 +90,31 @@ the "High-quality separation" checkbox on the start screen
 (`separator` form field / `--separator` / `TABFORGE_SEPARATOR`).
 Requires `pip install 'tabforge[roformer]'`.
 
+## Harmonic leak validation — 2026-08-26 (task 49)
+
+A note claimed by stem X must hold its harmonic energy IN stem X; when
+a rival pitched stem carries > margin × that energy at the note's time,
+the note is someone else's echo and gets dropped
+(`audio/validate.py`, `--leak-margin`, 0 = off).
+
+Measured verdicts (demucs, margin 2):
+
+- **Symmetric filtering is a trap**: applied to every stem it lifted
+  synth 0.22→0.35 and brass 0.11→0.14 — and slaughtered guitar
+   0.16→0.07 and bass 0.21→0.06, because demucs separates those stems
+  so weakly that their REAL notes' energy sits in "other". Margin 8
+  did not save them (10-50× dominance).
+- **Shipped shape — asymmetric**: validate only the catch-basin stems
+  (other / vocals / piano) where everyone's bleed collects; guitar and
+  bass are exempt by construction. Result: guitar/bass/drums stay at
+  baseline (0.15/0.21/0.35), synth's gain holds (0.34, consistent in
+  all three filter runs).
+- **Stand noise, honestly**: single-run demucs variance on these short
+  pieces is larger than first claimed — synth leak swung 0.44–0.81
+  between runs, and the brass fixture (14 notes) is too small to judge
+  the filter either way. Bigger fixtures / averaged runs are future
+  stand work.
+
 ## Golden fragments (real material) — TODO
 
 2–3 real tracks × 8 flagged bars with hand-written correct MIDI, to
