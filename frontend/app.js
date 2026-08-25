@@ -67,10 +67,13 @@ goBtn.addEventListener("click", async () => {
 
 /* ---------- polling ---------- */
 
-async function poll(id) {
+const POLL_INTERVAL = 1500;
+const MAX_POLL_FAILURES = 4;   // fail only after a series, not one hiccup
+
+async function poll(id, failures = 0) {
   try {
     const res = await fetch(`/api/jobs/${id}`);
-    if (!res.ok) throw new Error("the job got lost");
+    if (!res.ok) throw new Error(`status request failed (HTTP ${res.status})`);
     const job = await res.json();
 
     markStage(job.stage, job.stages);
@@ -78,9 +81,14 @@ async function poll(id) {
 
     if (job.status === "done") return finish(job);
     if (job.status === "error") return fail(job.error);
-    setTimeout(() => poll(id), 1500);
+    setTimeout(() => poll(id, 0), POLL_INTERVAL);   // success resets the streak
   } catch (err) {
-    fail(err.message);
+    if (failures + 1 >= MAX_POLL_FAILURES) {
+      return fail(`lost contact with the server: ${err.message}`);
+    }
+    const delay = POLL_INTERVAL * 2 ** (failures + 1);   // 3s, 6s, 12s
+    setLog(`connection hiccup, retrying (${failures + 1}/${MAX_POLL_FAILURES - 1})…`);
+    setTimeout(() => poll(id, failures + 1), delay);
   }
 }
 
