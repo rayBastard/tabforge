@@ -86,7 +86,8 @@ def run_pipeline(audio: Path, out_dir: Path,
 
     if opts.separate:
         progress("separate", "Separating into stems (first run downloads the model)")
-        all_stems = transcribe.separate_stems(audio, out_dir / "stems")
+        demucs_input = transcribe.ensure_decodable_wav(audio, out_dir)
+        all_stems = transcribe.separate_stems(demucs_input, out_dir / "stems")
         stems = {k: v for k, v in all_stems.items() if k in opts.stems}
         # The tempo must be computed once or stems drift apart.
         tempo_source, source_name = choose_tempo_source(

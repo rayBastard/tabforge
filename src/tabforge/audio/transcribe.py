@@ -148,6 +148,23 @@ def load_audio(audio: Path) -> tuple:
     return librosa.load(str(audio), mono=True)
 
 
+def ensure_decodable_wav(audio: Path, work_dir: Path) -> Path:
+    """demucs' own decoders are stricter than libsndfile: real-world mp3s
+    with malformed frames (a Suno download, a rip) make sphn bail with
+    'malformed stream', and the bundled desktop app has no ffmpeg to fall
+    back to. Anything that isn't already a wav is re-encoded through
+    librosa/soundfile, so demucs always receives a clean wav."""
+    if audio.suffix.lower() == ".wav":
+        return audio
+    import librosa
+    import soundfile as sf
+
+    y, sr = librosa.load(str(audio), mono=False, sr=None)
+    out = work_dir / (audio.stem + ".decoded.wav")
+    sf.write(str(out), y.T if y.ndim > 1 else y, int(sr))
+    return out
+
+
 def stem_is_audible(wav: Path, rms_threshold: float = 0.005) -> bool:
     """True when the stem carries real signal.
 

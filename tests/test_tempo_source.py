@@ -40,6 +40,37 @@ class TestChooseTempoSource(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_AUDIO, "numpy/soundfile are not installed")
+class TestEnsureDecodableWav(unittest.TestCase):
+    def test_wav_passes_through_untouched(self):
+        import tempfile
+
+        from tabforge.audio.transcribe import ensure_decodable_wav
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "a.wav"
+            sf.write(str(src), np.zeros(1000, dtype="float32"), 22050)
+            out = ensure_decodable_wav(src, Path(tmp))
+            self.assertEqual(out, src)
+
+    def test_non_wav_is_reencoded_to_wav(self):
+        import tempfile
+
+        from tabforge.audio.transcribe import ensure_decodable_wav
+
+        rng = np.random.default_rng(3)
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "a.flac"
+            stereo = 0.1 * rng.standard_normal((4410, 2)).astype("float32")
+            sf.write(str(src), stereo, 22050)
+            out = ensure_decodable_wav(src, Path(tmp))
+            self.assertNotEqual(out, src)
+            self.assertEqual(out.suffix, ".wav")
+            info = sf.info(str(out))
+            self.assertEqual(info.channels, 2)
+            self.assertEqual(info.samplerate, 22050)
+
+
+@unittest.skipUnless(HAVE_AUDIO, "numpy/soundfile are not installed")
 class TestStemIsAudible(unittest.TestCase):
     def _write(self, tmp, name, y, sr=22050):
         path = Path(tmp) / name
