@@ -187,6 +187,8 @@ async function startAnalyze() {
 
   const form = new FormData();
   form.append("file", pickedFile);
+  form.append("separator",
+              $("#hqSeparation")?.checked ? "roformer" : "demucs");
   try {
     const res = await apiFetch("/api/jobs", { method: "POST", body: form });
     if (!res.ok) throw new Error(await errorDetail(res));

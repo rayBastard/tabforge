@@ -43,6 +43,8 @@ class PipelineOptions:
     # per-stem role override, e.g. {"guitar": "piano"} when the "guitar"
     # stem actually holds an orchestral line and deserves notation
     treat: dict = field(default_factory=dict)
+    # separation backend: "demucs" (default) or "roformer" (BS-Roformer-SW)
+    separator: str = "demucs"
 
 
 @dataclass(slots=True)
@@ -204,7 +206,8 @@ RMS_ABSENT = 0.002
 
 def run_analyze(audio: Path, out_dir: Path,
                 progress: ProgressFn = _noop,
-                cancel_token: object | None = None) -> AnalyzeResult:
+                cancel_token: object | None = None,
+                separator: str = "demucs") -> AnalyzeResult:
     """Separate + quick per-stem facts + shared tempo/key. No demucs work
     is ever repeated after this: the stems stay in out_dir/stems.
 
@@ -218,8 +221,9 @@ def run_analyze(audio: Path, out_dir: Path,
     out_dir.mkdir(parents=True, exist_ok=True)
     progress("separate", "Separating into stems (first run downloads the model)")
     demucs_input = transcribe.ensure_decodable_wav(audio, out_dir)
-    all_stems = transcribe.separate_stems(demucs_input, out_dir / "stems",
-                                          cancel_token=cancel_token)
+    all_stems = transcribe.separate(demucs_input, out_dir / "stems",
+                                    backend=separator,
+                                    cancel_token=cancel_token)
 
     warnings: list[str] = []
 
@@ -663,7 +667,8 @@ def run_pipeline(audio: Path, out_dir: Path,
     opts = opts or PipelineOptions()
     out_dir.mkdir(parents=True, exist_ok=True)
     if opts.separate:
-        analyzed = run_analyze(audio, out_dir, progress)
+        analyzed = run_analyze(audio, out_dir, progress,
+                               separator=opts.separator)
     else:
         analyzed = _analyze_mix_only(audio, opts, progress)
     return run_transcribe(out_dir, analyzed, opts, progress)

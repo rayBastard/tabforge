@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import mkdtemp
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile
+from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -55,6 +55,7 @@ MAX_UPLOAD_BYTES = int(float(os.environ.get("TABFORGE_MAX_UPLOAD_MB", "200")) * 
 MAX_DURATION_S = float(os.environ.get("TABFORGE_MAX_DURATION_S", "600"))
 JOB_TTL_S = float(os.environ.get("TABFORGE_JOB_TTL_S", "7200"))
 MAX_JOBS = int(os.environ.get("TABFORGE_MAX_JOBS", "20"))
+SEPARATOR = os.environ.get("TABFORGE_SEPARATOR", "demucs")
 
 CLEANUP_INTERVAL_S = 300.0
 
@@ -220,7 +221,8 @@ def _progress_fn(job: Job):
     return progress
 
 
-def _run_analyze(job: Job, audio: Path) -> None:
+def _run_analyze(job: Job, audio: Path,
+                 separator: str = SEPARATOR) -> None:
     with job.lock:
         if job.cancel.is_set():          # canceled while still queued
             job.status = "canceled"
@@ -229,7 +231,7 @@ def _run_analyze(job: Job, audio: Path) -> None:
         job.status = "running"
     try:
         analyzed = run_analyze(audio, job.dir / "out", _progress_fn(job),
-                               cancel_token=job.id)
+                               cancel_token=job.id, separator=separator)
         with job.lock:
             job.analyzed = analyzed
             job.analysis = [a.to_dict()
@@ -302,9 +304,14 @@ def _run_transcribe(job: Job, opts: PipelineOptions) -> None:
 # ---------------------------------------------------------------------------
 
 @app.post("/api/jobs")
-async def create_job(file: UploadFile) -> dict:
+async def create_job(file: UploadFile,
+                     separator: str = Form(SEPARATOR)) -> dict:
     """Step 1: upload + separation + analysis. The job stops at status
-    'analyzed' with per-instrument facts; step 2 is POST .../transcribe."""
+    'analyzed' with per-instrument facts; step 2 is POST .../transcribe.
+    separator: 'demucs' (fast, default) or 'roformer' (BS-Roformer-SW —
+    measurably cleaner stems, ~30x slower on CPU)."""
+    if separator not in ("demucs", "roformer"):
+        raise HTTPException(400, f"Unknown separator: {separator}")
     cleanup_jobs()
     if not _evict_for_capacity():
         raise HTTPException(
@@ -335,7 +342,7 @@ async def create_job(file: UploadFile) -> dict:
 
     job.audio = audio
     JOBS[job.id] = job
-    POOL.submit(_run_analyze, job, audio)
+    POOL.submit(_run_analyze, job, audio, separator)
     return {"id": job.id}
 
 

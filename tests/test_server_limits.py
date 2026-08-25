@@ -86,6 +86,22 @@ class TestUploadLimits(ServerTestCase):
         self.assertEqual(res.status_code, 200)
         self.assertIn("id", res.json())
 
+    def test_separator_choice_is_validated_and_forwarded(self):
+        res = self.client.post(
+            "/api/jobs", data={"separator": "quantum"},
+            files={"file": ("song.wav", tiny_wav_bytes(), "audio/wav")})
+        self.assertEqual(res.status_code, 400)
+        res = self.client.post(
+            "/api/jobs", data={"separator": "roformer"},
+            files={"file": ("song.wav", tiny_wav_bytes(), "audio/wav")})
+        self.assertEqual(res.status_code, 200)
+        for _ in range(100):          # the stubbed analyze finishes fast
+            if srv.run_analyze.call_args is not None:
+                break
+            time.sleep(0.02)
+        self.assertEqual(
+            srv.run_analyze.call_args.kwargs.get("separator"), "roformer")
+
     def test_limits_endpoint_reports_the_upload_cap(self):
         # the UI pre-checks the file size against this before uploading
         self.set("MAX_UPLOAD_BYTES", 200_000_000)
@@ -361,7 +377,7 @@ class TestCancel(ServerTestCase):
     def test_cancel_during_analyze_ends_the_job(self):
         started = threading.Event()
 
-        def slow_analyze(audio, out_dir, progress, cancel_token=None):
+        def slow_analyze(audio, out_dir, progress, **kwargs):
             started.set()
             for _ in range(400):           # ~4 s unless canceled
                 progress("separate", "working")

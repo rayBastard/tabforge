@@ -77,6 +77,75 @@ def separate_stems(audio: Path, out_dir: Path, model: str = "htdemucs_6s",
     return {p.stem: p for p in stem_dir.glob("*.wav")}
 
 
+def separate_stems_roformer(audio: Path, out_dir: Path,
+                            cancel_token: object | None = None
+                            ) -> dict[str, Path]:
+    """BS-Roformer-SW backend (bs-roformer-infer): 6 stems with the same
+    names as htdemucs_6s. Runs in-process on CPU; the ~700 MB weights
+    download to ~/.cache/bs-roformer-infer on first use. cancel_token is
+    accepted for interface parity — in-process inference has no
+    subprocess to kill, so cancellation lands at the next checkpoint."""
+    import numpy as np
+    import soundfile as sf
+    import torch
+    import yaml
+    try:
+        from bs_roformer import (demix_track, ensure_model_assets,
+                                 get_model_from_config)
+        from ml_collections import ConfigDict
+    except ImportError as e:
+        raise RuntimeError(
+            "the roformer separator needs the 'bs-roformer-infer' "
+            "package — pip install 'tabforge[roformer]'") from e
+
+    slug = "roformer-model-bs-roformer-sw-by-jarredou"
+    ckpt, cfg_path = ensure_model_assets(slug)
+
+    class _Loader(yaml.SafeLoader):
+        pass
+    _Loader.add_constructor("tag:yaml.org,2002:python/tuple",
+                            lambda l, n: l.construct_sequence(n))
+    config = ConfigDict(yaml.load(open(cfg_path), Loader=_Loader))
+    model = get_model_from_config("bs_roformer", config)
+    state = torch.load(str(ckpt), map_location="cpu", weights_only=False)
+    if isinstance(state, dict) and "state_dict" in state:
+        state = state["state_dict"]
+    model.load_state_dict(state)
+    model.eval()
+
+    mix, sr = sf.read(str(audio))
+    if mix.ndim == 1:
+        mix = np.stack([mix, mix], axis=-1)
+    mixture = torch.tensor(mix.T, dtype=torch.float32)
+    with torch.no_grad():
+        res, _ = demix_track(config, model, mixture, torch.device("cpu"),
+                             None)
+
+    stem_dir = out_dir / "bs_roformer_sw" / audio.stem
+    stem_dir.mkdir(parents=True, exist_ok=True)
+    out: dict[str, Path] = {}
+    for instr in config.training.instruments:
+        path = stem_dir / f"{instr}.wav"
+        sf.write(str(path), res[instr].T, sr)
+        out[instr] = path
+    return out
+
+
+SEPARATORS = {
+    "demucs": separate_stems,
+    "roformer": separate_stems_roformer,
+}
+
+
+def separate(audio: Path, out_dir: Path, backend: str = "demucs",
+             cancel_token: object | None = None) -> dict[str, Path]:
+    """Separation behind one interface — the eval stand A/Bs backends."""
+    if backend not in SEPARATORS:
+        raise ValueError(f"unknown separation backend: {backend} "
+                         f"(have: {', '.join(sorted(SEPARATORS))})")
+    return SEPARATORS[backend](audio, out_dir, cancel_token=cancel_token)
+
+
 def transcribe_stem(
     audio: Path,
     *,

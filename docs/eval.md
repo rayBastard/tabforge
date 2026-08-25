@@ -67,6 +67,29 @@ What the numbers say, in words:
 Every change from here — thresholds, filters, separators, models —
 either moves these numbers or gets reverted.
 
+## Separation A/B — 2026-08-26 (task 48)
+
+Same five pieces, only the separator changes
+(`--separator demucs|roformer`). Mean per instrument:
+
+| instrument | F1 demucs | F1 roformer | leak demucs | leak roformer |
+|---|---|---|---|---|
+| guitar | 0.16 | **0.26** | 0.80 | 0.76 |
+| bass   | 0.21 | **0.37** | 0.92 | **0.69** |
+| drums  | 0.35 | **0.46** | 0.17 | 0.15 |
+| synth  | 0.22 | **0.27** | 0.62 | **0.38** |
+| brass  | 0.11 | 0.10 | 0.93 | 0.86 |
+
+BS-Roformer-SW wins F1 on every instrument but brass (tie) — +23…+76%
+relative — and cuts leakage across the board. **Cost**: ~3.5× realtime
+on CPU vs ~0.1× for demucs (a 3-minute track ≈ 10 minutes to
+separate), and a 700 MB checkpoint on first use.
+
+**Verdict**: demucs stays the interactive default; roformer ships as
+the "High-quality separation" checkbox on the start screen
+(`separator` form field / `--separator` / `TABFORGE_SEPARATOR`).
+Requires `pip install 'tabforge[roformer]'`.
+
 ## Golden fragments (real material) — TODO
 
 2–3 real tracks × 8 flagged bars with hand-written correct MIDI, to

@@ -304,12 +304,14 @@ def _octave_error_rate(ref: list, est: list) -> float:
     return octaves / misses if misses else 0.0
 
 
-def evaluate_track(name: str, spec: dict, work: Path) -> list[dict]:
+def evaluate_track(name: str, spec: dict, work: Path,
+                   separator: str = "demucs") -> list[dict]:
     from tabforge.pipeline import PipelineOptions, run_pipeline
 
     truth = render_track(spec, work)
     opts = PipelineOptions(stems=("guitar", "bass", "piano", "vocals",
-                                  "other", "drums"), subdivision=2)
+                                  "other", "drums"), subdivision=2,
+                           separator=separator)
     results = run_pipeline(work / "mix.wav", work / "out", opts)
 
     # transcribed notes per part, from the saved parts.json + drums
@@ -356,14 +358,18 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tracks", nargs="*", default=None)
     ap.add_argument("--out", default=str(ROOT / "eval_out"))
+    ap.add_argument("--separator", default="demucs",
+                    choices=("demucs", "roformer"))
     args = ap.parse_args()
 
     tracks = make_tracks()
     picked = args.tracks or sorted(tracks)
     all_rows = []
     for name in picked:
-        print(f"=== {name} ===", flush=True)
-        rows = evaluate_track(name, tracks[name], Path(args.out) / name)
+        print(f"=== {name} ({args.separator}) ===", flush=True)
+        work = Path(args.out) / args.separator / name
+        rows = evaluate_track(name, tracks[name], work,
+                              separator=args.separator)
         all_rows += rows
 
     header = (f"{'track':14s} {'inst':7s} {'ref':>4s} {'est':>4s} "
