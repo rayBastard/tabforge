@@ -17,7 +17,7 @@ ProgressFn = Callable[[str, str], None]  # (stage, message)
 STEM_TUNING = {"bass": "bass_4"}
 STEM_PROGRAM = {"bass": 33, "guitar": 25, "vocals": 25, "piano": 0, "other": 25}
 
-STAGES = ("separate", "transcribe", "tempo", "fingering", "export")
+STAGES = ("separate", "tempo", "transcribe", "fingering", "export")
 
 
 @dataclass(slots=True)
@@ -53,10 +53,19 @@ def run_pipeline(audio: Path, out_dir: Path,
 
     if opts.separate:
         progress("separate", "Separating into stems (first run downloads the model)")
-        stems = transcribe.separate_stems(audio, out_dir / "stems")
-        stems = {k: v for k, v in stems.items() if k in opts.stems}
+        all_stems = transcribe.separate_stems(audio, out_dir / "stems")
+        stems = {k: v for k, v in all_stems.items() if k in opts.stems}
+        # Drums carry the clearest attacks, so the shared grid comes from
+        # them; the tempo must be computed once or stems drift apart.
+        tempo_source = all_stems.get("drums", audio)
+        source_name = "drums" if "drums" in all_stems else "mix"
     else:
         stems = {"mix": audio}
+        tempo_source, source_name = audio, "mix"
+
+    progress("tempo", f"tempo and beat grid ({source_name})")
+    bpm, beats = transcribe.detect_tempo(tempo_source)
+    grid = Grid(beats, subdivision=opts.subdivision) if len(beats) > 1 else None
 
     results: list[StemResult] = []
     for name, wav in stems.items():
@@ -68,10 +77,7 @@ def run_pipeline(audio: Path, out_dir: Path,
             progress("transcribe", f"{name}: no notes found, skipped")
             continue
 
-        progress("tempo", f"{name}: tempo and beat grid")
-        bpm, beats = transcribe.detect_tempo(wav)
-        if len(beats) > 1:
-            grid = Grid(beats, subdivision=opts.subdivision)
+        if grid is not None:
             notes = quantize(notes, grid, strength=opts.quantize_strength)
 
         progress("fingering", f"{name}: choosing the fingering")
