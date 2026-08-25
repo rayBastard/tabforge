@@ -130,6 +130,25 @@ docker compose up -d --build     # serves http://localhost:8000
   load), and demucs is pinned to 4.0.x inside the image (4.1's `sphn`
   dependency ships no linux/arm64 wheels).
 
+### Public access via Cloudflare Tunnel
+
+No public IP or Cloudflare account needed — a free "quick tunnel" gets
+a random `*.trycloudflare.com` URL:
+
+```bash
+TABFORGE_TOKEN=<some-secret> docker compose --profile tunnel up -d
+docker logs tabforge-tunnel-1 2>&1 | grep trycloudflare.com   # your URL
+```
+
+- **Always set `TABFORGE_TOKEN`** before exposing the server — without
+  it anyone with the URL can submit jobs. The UI asks for the token once
+  and remembers it; keep the URL and token out of git.
+- Quick-tunnel URLs are ephemeral (they change on every cloudflared
+  restart). For a stable hostname, create a named tunnel in the
+  Cloudflare dashboard and put its token into the `tunnel` service.
+- File downloads are served with `Content-Disposition: attachment`, so
+  phones actually save the .gp5/.mid instead of showing garbage inline.
+
 **Honest CPU speed warning:** there is no GPU path in this image.
 Measured in a 4-CPU container on an Apple M5 Max, one 3-minute track
 (guitar + bass), end to end through the UI:

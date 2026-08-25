@@ -16,5 +16,17 @@ services:
       TABFORGE_JOB_TTL_S: "${TABFORGE_JOB_TTL_S:-7200}"
       TABFORGE_MAX_JOBS: "${TABFORGE_MAX_JOBS:-20}"
 
+  # Public access via Cloudflare quick tunnel (no account, no public IP):
+  #   TABFORGE_TOKEN=<secret> docker compose --profile tunnel up -d
+  # The public URL appears in this container's logs. NEVER expose the
+  # server without TABFORGE_TOKEN set.
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --url http://tabforge:8000
+    depends_on:
+      - tabforge
+    restart: unless-stopped
+    profiles: ["tunnel"]
+
 volumes:
   model-cache:
