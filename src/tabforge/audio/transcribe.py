@@ -174,12 +174,12 @@ def mix_backing(stems: dict[str, Path], exclude: Sequence[str],
     else, to play along with. Peaks are normalized only when the sum
     would clip. Returns None when nothing is left to mix.
     """
-    import numpy as np
-    import soundfile as sf
-
     keep = [p for name, p in stems.items() if name not in exclude]
     if not keep:
         return None
+
+    import numpy as np
+    import soundfile as sf
     total = None
     sr = None
     for p in keep:

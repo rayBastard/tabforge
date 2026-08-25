@@ -40,10 +40,16 @@ class ServerTestCase(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(srv.app)
         srv.JOBS.clear()
-        # keep the pipeline out of these tests
-        patcher = mock.patch.object(srv, "run_pipeline", return_value=[])
-        self.addCleanup(patcher.stop)
-        patcher.start()
+        # keep the real pipeline out of these tests
+        from tabforge.pipeline import AnalyzeResult
+        self.fake_analysis = AnalyzeResult(
+            stems={"guitar": Path("/g.wav"), "drums": Path("/d.wav")},
+            analysis={}, bpm=120.0, beats=[], tempo_reliable=True, key=None)
+        for name, value in (("run_analyze", self.fake_analysis),
+                            ("run_transcribe", [])):
+            patcher = mock.patch.object(srv, name, return_value=value)
+            self.addCleanup(patcher.stop)
+            patcher.start()
 
     def set(self, attr, value):
         original = getattr(srv, attr)
@@ -79,9 +85,7 @@ class TestUploadLimits(ServerTestCase):
         self.assertEqual(res.status_code, 200)
         self.assertIn("id", res.json())
 
-    def test_unknown_tuning_is_400(self):
-        res = post_job(self.client, tiny_wav_bytes(), tuning="lute")
-        self.assertEqual(res.status_code, 400)
+# tuning validation moved to POST /transcribe — see TestTwoStepFlow
 
 
 @unittest.skipUnless(HAVE_AUDIO, "numpy/soundfile are not installed")
@@ -99,6 +103,64 @@ class TestFilenameSanitization(ServerTestCase):
         self.assertEqual(srv._sanitized_upload_name("x.w!v"), "upload.bin")
         self.assertEqual(srv._sanitized_upload_name(None), "upload.bin")
         self.assertEqual(srv._sanitized_upload_name("a/b/c.flac"), "upload.flac")
+
+
+@unittest.skipUnless(HAVE_AUDIO, "numpy/soundfile are not installed")
+class TestTwoStepFlow(ServerTestCase):
+    def _analyzed_job(self):
+        res = post_job(self.client, tiny_wav_bytes())
+        self.assertEqual(res.status_code, 200)
+        job_id = res.json()["id"]
+        # POOL runs in threads; wait for the analyze stub to land
+        for _ in range(100):
+            data = self.client.get(f"/api/jobs/{job_id}").json()
+            if data["status"] in ("analyzed", "error"):
+                break
+            time.sleep(0.02)
+        return job_id, data
+
+    def test_job_stops_at_analyzed(self):
+        job_id, data = self._analyzed_job()
+        self.assertEqual(data["status"], "analyzed")
+        self.assertIn("analysis", data)
+
+    def test_transcribe_needs_analyzed_state(self):
+        res = post_job(self.client, tiny_wav_bytes())
+        job_id = res.json()["id"]
+        srv.JOBS[job_id].status = "running"      # force not-ready
+        r = self.client.post(f"/api/jobs/{job_id}/transcribe",
+                             json={"stems": ["guitar"]})
+        self.assertEqual(r.status_code, 409)
+
+    def test_transcribe_validates_selection(self):
+        job_id, _ = self._analyzed_job()
+        r = self.client.post(f"/api/jobs/{job_id}/transcribe",
+                             json={"stems": []})
+        self.assertEqual(r.status_code, 400)
+        r = self.client.post(f"/api/jobs/{job_id}/transcribe",
+                             json={"stems": ["theremin"]})
+        self.assertEqual(r.status_code, 400)
+        r = self.client.post(f"/api/jobs/{job_id}/transcribe",
+                             json={"stems": ["guitar"], "tuning": "lute"})
+        self.assertEqual(r.status_code, 400)
+
+    def test_transcribe_runs_from_cached_stems(self):
+        job_id, _ = self._analyzed_job()
+        r = self.client.post(f"/api/jobs/{job_id}/transcribe",
+                             json={"stems": ["guitar"]})
+        self.assertEqual(r.status_code, 200)
+        for _ in range(100):
+            data = self.client.get(f"/api/jobs/{job_id}").json()
+            if data["status"] in ("done", "error"):
+                break
+            time.sleep(0.02)
+        self.assertEqual(data["status"], "done")
+        srv.run_analyze.assert_called_once()     # demucs never reran
+        # a second selection re-transcribes without re-analyzing
+        r = self.client.post(f"/api/jobs/{job_id}/transcribe",
+                             json={"stems": ["drums"]})
+        self.assertEqual(r.status_code, 200)
+        srv.run_analyze.assert_called_once()
 
 
 class TestToken(ServerTestCase):

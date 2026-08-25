@@ -35,7 +35,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..core.fretboard import TUNINGS
-from ..pipeline import STAGES, PipelineOptions, run_pipeline
+from ..pipeline import STAGES, PipelineOptions, run_analyze, run_transcribe
 
 if getattr(sys, "frozen", False):
     # PyInstaller bundle: data files are unpacked next to the binary
@@ -57,13 +57,16 @@ CLEANUP_INTERVAL_S = 300.0
 @dataclass
 class Job:
     id: str
-    status: str = "queued"            # queued | running | done | error
+    status: str = "queued"      # queued | running | analyzed | done | error
     stage: str = ""
     log: list[str] = field(default_factory=list)
+    analysis: list[dict] = field(default_factory=list)
     results: list[dict] = field(default_factory=list)
     error: str = ""
     backing: str = ""                 # download URL of the backing track
     dir: Path | None = None
+    audio: Path | None = None         # the uploaded file
+    analyzed: object | None = None    # pipeline.AnalyzeResult (server-side)
     created_at: float = field(default_factory=time.time)
     finished_at: float | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
@@ -73,6 +76,7 @@ class Job:
             return {
                 "id": self.id, "status": self.status, "stage": self.stage,
                 "stages": list(STAGES), "log": list(self.log[-30:]),
+                "analysis": list(self.analysis),
                 "results": list(self.results), "error": self.error,
                 "backing": self.backing,
             }
@@ -192,16 +196,46 @@ async def _save_upload(file: UploadFile, target: Path) -> None:
 # The worker
 # ---------------------------------------------------------------------------
 
-def _run(job: Job, audio: Path, opts: PipelineOptions) -> None:
+def _progress_fn(job: Job):
     def progress(stage: str, msg: str) -> None:
         with job.lock:
             job.stage = stage
             job.log.append(msg)
+    return progress
 
+
+def _run_analyze(job: Job, audio: Path) -> None:
     with job.lock:
         job.status = "running"
     try:
-        results = run_pipeline(audio, job.dir / "out", opts, progress)
+        analyzed = run_analyze(audio, job.dir / "out", _progress_fn(job))
+        with job.lock:
+            job.analyzed = analyzed
+            job.analysis = [a.to_dict()
+                            for a in analyzed.analysis.values()]
+            job.status = "analyzed"
+            job.stage = "analyze"
+    except Exception as e:  # noqa: BLE001 — shown to the user
+        with job.lock:
+            job.status = "error"
+            job.error = str(e)
+    finally:
+        with job.lock:
+            if job.status == "running":
+                job.status = "error"
+                job.error = job.error or "analysis crashed unexpectedly"
+            if job.status == "error":
+                job.finished_at = time.time()
+
+
+def _run_transcribe(job: Job, opts: PipelineOptions) -> None:
+    with job.lock:
+        job.status = "running"
+        job.results = []
+        job.backing = ""
+    try:
+        results = run_transcribe(job.dir / "out", job.analyzed, opts,
+                                 _progress_fn(job))
         with job.lock:
             job.results = [
                 r.to_dict(lambda stem, p:
@@ -231,16 +265,9 @@ def _run(job: Job, audio: Path, opts: PipelineOptions) -> None:
 # ---------------------------------------------------------------------------
 
 @app.post("/api/jobs")
-async def create_job(
-    file: UploadFile,
-    stems: str = "guitar,bass",
-    tuning: str = "standard",
-    separate: bool = True,
-    split_guitars: bool = False,
-) -> dict:
-    if tuning not in TUNINGS:
-        raise HTTPException(400, f"Unknown tuning: {tuning}")
-
+async def create_job(file: UploadFile) -> dict:
+    """Step 1: upload + separation + analysis. The job stops at status
+    'analyzed' with per-instrument facts; step 2 is POST .../transcribe."""
     cleanup_jobs()
     if not _evict_for_capacity():
         raise HTTPException(
@@ -269,14 +296,41 @@ async def create_job(
         shutil.rmtree(job.dir, ignore_errors=True)
         raise
 
-    opts = PipelineOptions(
-        stems=tuple(s.strip() for s in stems.split(",") if s.strip()),
-        tuning=tuning,
-        separate=separate,
-        split_guitars=split_guitars,
-    )
+    job.audio = audio
     JOBS[job.id] = job
-    POOL.submit(_run, job, audio, opts)
+    POOL.submit(_run_analyze, job, audio)
+    return {"id": job.id}
+
+
+@app.post("/api/jobs/{job_id}/transcribe")
+async def transcribe_job(job_id: str, selection: dict) -> dict:
+    """Step 2: transcribe the selected stems from the CACHED separation.
+    May be called again with a different selection — demucs never reruns."""
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    with job.lock:
+        status = job.status
+    if status not in ("analyzed", "done"):
+        raise HTTPException(
+            409, f"Job is not ready to transcribe (status: {status})")
+
+    stems = tuple(s for s in selection.get("stems", []) if isinstance(s, str))
+    if not stems:
+        raise HTTPException(400, "Pick at least one instrument")
+    unknown = [s for s in stems if s not in job.analyzed.stems]
+    if unknown:
+        raise HTTPException(400, f"Unknown stems: {', '.join(unknown)}")
+    tuning = selection.get("tuning", "standard")
+    if tuning not in TUNINGS:
+        raise HTTPException(400, f"Unknown tuning: {tuning}")
+
+    opts = PipelineOptions(
+        stems=stems,
+        tuning=tuning,
+        split_guitars=bool(selection.get("split_guitars", False)),
+    )
+    POOL.submit(_run_transcribe, job, opts)
     return {"id": job.id}
 
 

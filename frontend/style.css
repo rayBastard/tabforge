@@ -303,8 +303,22 @@ select {
 
 .alphatab { background: #f6f1e7; border-radius: 8px; margin-top: 14px; }
 
+.inst { display: flex; gap: 10px; align-items: center; min-height: 44px; }
+.inst.absent { opacity: .45; }
+.inst-name { min-width: 64px; font-weight: 600; }
+.inst-status { font-size: 12px; padding: 2px 8px; border-radius: 10px;
+               border: 1px solid var(--wire); color: var(--wire); }
+.inst-status.found { color: var(--moss); border-color: var(--moss); }
+.inst-range { margin-left: auto; color: var(--wire);
+              font-family: "JetBrains Mono", monospace; font-size: 13px; }
+.inst-tuning { margin: 2px 0 10px 30px; color: var(--wire); font-size: 13px;
+               display: flex; gap: 8px; align-items: center; }
+.inst-tuning select { min-height: 36px; width: auto; }
+.inst-note { margin: 0 0 8px 30px; color: var(--brass); font-size: 13px; }
+
 #backingRow { display: flex; gap: 12px; align-items: baseline;
               margin: 14px 0 4px; flex-wrap: wrap; }
+#backingRow[hidden] { display: none; }   /* display:flex beats the UA hidden */
 .backing {
   font: 600 13px/1 "Bricolage Grotesque", sans-serif;
   color: var(--wood);

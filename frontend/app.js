@@ -62,13 +62,24 @@ drop.addEventListener("drop", (e) => setFile(e.dataTransfer.files[0]));
 function setFile(f) {
   if (!f) return;
   pickedFile = f;
+  currentJobId = null;                 // a new file starts a new job
+  $("#instruments").hidden = true;
+  $("#splitRow").hidden = true;
+  goBtn.textContent = "Analyze track";
   $("#fileName").textContent = f.name;
   goBtn.disabled = false;
 }
 
-/* ---------- starting a job ---------- */
+/* ---------- the two-step flow: analyze, choose, transcribe ---------- */
 
-goBtn.addEventListener("click", async () => {
+let currentJobId = null;               // set once the track is analyzed
+
+goBtn.addEventListener("click", () => {
+  if (currentJobId) startTranscribe();
+  else startAnalyze();
+});
+
+async function startAnalyze() {
   if (!pickedFile) return;
   goBtn.disabled = true;
   resultsEl.innerHTML = "";
@@ -78,28 +89,103 @@ goBtn.addEventListener("click", async () => {
   setLog("Uploading the file for processing…");
   markStage(null);
 
-  const stems = [...document.querySelectorAll('input[name="stem"]:checked')]
-    .map((c) => c.value).join(",");
-
   const form = new FormData();
   form.append("file", pickedFile);
-
-  const params = new URLSearchParams({
-    stems,
-    tuning: $("#tuning").value,
-    separate: $("#separate").checked,
-    split_guitars: $("#splitGuitars").checked,
-  });
-
   try {
-    const res = await apiFetch(`/api/jobs?${params}`, { method: "POST", body: form });
+    const res = await apiFetch("/api/jobs", { method: "POST", body: form });
     if (!res.ok) throw new Error(await errorDetail(res));
     const { id } = await res.json();
     poll(id);
   } catch (err) {
     fail(`Failed to start: ${err.message}`);
   }
-});
+}
+
+async function startTranscribe() {
+  const picked = [...document.querySelectorAll("#instruments input:checked")]
+    .map((c) => c.value);
+  if (!picked.length) { setLog("Pick at least one instrument.", true); return; }
+  goBtn.disabled = true;
+  resultsEl.innerHTML = "";
+  neck.classList.add("playing");
+  const tuningSel = $("#instTuning");
+  try {
+    const res = await apiFetch(`/api/jobs/${currentJobId}/transcribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        stems: picked,
+        tuning: tuningSel ? tuningSel.value : "standard",
+        split_guitars: $("#splitGuitars").checked,
+      }),
+    });
+    if (!res.ok) throw new Error(await errorDetail(res));
+    poll(currentJobId);
+  } catch (err) {
+    fail(`Failed to start: ${err.message}`);
+  }
+}
+
+/* ---------- instrument cards from the analyze step ---------- */
+
+const NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+const noteName = (m) => m == null ? "?" : NOTE_NAMES[m % 12] + (Math.floor(m / 12) - 1);
+const GUITAR_TUNINGS = [
+  ["standard", "Standard (E A D G B E)"],
+  ["drop_d", "Drop D"],
+  ["eb_standard", "Half step down (E♭)"],
+  ["dadgad", "DADGAD"],
+  ["open_g", "Open G"],
+];
+
+function showInstruments(job) {
+  currentJobId = job.id;
+  const box = $("#instruments");
+  box.innerHTML = "<legend>Instruments in this track</legend>";
+  let hasGuitar = false;
+  for (const a of job.analysis) {
+    const row = document.createElement("label");
+    row.className = "inst " + a.status;
+    const checked = a.status === "found" ? "checked" : "";
+    const disabled = a.status === "absent" ? "disabled" : "";
+    const range = a.min_pitch != null
+      ? `${noteName(a.min_pitch)}–${noteName(a.max_pitch)}` : "—";
+    row.innerHTML =
+      `<input type="checkbox" value="${a.stem}" ${checked} ${disabled}>
+       <span class="inst-name">${STEM_NAMES[a.stem] || a.stem}</span>
+       <span class="inst-status ${a.status}">${a.status}</span>
+       <span class="inst-range">${range}</span>`;
+    box.appendChild(row);
+    if (a.stem === "guitar" && a.status !== "absent") hasGuitar = true;
+    if (a.stem === "guitar" && a.suggested_tuning) {
+      const sel = document.createElement("select");
+      sel.id = "instTuning";
+      for (const [value, label] of GUITAR_TUNINGS) {
+        const o = document.createElement("option");
+        o.value = value; o.textContent = label;
+        o.selected = value === a.suggested_tuning;
+        sel.appendChild(o);
+      }
+      const wrap = document.createElement("div");
+      wrap.className = "inst-tuning";
+      wrap.append("suggested tuning: ", sel);
+      box.appendChild(wrap);
+    }
+    if (a.stem === "bass" && a.suggested_tuning === "bass_5") {
+      const note = document.createElement("p");
+      note.className = "inst-note";
+      note.textContent =
+        "bass goes below E1 — a 5-string would fit better";
+      box.appendChild(note);
+    }
+  }
+  box.hidden = false;
+  $("#splitRow").hidden = !hasGuitar;
+  neck.classList.remove("playing");
+  setLog("Analyzed. Pick the instruments and press Transcribe.");
+  goBtn.textContent = "Transcribe to tab";
+  goBtn.disabled = false;
+}
 
 /* ---------- polling ---------- */
 
@@ -115,6 +201,7 @@ async function poll(id, failures = 0) {
     markStage(job.stage, job.stages);
     if (job.log.length) setLog(job.log[job.log.length - 1]);
 
+    if (job.status === "analyzed") return showInstruments(job);
     if (job.status === "done") return finish(job);
     if (job.status === "error") return fail(job.error);
     setTimeout(() => poll(id, 0), POLL_INTERVAL);   // success resets the streak
@@ -161,8 +248,8 @@ const STEM_NAMES = { guitar: "Guitar", bass: "Bass", vocals: "Vocals",
 function finish(job) {
   neck.classList.remove("playing");
   markStage("done");
-  setLog("Done. The files are available for download below.");
-  goBtn.disabled = false;
+  setLog("Done. Change the selection and transcribe again if you like.");
+  goBtn.disabled = false;              // re-transcribe with a new selection
 
   const backingRow = $("#backingRow");
   if (job.backing) {

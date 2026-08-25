@@ -29,38 +29,20 @@
       <span class="drop-name" id="fileName"></span>
     </label>
 
-    <fieldset>
-      <legend>Which stems to transcribe</legend>
-      <label><input type="checkbox" name="stem" value="guitar" checked> Guitar</label>
-      <label><input type="checkbox" name="stem" value="bass" checked> Bass</label>
-      <label><input type="checkbox" name="stem" value="vocals"> Vocals</label>
-      <label><input type="checkbox" name="stem" value="piano"> Keys</label>
+    <!-- filled after the analyze step: one card per detected instrument -->
+    <fieldset id="instruments" hidden>
+      <legend>Instruments in this track</legend>
     </fieldset>
 
-    <fieldset>
-      <legend>Guitar tuning</legend>
-      <select id="tuning">
-        <option value="standard">Standard (E A D G B E)</option>
-        <option value="drop_d">Drop D</option>
-        <option value="eb_standard">Half step down (E♭)</option>
-        <option value="dadgad">DADGAD</option>
-        <option value="open_g">Open G</option>
-      </select>
-    </fieldset>
-
-    <label class="mixrow">
-      <input type="checkbox" id="separate" checked>
-      Separate the mix into stems first
-    </label>
-
-    <label class="mixrow">
+    <label class="mixrow" id="splitRow" hidden>
       <input type="checkbox" id="splitGuitars">
       Split guitar into lead &amp; rhythm
     </label>
 
-    <button id="go" class="go" disabled>Transcribe to tab</button>
-    <p class="hint">The first run downloads the separation model (~300 MB).
-       A three-minute track takes 3–6 minutes on a laptop.</p>
+    <button id="go" class="go" disabled>Analyze track</button>
+    <p class="hint" id="hint">First the track is separated and analyzed —
+       then you choose what to transcribe. The first run downloads the
+       separation model (~300 MB).</p>
   </section>
 
   <!-- RIGHT PANEL: fretboard progress + results -->
@@ -73,7 +55,7 @@
       </div>
       <ol class="frets" id="frets">
         <li data-stage="separate">Stems</li>
-        <li data-stage="tempo">Tempo</li>
+        <li data-stage="analyze">Analyze</li>
         <li data-stage="transcribe">Notes</li>
         <li data-stage="fingering">Fingering</li>
         <li data-stage="export">Files</li>

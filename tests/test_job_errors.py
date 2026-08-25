@@ -42,25 +42,34 @@ class TestSeparateStemsErrors(unittest.TestCase):
 @unittest.skipUnless(HAVE_SERVER, "fastapi is not installed")
 class TestJobNeverStuckRunning(unittest.TestCase):
     def test_base_exception_still_marks_job_error(self):
-        # Reproduces the original bug: a SystemExit escaping run_pipeline
+        # Reproduces the original bug: a SystemExit escaping the pipeline
         # left the job in status='running' forever.
         job = server_app.Job(id="t1")
         job.dir = Path("/tmp")
-        with mock.patch.object(server_app, "run_pipeline",
+        with mock.patch.object(server_app, "run_transcribe",
                                side_effect=SystemExit(1)):
             with self.assertRaises(SystemExit):
-                server_app._run(job, Path("x.wav"), server_app.PipelineOptions())
+                server_app._run_transcribe(job, server_app.PipelineOptions())
         self.assertEqual(job.status, "error")
         self.assertTrue(job.error)
 
     def test_plain_exception_sets_error_message(self):
         job = server_app.Job(id="t2")
         job.dir = Path("/tmp")
-        with mock.patch.object(server_app, "run_pipeline",
+        with mock.patch.object(server_app, "run_transcribe",
                                side_effect=RuntimeError("demucs failed")):
-            server_app._run(job, Path("x.wav"), server_app.PipelineOptions())
+            server_app._run_transcribe(job, server_app.PipelineOptions())
         self.assertEqual(job.status, "error")
         self.assertIn("demucs failed", job.error)
+
+    def test_analyze_errors_are_reported_too(self):
+        job = server_app.Job(id="t3")
+        job.dir = Path("/tmp")
+        with mock.patch.object(server_app, "run_analyze",
+                               side_effect=RuntimeError("no model")):
+            server_app._run_analyze(job, Path("x.wav"))
+        self.assertEqual(job.status, "error")
+        self.assertIn("no model", job.error)
 
 
 if __name__ == "__main__":

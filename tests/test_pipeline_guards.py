@@ -8,6 +8,24 @@ from tabforge.core.fretboard import NoteEvent
 from tabforge import pipeline
 
 
+class TestSuggestTuning(unittest.TestCase):
+    def test_guitar(self):
+        self.assertEqual(pipeline.suggest_tuning("guitar", 40), "standard")
+        self.assertEqual(pipeline.suggest_tuning("guitar", 45), "standard")
+        self.assertEqual(pipeline.suggest_tuning("guitar", 39), "eb_standard")
+        self.assertEqual(pipeline.suggest_tuning("guitar", 38), "drop_d")
+        self.assertEqual(pipeline.suggest_tuning("guitar", 35), "drop_d")
+
+    def test_bass(self):
+        self.assertEqual(pipeline.suggest_tuning("bass", 28), "bass_4")
+        self.assertEqual(pipeline.suggest_tuning("bass", 26), "bass_5")
+
+    def test_no_pitch_or_unpitched_stem(self):
+        self.assertIsNone(pipeline.suggest_tuning("guitar", None))
+        self.assertIsNone(pipeline.suggest_tuning("piano", 30))
+        self.assertIsNone(pipeline.suggest_tuning("vocals", 50))
+
+
 class TestKeyDetectionGuard(unittest.TestCase):
     def _run(self, detect_key):
         notes = [NoteEvent(60 + i, i * 0.5, 0.4) for i in range(4)]
