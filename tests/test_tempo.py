@@ -1,7 +1,9 @@
-"""Tests for tempo-multiple folding. Pure math, no audio or ML deps."""
+"""Tests for tempo-multiple folding and the tempo sanity guard.
+Pure math, no audio or ML deps."""
 import unittest
 
-from tabforge.audio.transcribe import collapse_tempo_candidates, fold_tempo
+from tabforge.audio.transcribe import (FALLBACK_BPM, collapse_tempo_candidates,
+                                       fold_tempo, guard_tempo)
 
 
 class TestFoldTempo(unittest.TestCase):
@@ -26,6 +28,36 @@ class TestFoldTempo(unittest.TestCase):
         # a range narrower than one octave could never terminate
         with self.assertRaises(ValueError):
             fold_tempo(120.0, lo=100.0, hi=150.0)
+
+
+class TestGuardTempo(unittest.TestCase):
+    """Regression: detect_tempo could return (0.0, []) for short/silent
+    clips, and 60/bpm then divided by zero inside the exports."""
+
+    def test_zero_bpm_falls_back(self):
+        bpm, beats, reliable = guard_tempo(0.0, [])
+        self.assertEqual(bpm, FALLBACK_BPM)
+        self.assertEqual(beats, [])
+        self.assertFalse(reliable)
+
+    def test_too_few_beats_fall_back(self):
+        bpm, beats, reliable = guard_tempo(96.0, [0.0, 0.6, 1.2])
+        self.assertEqual(bpm, FALLBACK_BPM)
+        self.assertFalse(reliable)
+
+    def test_out_of_range_bpm_falls_back(self):
+        grid = [i * 0.2 for i in range(20)]
+        for junk in (300.0, 30.0):
+            bpm, _, reliable = guard_tempo(junk, grid)
+            self.assertEqual(bpm, FALLBACK_BPM)
+            self.assertFalse(reliable)
+
+    def test_sane_tempo_passes_through(self):
+        grid = [i * 0.625 for i in range(100)]
+        bpm, beats, reliable = guard_tempo(96.0, grid)
+        self.assertEqual(bpm, 96.0)
+        self.assertEqual(len(beats), 100)
+        self.assertTrue(reliable)
 
 
 class TestCollapseTempoCandidates(unittest.TestCase):

@@ -39,6 +39,7 @@ class StemResult:
     note_count: int
     ascii_tab: str
     files: dict[str, Path] = field(default_factory=dict)  # ext -> path
+    warnings: list[str] = field(default_factory=list)
 
 
 def _noop(_stage: str, _msg: str) -> None:
@@ -67,7 +68,13 @@ def run_pipeline(audio: Path, out_dir: Path,
         tempo_source, source_name = audio, "mix"
 
     progress("tempo", f"tempo and beat grid ({source_name})")
-    bpm, beats = transcribe.detect_tempo(tempo_source)
+    bpm, beats, tempo_reliable = transcribe.detect_tempo(tempo_source)
+    warnings: list[str] = []
+    if not tempo_reliable:
+        warnings.append("tempo: estimated poorly")
+        progress("tempo",
+                 f"tempo: estimated poorly, falling back to {bpm:.0f} BPM "
+                 "without a beat grid")
     grid = Grid(beats, subdivision=opts.subdivision) if len(beats) > 1 else None
 
     # Key is track-global, so it comes from the full mix, not a stem.
@@ -136,5 +143,6 @@ def run_pipeline(audio: Path, out_dir: Path,
                 stem=part_name, bpm=bpm, key=key.name,
                 note_count=len(part_notes),
                 ascii_tab=render_ascii(shapes, cfg), files=files,
+                warnings=list(warnings),
             ))
     return results

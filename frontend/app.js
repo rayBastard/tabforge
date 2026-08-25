@@ -129,8 +129,9 @@ function finish(job) {
   for (const r of job.results) {
     const card = tpl.content.cloneNode(true);
     card.querySelector(".stem-name").textContent = STEM_NAMES[r.stem] || r.stem;
+    const warn = (r.warnings || []).length ? ` · ⚠ ${r.warnings.join("; ")}` : "";
     card.querySelector(".stem-meta").textContent =
-      `${r.notes} notes · ${r.bpm} BPM · ${r.key}`;
+      `${r.notes} notes · ${r.bpm} BPM · ${r.key}${warn}`;
 
     const nav = card.querySelector(".stem-downloads");
     for (const [ext, url] of Object.entries(r.files)) {

@@ -138,8 +138,27 @@ def collapse_tempo_candidates(
     return out
 
 
-def detect_tempo(audio: Path) -> tuple[float, list[float]]:
-    """Returns (BPM, beat times in seconds).
+FALLBACK_BPM = 120.0
+
+
+def guard_tempo(bpm: float, beats: list[float],
+                min_beats: int = 8,
+                lo: float = 40.0, hi: float = 260.0,
+                ) -> tuple[float, list[float], bool]:
+    """Sanity-checks a tempo estimate.
+
+    Returns (bpm, beats, reliable). A grid with fewer than min_beats beats
+    or a BPM outside [lo, hi] is junk (short clip, near-silent stem): fall
+    back to a plain 120 with no grid, flagged unreliable so the caller can
+    warn the user instead of exporting garbage.
+    """
+    if len(beats) >= min_beats and lo <= bpm <= hi:
+        return bpm, beats, True
+    return FALLBACK_BPM, [], False
+
+
+def detect_tempo(audio: Path) -> tuple[float, list[float], bool]:
+    """Returns (BPM, beat times in seconds, reliable).
 
     beat_track's single estimate flips between tempo multiples from run to
     run, so the tempo is chosen from explicit hypotheses instead: local
@@ -169,7 +188,8 @@ def detect_tempo(audio: Path) -> tuple[float, list[float]]:
     if not hypotheses:
         tempo, beats = librosa.beat.beat_track(onset_envelope=oenv, sr=sr,
                                                units="time", trim=False)
-        return float(np.atleast_1d(tempo)[0]), [float(b) for b in beats]
+        return guard_tempo(float(np.atleast_1d(tempo)[0]),
+                           [float(b) for b in beats])
 
     best_bpm, best_beats, best_score = 0.0, [], -1.0
     for bpm, weight in sorted(hypotheses.items()):
@@ -182,7 +202,7 @@ def detect_tempo(audio: Path) -> tuple[float, list[float]]:
             best_score = score
             best_bpm = bpm
             best_beats = [float(t) for t in librosa.frames_to_time(frames, sr=sr)]
-    return best_bpm, best_beats
+    return guard_tempo(best_bpm, best_beats)
 
 
 def cleanup(notes: list[NoteEvent], *, min_duration: float = 0.05,
