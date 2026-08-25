@@ -422,7 +422,8 @@ function finish(job) {
 
 /* ---------- the unified project player (one alphaTab, all tracks) ---- */
 
-const unified = { api: null, armed: false, mixer: new Map(), view: null };
+const unified = { api: null, armed: false, mixer: new Map(), view: null,
+                  tabByName: {} };
 window._tf = unified;                 // exposed for tests
 
 function renderView() {
@@ -434,6 +435,7 @@ function renderView() {
   api.renderTracks(picked.length ? picked : api.score.tracks);
   document.querySelectorAll("#scoreTabs button").forEach((b) =>
     b.classList.toggle("active", b.dataset.view === unified.view));
+  rebuildVirtual();
 }
 
 function buildScoreTabs(job) {
@@ -462,8 +464,9 @@ function initUnifiedScore(job) {
     return;
   }
   // instrument name -> tablature? (piano/vocals are notation-only)
-  const tabByName = Object.fromEntries(
+  unified.tabByName = Object.fromEntries(
     job.results.map((r) => [r.stem, r.tablature !== false]));
+  const tabByName = unified.tabByName;
   unified.mixer.clear();
   buildScoreTabs(job);
 
@@ -495,6 +498,15 @@ function initUnifiedScore(job) {
         if (!beat) return;
         posEl.textContent =
           `bar ${beat.voice.bar.index + 1} / ${api.score.masterBars.length}`;
+      });
+      // the virtual instrument lights the notes of the ACTIVE tab
+      api.activeBeatsChanged.on((args) => {
+        const notes = [];
+        for (const beat of args.activeBeats || []) {
+          if (beat.voice.bar.staff.track.name !== virtual.track?.name) continue;
+          for (const note of beat.notes) notes.push(note);
+        }
+        virtualLiveHighlight(notes);
       });
     }
     // the note editor: click a note, pick where it should live
@@ -585,6 +597,195 @@ function setupBackingPlayer(url) {
   };
 }
 
+/* ---------- the virtual instrument bar ------------------------------- */
+/* Fretboard for fretted tracks, a keyboard for keys/vocals, pads for
+   drums — following the active tab. Playback lights the current notes;
+   on the fretboard a clicked score note also shows its alternative
+   positions, and clicking one re-pins the note (same math as the
+   popover, second entry point into repin). */
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const MAX_VFRET = 22;      // the full neck: a 17th-fret alternative
+                           // must be clickable, not silently dropped
+
+const virtual = {
+  mode: null, track: null, tuning: [],
+  fretEls: [], keyEls: {}, padEls: [],
+  lit: [], editing: null, hits: 0,       // hits: exposed for tests
+};
+
+const DRUM_PADS = [
+  ["Kick", [35, 36]], ["Snare", [37, 38, 40]],
+  ["Hi-hat", [42, 44, 46]], ["Toms", [41, 43, 45, 47, 48, 50]],
+  ["Cymbal", [49, 51, 52, 53, 55, 57, 59]],
+];
+
+function svgEl(name, attrs) {
+  const el = document.createElementNS(SVG_NS, name);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+function currentViewTrack() {
+  const api = unified.api;
+  if (!api || !api.score) return null;
+  return api.score.tracks.find((t) => t.name === unified.view)
+    || api.score.tracks[0];
+}
+
+function rebuildVirtual() {
+  const bar = $("#virtualBar");
+  if (!bar) return;
+  const track = currentViewTrack();
+  if (!track) { bar.hidden = true; return; }
+  const staff = track.staves[0];
+  const tuning = (staff.tuning || []).slice();  // index 0 = string 1 (high)
+  virtual.track = track;
+  virtual.tuning = tuning;
+  virtual.editing = null;
+  virtual.lit = [];
+  if (staff.isPercussion || (tuning.length && tuning.every((v) => !v))) {
+    virtual.mode = "drums";
+    buildDrumPads(bar);
+  } else if (unified.tabByName[track.name] === false || !tuning.length) {
+    virtual.mode = "keys";                      // no strings to point at
+    buildKeyboard(bar);
+  } else {
+    virtual.mode = "frets";
+    buildFretboard(bar, tuning);
+  }
+  bar.hidden = false;
+}
+
+function buildFretboard(bar, tuning) {
+  const n = tuning.length;
+  const H = 20 + n * 16, W = 1000;
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}` });
+  const colW = (W - 60) / MAX_VFRET;
+  const fx = (f) => f === 0 ? 20 : 40 + (f - 0.5) * colW;
+  const sy = (row) => 12 + row * 16;
+  svg.appendChild(svgEl("line", { x1: 40, x2: 40, y1: sy(0), y2: sy(n - 1),
+                                  class: "v-nut" }));
+  for (let f = 1; f <= MAX_VFRET; f++) {
+    svg.appendChild(svgEl("line", { x1: 40 + f * colW, x2: 40 + f * colW,
+                                    y1: sy(0), y2: sy(n - 1),
+                                    class: "v-fret" }));
+  }
+  for (const f of [3, 5, 7, 9, 12, 15, 17, 19, 21]) {
+    svg.appendChild(svgEl("circle", { cx: fx(f), cy: sy(n - 1) + 12, r: 3,
+                                      class: "v-marker" }));
+    const t = svgEl("text", { x: fx(f) - 3, y: H - 1, class: "v-label" });
+    t.textContent = f;
+    svg.appendChild(t);
+  }
+  virtual.fretEls = [];
+  for (let row = 0; row < n; row++) {           // row 0 = highest string
+    svg.appendChild(svgEl("line", { x1: 20, x2: W - 5,
+                                    y1: sy(row), y2: sy(row),
+                                    class: "v-string" }));
+    const dots = [];
+    for (let f = 0; f <= MAX_VFRET; f++) {
+      const c = svgEl("circle", { cx: fx(f), cy: sy(row), r: 6,
+                                  class: "v-dot" });
+      c.dataset.s = row + 1;                    // string 1..n from the top
+      svg.appendChild(c);
+      dots.push(c);
+    }
+    virtual.fretEls.push(dots);
+  }
+  svg.addEventListener("click", (e) => {
+    const dot = e.target.closest(".v-dot.alt");
+    if (!dot || !virtual.editing) return;
+    const { part, qticks, pitch, n: nStr } = virtual.editing;
+    repin(part, qticks, pitch, nStr - parseInt(dot.dataset.s, 10), null);
+    closePopover();
+  });
+  bar.replaceChildren(svg);
+}
+
+function buildKeyboard(bar) {
+  const LO = 36, HI = 96;                        // C2..C7
+  const isBlack = (m) => [1, 3, 6, 8, 10].includes(m % 12);
+  const whites = [];
+  for (let m = LO; m <= HI; m++) if (!isBlack(m)) whites.push(m);
+  const W = 1000, H = 110, kw = W / whites.length;
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}` });
+  virtual.keyEls = {};
+  whites.forEach((m, i) => {
+    const r = svgEl("rect", { x: i * kw, y: 0, width: kw, height: H,
+                              class: "v-white" });
+    svg.appendChild(r);
+    virtual.keyEls[m] = r;
+  });
+  whites.forEach((m, i) => {                     // blacks overlay
+    if (m + 1 <= HI && isBlack(m + 1)) {
+      const r = svgEl("rect", { x: (i + 0.65) * kw, y: 0,
+                                width: kw * 0.7, height: H * 0.6,
+                                class: "v-black" });
+      svg.appendChild(r);
+      virtual.keyEls[m + 1] = r;
+    }
+  });
+  bar.replaceChildren(svg);
+}
+
+function buildDrumPads(bar) {
+  const W = 1000, H = 110, pw = W / DRUM_PADS.length;
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}` });
+  virtual.padEls = [];
+  DRUM_PADS.forEach(([label], i) => {
+    const r = svgEl("rect", { x: i * pw + 8, y: 8, width: pw - 16,
+                              height: H - 16, class: "v-pad" });
+    svg.appendChild(r);
+    const t = svgEl("text", { x: i * pw + pw / 2, y: H / 2 + 4,
+                              class: "v-pad-label" });
+    t.textContent = label;
+    svg.appendChild(t);
+    virtual.padEls.push(r);
+  });
+  bar.replaceChildren(svg);
+}
+
+function virtualLiveHighlight(notes) {
+  for (const el of virtual.lit) el.classList.remove("live");
+  virtual.lit = [];
+  for (const note of notes) {
+    let el = null;
+    if (virtual.mode === "frets") {
+      const row = virtual.tuning.length - note.string;   // alphaTab: 1=low
+      const fret = note.fret;
+      el = virtual.fretEls[row]?.[Math.min(fret, MAX_VFRET)];
+    } else if (virtual.mode === "keys") {
+      el = virtual.keyEls[note.realValue];
+    } else {
+      const gm = note.fret >= 0 ? note.fret : note.realValue;
+      const idx = DRUM_PADS.findIndex(([, gms]) => gms.includes(gm));
+      el = virtual.padEls[idx >= 0 ? idx : 3];
+    }
+    if (el) { el.classList.add("live"); virtual.lit.push(el); }
+  }
+  if (notes.length) virtual.hits += 1;
+}
+
+function virtualShowAlternatives(trackName, tuning, pitch, currentS, qticks) {
+  if (virtual.mode !== "frets" || virtual.track?.name !== trackName) return;
+  virtualClearEditing();
+  const n = tuning.length;
+  virtual.editing = { part: trackName, qticks, pitch, n };
+  for (let s = 1; s <= n; s++) {
+    const fret = pitch - tuning[s - 1];
+    if (fret < 0 || fret > MAX_VFRET) continue;
+    const el = virtual.fretEls[s - 1]?.[fret];
+    if (el) el.classList.add(s === currentS ? "cur" : "alt");
+  }
+}
+
+function virtualClearEditing() {
+  virtual.editing = null;
+  document.querySelectorAll("#virtualBar .v-dot.alt, #virtualBar .v-dot.cur")
+    .forEach((el) => el.classList.remove("alt", "cur"));
+}
+
 /* ---------- the note editor: click a note, choose its string --------- */
 
 let lastPointer = { x: 200, y: 200 };
@@ -595,6 +796,7 @@ const editor = { lastAction: null };   // for one-step undo
 
 function closePopover() {
   document.querySelector(".note-popover")?.remove();
+  virtualClearEditing();
 }
 
 function showNotePopover(note) {
@@ -618,6 +820,8 @@ function showNotePopover(note) {
   // alphaTab counts note.string from the LOWEST string; our loop (and
   // the tuning array) go from the highest — mirror before comparing
   const currentS = n - note.string + 1;
+  // second entry point: the same alternatives light up on the fretboard
+  virtualShowAlternatives(track.name, tuning, pitch, currentS, qticks);
   for (let s = 1; s <= n; s++) {
     const fret = pitch - tuning[s - 1];
     if (fret < 0 || fret > 24) continue;

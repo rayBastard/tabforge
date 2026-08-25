@@ -154,8 +154,43 @@ body {
   display: grid;
   grid-template-columns: 230px 1fr;
   gap: 0;
-  min-height: calc(100vh - 70px);
+  min-height: calc(100vh - 70px - 130px);   /* transport + virtual bar */
 }
+
+/* the virtual instrument bar: sticks to the bottom of the screen */
+.virtualbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  background: var(--plank);
+  border-top: 1px solid rgba(138,123,104,.35);
+  padding: 8px 18px 6px;
+}
+.virtualbar svg { display: block; width: 100%; height: 118px; }
+.virtualbar .v-string { stroke: rgba(138,123,104,.55); stroke-width: 1; }
+.virtualbar .v-fret { stroke: rgba(138,123,104,.4); stroke-width: 1; }
+.virtualbar .v-nut { stroke: var(--bone-dim); stroke-width: 3; }
+.virtualbar .v-marker { fill: rgba(138,123,104,.35); }
+.virtualbar .v-label { fill: var(--bone-dim); font: 10px var(--mono); }
+/* every playable position exists as an invisible dot; classes light it */
+.virtualbar .v-dot { opacity: 0; pointer-events: none; }
+.virtualbar .v-dot.live { opacity: 1; fill: var(--brass); }
+.virtualbar .v-dot.alt {
+  opacity: 1; fill: none; stroke: var(--brass); stroke-width: 2;
+  pointer-events: all; cursor: pointer;
+}
+.virtualbar .v-dot.alt:hover { fill: rgba(212,166,87,.35); }
+.virtualbar .v-dot.cur { opacity: 1; fill: var(--bone-dim); }
+.virtualbar .v-white { fill: #efe9dc; stroke: #b5ab99; }
+.virtualbar .v-black { fill: #3a332c; stroke: #26211c; }
+.virtualbar .v-white.live { fill: var(--brass); }
+.virtualbar .v-black.live { fill: var(--brass); }
+.virtualbar .v-pad { fill: rgba(138,123,104,.18);
+                     stroke: rgba(138,123,104,.5); rx: 8; }
+.virtualbar .v-pad.live { fill: var(--brass); }
+.virtualbar .v-pad-label { fill: var(--bone-dim); text-anchor: middle;
+                           font: 600 12px "Bricolage Grotesque", sans-serif; }
+.virtualbar .v-pad.live + .v-pad-label { fill: var(--wood); }
 @media (max-width: 760px) {
   .project-body { grid-template-columns: 1fr; }
   .tracklist { border-right: 0; border-bottom: 1px solid rgba(138,123,104,.28); }
