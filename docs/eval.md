@@ -168,7 +168,44 @@ integration (a TranscriptionBackend) is the next big task; the
 user's incoming real tracks with sheet music are its acceptance
 tests.
 
-## Golden fragments (real material) — TODO
+## THE GOLDEN STAND — 2026-08-26 (`scripts/eval_golden.py`)
+
+The user delivered the real thing: three tracks with per-instrument
+MIDI ground truth in "Tracks and midi/" — Hero of Mankind (full band,
+6.4 min, ~133 BPM, bass to B0), Loken (full band, TWO guitar parts,
+96 BPM, drop-A-territory bass), FulgrimUpd (the piano piece). MIDI
+spans match the audio; Suno's impossible key signatures (9 sharps) are
+neutralized in the loader.
+
+### Pipeline baseline (demucs, current defaults) — real numbers
+
+```
+inst     F1    oct   leak   confirms the user's ears
+guitar   0.24  0.16  0.46   Loken P=0.71 but R=0.17: right notes, 83% missed
+bass     0.34  0.44  0.59   the LOW-REGISTER octave disease is real here
+drums    0.38  0.03  0.10   P up to 0.76, R 0.39: misses hits, rarely wrong
+vocals   0.13  0.02  0.23   the semi-recitative barely transcribes
+synth    0.03  —     0.42   lands anywhere but home
+```
+
+### MT3 on golden: the hybrid narrows
+
+On heavy Suno metal the MT3 experiment LOSES as a transcriber —
+walls of distorted guitar are outside its world (Loken guitar: 12 est
+notes of 6890; bass 4-14 notes): guitar 0.24-vs-0.06, bass
+0.34-vs-0.01, drums 0.38-vs-0.29 in the pipeline's favor; vocals tie
+(0.13). Its virtues stay: near-zero leakage and truthful attribution
+(Fulgrim piano recognized as piano). Verdict: MT3's role shrinks to an
+instrument-presence arbiter (a stronger tagger), not a note source.
+
+### Octave double-pass, retested on real bass: still no
+
+Bass F1 0.34→0.33, oct 0.44→0.38 (Hero 0.64→0.50, Loken worse),
+guitar slightly down. Default stays OFF. The octave errors evidently
+come from the transcriber picking harmonics in the separated stem, not
+from frequency resolution — the untried lever is SUB-HARMONIC
+correction (if the stem holds more energy at f0/2 than at f0 at the
+note's time, drop the note an octave), next on the list.
 
 Now with real ground truth for one track: the user provided the
 actual sheet music for FulgrimUpd.wav — it is a PIANO piece (dense
