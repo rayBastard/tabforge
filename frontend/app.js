@@ -145,8 +145,30 @@ async function fetchLimits() {
   return serverLimits;
 }
 
+async function openProjectFile() {
+  goBtn.disabled = true;
+  neck.hidden = false;
+  neck.classList.add("playing");
+  setLog("Opening the project…");
+  const form = new FormData();
+  form.append("file", pickedFile);
+  try {
+    const res = await apiFetch("/api/projects", { method: "POST", body: form });
+    if (!res.ok) throw new Error(await errorDetail(res));
+    const { id } = await res.json();
+    activeJobId = id;
+    currentJobId = id;                 // the editor needs the job id
+    poll(id);                          // status is already "done"
+  } catch (err) {
+    fail(`Failed to open: ${err.message}`);
+  }
+}
+
 async function startAnalyze() {
   if (!pickedFile) return;
+  if (pickedFile.name.toLowerCase().endsWith(".tabforge")) {
+    return openProjectFile();          // a saved project, not audio
+  }
   // say no BEFORE uploading tens of megabytes, and say how much fits
   const limits = await fetchLimits();
   if (limits && pickedFile.size > limits.max_upload_mb * 1e6) {
@@ -357,6 +379,10 @@ function finish(job) {
     backingLink.hidden = true;
   }
   setupBackingPlayer(job.backing);
+
+  const saveLink = $("#saveLink");
+  saveLink.href = withToken(`/api/jobs/${job.id}/project`);
+  saveLink.hidden = false;
 
   if (!job.results.length) {
     setLog("Processing finished, but no notes were found. Try other stems.", true);

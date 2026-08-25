@@ -409,5 +409,102 @@ class TestCancel(ServerTestCase):
         self.assertFalse(T.abort_separation("missing"))
 
 
+try:
+    import guitarpro  # noqa: F401
+    HAVE_GP = True
+except ImportError:
+    HAVE_GP = False
+
+
+@unittest.skipUnless(HAVE_SERVER, "fastapi/httpx are not installed")
+class TestProjectRoundtrip(ServerTestCase):
+    """Save a project to one .tabforge file, open it back — the score
+    and the note editor must work with NO audio on disk."""
+
+    def _make_done_job(self):
+        import uuid as _uuid
+
+        from tabforge.core.fretboard import NoteEvent
+        from tabforge.pipeline import (AnalyzeResult, PipelineOptions,
+                                       _save_part_state)
+
+        job = srv.Job(id=_uuid.uuid4().hex[:12])
+        job.dir = srv.WORK_ROOT / job.id
+        out = job.dir / "out"
+        (out / "song").mkdir(parents=True)
+        (out / "guitar").mkdir()
+        notes = [NoteEvent(64, i * 0.3, 0.25) for i in range(4)]
+        _save_part_state(out, "guitar", notes, [], "standard", "guitar")
+        (out / "guitar" / "guitar.mid").write_bytes(b"MThd-dummy")
+        (out / "song" / "song.gp5").write_bytes(b"gp5-dummy")
+        job.analyzed = AnalyzeResult(
+            stems={}, analysis={}, bpm=120.0,
+            beats=[i * 0.5 for i in range(30)],
+            tempo_reliable=True, key=None)
+        job.opts = PipelineOptions(stems=("guitar",), tuning="standard",
+                                   subdivision=2)
+        job.results = [{
+            "stem": "guitar", "bpm": 120.0, "key": "unknown key",
+            "notes": 4, "ascii": "", "warnings": [], "tablature": True,
+            "files": {"mid": f"/api/jobs/{job.id}/files/guitar/guitar.mid"},
+        }]
+        job.song = f"/api/jobs/{job.id}/files/song/song.gp5"
+        job.status = "done"
+        job.finished_at = time.time()
+        srv.JOBS[job.id] = job
+        return job
+
+    def _roundtrip(self):
+        job = self._make_done_job()
+        res = self.client.get(f"/api/jobs/{job.id}/project")
+        self.assertEqual(res.status_code, 200)
+        res2 = self.client.post(
+            "/api/projects",
+            files={"file": ("song.tabforge", res.content,
+                            "application/octet-stream")})
+        self.assertEqual(res2.status_code, 200)
+        return res2.json()["id"]
+
+    def test_project_reopens_in_done_state(self):
+        new_id = self._roundtrip()
+        data = self.client.get(f"/api/jobs/{new_id}").json()
+        self.assertEqual(data["status"], "done")
+        self.assertEqual(data["results"][0]["notes"], 4)
+        mid = data["results"][0]["files"]["mid"]
+        self.assertIn(new_id, mid, "file URLs must point at the NEW job")
+        self.assertEqual(self.client.get(mid).status_code, 200)
+        self.assertIn(new_id, data["song"])
+
+    @unittest.skipUnless(HAVE_GP, "PyGuitarPro is not installed")
+    def test_editor_works_on_an_imported_project(self):
+        new_id = self._roundtrip()
+        res = self.client.post(f"/api/jobs/{new_id}/repin",
+                               json={"part": "guitar", "qticks": 0,
+                                     "pitch": 64, "string": 3})
+        self.assertEqual(res.status_code, 200,
+                         f"repin must work without audio: {res.text}")
+
+    def test_traversal_member_is_rejected(self):
+        import io
+        import zipfile
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr(srv.PROJECT_META, "{}")
+            z.writestr("../evil.txt", "boo")
+        res = self.client.post(
+            "/api/projects",
+            files={"file": ("bad.tabforge", buf.getvalue(),
+                            "application/octet-stream")})
+        self.assertEqual(res.status_code, 422)
+
+    def test_garbage_archive_is_422(self):
+        res = self.client.post(
+            "/api/projects",
+            files={"file": ("bad.tabforge", b"not a zip at all",
+                            "application/octet-stream")})
+        self.assertEqual(res.status_code, 422)
+
+
 if __name__ == "__main__":
     unittest.main()

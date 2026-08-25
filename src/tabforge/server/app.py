@@ -34,10 +34,11 @@ from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from ..audio.keydetect import Key
 from ..audio.transcribe import abort_separation
 from ..core.fretboard import TUNINGS
-from ..pipeline import (STAGES, PipelineOptions, apply_repin, run_analyze,
-                        run_transcribe)
+from ..pipeline import (STAGES, AnalyzeResult, PipelineOptions, apply_repin,
+                        run_analyze, run_transcribe)
 
 if getattr(sys, "frozen", False):
     # PyInstaller bundle: data files are unpacked next to the binary
@@ -445,6 +446,134 @@ async def job_file(job_id: str, stem: str, name: str) -> FileResponse:
     if not path.is_file() or job.dir.resolve() not in path.parents:
         raise HTTPException(404, "File not found")
     return FileResponse(path, filename=name)
+
+
+# ---------------------------------------------------------------------------
+# Project save/load: one .tabforge archive — everything except the audio.
+# The note editor works from parts.json + the saved beat grid, so an
+# imported project is fully editable with no stems on disk.
+# ---------------------------------------------------------------------------
+
+PROJECT_META = "tabforge-project.json"
+PROJECT_FORMAT = 1
+
+
+@app.get("/api/jobs/{job_id}/project")
+async def export_project(job_id: str):
+    import json
+    import zipfile
+
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    with job.lock:
+        if job.status != "done" or job.analyzed is None:
+            raise HTTPException(409, "Transcribe first, then save")
+        results = [dict(r) for r in job.results]
+    a, o = job.analyzed, job.opts
+    meta = {
+        "format": PROJECT_FORMAT,
+        "name": job.audio.stem if job.audio else "project",
+        "bpm": a.bpm, "beats": list(a.beats),
+        "tempo_reliable": a.tempo_reliable,
+        "key": ({"tonic": a.key.tonic, "minor": a.key.minor,
+                 "correlation": a.key.correlation} if a.key else None),
+        "opts": {"stems": list(o.stems), "tuning": o.tuning,
+                 "subdivision": o.subdivision,
+                 "beats_per_measure": o.beats_per_measure,
+                 "split_guitars": o.split_guitars},
+        "results": results,
+    }
+    out = job.dir / "out"
+    path = job.dir / "project.tabforge"
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        for p in sorted(out.rglob("*")):
+            if p.is_dir():
+                continue
+            rel = p.relative_to(out)
+            if rel.parts[0] == "stems" or p.name.startswith("_analyze_"):
+                continue                      # audio stays out: too heavy
+            z.write(p, str(rel))
+        z.writestr(PROJECT_META, json.dumps(meta))
+    return FileResponse(path, filename=f"{meta['name']}.tabforge")
+
+
+def _remap_file_urls(results: list[dict], job_id: str) -> list[dict]:
+    """Saved download URLs carry the OLD job id — rebuild them."""
+    out = []
+    for r in results:
+        r = dict(r)
+        files = {}
+        for ext, url in (r.get("files") or {}).items():
+            tail = url.split("/files/", 1)
+            if len(tail) == 2:
+                files[ext] = f"/api/jobs/{job_id}/files/{tail[1]}"
+        r["files"] = files
+        out.append(r)
+    return out
+
+
+@app.post("/api/projects")
+async def import_project(file: UploadFile) -> dict:
+    """Open a saved .tabforge: the job comes back in 'done' state, score
+    and note editor fully working — re-transcribing needs the audio."""
+    import json
+    import zipfile
+
+    cleanup_jobs()
+    if not _evict_for_capacity():
+        raise HTTPException(429, "The server is at its job limit right now")
+
+    job = Job(id=uuid.uuid4().hex[:12])
+    job.dir = WORK_ROOT / job.id
+    job.dir.mkdir(parents=True)
+    archive = job.dir / "import.tabforge"
+    try:
+        await _save_upload(file, archive)
+        out = job.dir / "out"
+        with zipfile.ZipFile(archive) as z:
+            names = z.namelist()
+            if PROJECT_META not in names:
+                raise HTTPException(422, "Not a TabForge project file")
+            for member in names:
+                target = (out / member).resolve()
+                if not str(target).startswith(str(out.resolve())):
+                    raise HTTPException(422, "Malformed project archive")
+            z.extractall(out)
+        meta = json.loads((out / PROJECT_META).read_text())
+        if meta.get("format") != PROJECT_FORMAT:
+            raise HTTPException(422, "Unsupported project version")
+
+        k = meta.get("key")
+        job.analyzed = AnalyzeResult(
+            stems={}, analysis={}, bpm=float(meta["bpm"]),
+            beats=[float(t) for t in meta["beats"]],
+            tempo_reliable=bool(meta.get("tempo_reliable", True)),
+            key=Key(k["tonic"], k["minor"], k["correlation"]) if k else None)
+        mo = meta["opts"]
+        job.opts = PipelineOptions(
+            stems=tuple(mo["stems"]), tuning=mo["tuning"],
+            subdivision=int(mo["subdivision"]),
+            beats_per_measure=int(mo.get("beats_per_measure", 4)),
+            split_guitars=bool(mo.get("split_guitars", False)))
+        job.results = _remap_file_urls(meta.get("results", []), job.id)
+        if (out / "backing" / "backing.wav").is_file():
+            job.backing = f"/api/jobs/{job.id}/files/backing/backing.wav"
+        if (out / "song" / "song.gp5").is_file():
+            job.song = f"/api/jobs/{job.id}/files/song/song.gp5"
+        job.status = "done"
+        job.stage = "done"
+        job.finished_at = time.time()
+        job.log.append(f"project '{meta.get('name', 'project')}' opened")
+    except HTTPException:
+        shutil.rmtree(job.dir, ignore_errors=True)
+        raise
+    except (zipfile.BadZipFile, KeyError, ValueError, TypeError) as e:
+        shutil.rmtree(job.dir, ignore_errors=True)
+        raise HTTPException(422, f"Broken project file ({e})")
+
+    JOBS[job.id] = job
+    return {"id": job.id}
 
 
 @app.get("/api/tunings")

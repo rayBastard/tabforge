@@ -26,9 +26,10 @@
 
   <div class="start-panel">
     <label class="drop" id="drop">
-      <input type="file" id="file" accept="audio/*" hidden>
+      <input type="file" id="file" accept="audio/*,.tabforge" hidden>
       <span class="drop-title">Drop a track here</span>
-      <span class="drop-sub">or click to choose · mp3 / wav / flac</span>
+      <span class="drop-sub">or click to choose · mp3 / wav / flac ·
+        or open a saved .tabforge project</span>
       <span class="drop-name" id="fileName"></span>
     </label>
 
@@ -83,6 +84,8 @@
             title="Play the backing track (the stems you didn't pick)">♫ backing</button>
     <a id="backingLink" class="backing" download hidden
        title="Download the backing track">⬇</a>
+    <a id="saveLink" class="backing" download hidden
+       title="Save the project as one file (open it later from the start screen)">💾 save</a>
   </header>
 
   <!-- the virtual instrument: fretboard / keyboard / drum pads for the
