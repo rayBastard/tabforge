@@ -86,6 +86,13 @@ def _run(job: Job, audio: Path, opts: PipelineOptions) -> None:
         with job.lock:
             job.status = "error"
             job.error = str(e)
+    finally:
+        # Whatever escaped above (BaseException included), a job must
+        # never be left in "running" — the frontend would poll forever.
+        with job.lock:
+            if job.status == "running":
+                job.status = "error"
+                job.error = job.error or "job crashed unexpectedly"
 
 
 @app.post("/api/jobs")

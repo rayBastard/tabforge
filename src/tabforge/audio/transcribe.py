@@ -9,6 +9,8 @@ The chain:
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 from ..core.fretboard import NoteEvent
@@ -20,14 +22,24 @@ SIX_STEMS = ("drums", "bass", "other", "vocals", "guitar", "piano")
 def separate_stems(audio: Path, out_dir: Path, model: str = "htdemucs_6s") -> dict[str, Path]:
     """Splits the mix into stems. Returns {stem_name: wav_path}.
 
-    Runs demucs in-process rather than via `sys.executable -m demucs`:
-    inside a PyInstaller bundle sys.executable is the app itself and
-    cannot run modules.
+    demucs runs strictly in a subprocess: in-process it reports failure
+    via sys.exit(), and SystemExit inherits from BaseException, sailing
+    past every `except Exception` up the stack. In a PyInstaller bundle
+    sys.executable cannot run `-m demucs`, so the frozen app re-invokes
+    itself with a --demucs-worker sentinel (dispatched by the entry
+    script) instead.
     """
-    from demucs.separate import main as demucs_main
-
     out_dir.mkdir(parents=True, exist_ok=True)
-    demucs_main(["-n", model, "-o", str(out_dir), str(audio)])
+    demucs_args = ["-n", model, "-o", str(out_dir), str(audio)]
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, "--demucs-worker", *demucs_args]
+    else:
+        cmd = [sys.executable, "-m", "demucs", *demucs_args]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        tail = "\n".join((proc.stderr or "").strip().splitlines()[-5:])
+        raise RuntimeError(
+            f"demucs failed with exit code {proc.returncode}:\n{tail}")
 
     stem_dir = out_dir / model / audio.stem
     return {p.stem: p for p in stem_dir.glob("*.wav")}
