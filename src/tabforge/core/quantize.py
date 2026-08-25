@@ -45,7 +45,8 @@ def quantize(notes: list[NoteEvent], grid: Grid,
         start = n.start + (snapped - n.start) * strength
         _, snapped_end = grid.snap(n.end)
         duration = max(snapped_end - start, _tick_len(grid))
-        out.append(NoteEvent(n.pitch, start, duration, n.velocity))
+        out.append(NoteEvent(n.pitch, start, duration, n.velocity,
+                             list(n.bends)))
     return out
 
 

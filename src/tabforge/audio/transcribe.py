@@ -67,15 +67,17 @@ def transcribe_stem(
         melodia_trick=True,
     )
 
-    notes = [
-        NoteEvent(
+    # Basic Pitch expresses pitch bends in contour bins, 3 bins = 1 semitone.
+    notes = []
+    for start, end, pitch, amplitude, *rest in note_events:
+        bend_bins = rest[0] if rest and rest[0] is not None else []
+        notes.append(NoteEvent(
             pitch=int(pitch),
             start=float(start),
             duration=max(float(end) - float(start), 0.02),
             velocity=max(1, min(127, int(amplitude * 127))),
-        )
-        for start, end, pitch, amplitude, *_ in note_events
-    ]
+            bends=[float(b) / 3.0 for b in bend_bins],
+        ))
     return sorted(notes, key=lambda n: (n.start, n.pitch))
 
 

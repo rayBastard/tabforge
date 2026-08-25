@@ -33,6 +33,9 @@ class NoteEvent:
     start: float        # seconds
     duration: float     # seconds
     velocity: int = 96
+    # semitone deviations from the nominal pitch, one per analysis frame
+    # (empty when the transcriber provides no pitch-bend data)
+    bends: list[float] = field(default_factory=list)
 
     @property
     def end(self) -> float:
