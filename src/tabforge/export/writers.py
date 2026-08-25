@@ -54,9 +54,24 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
         for i in range(n_strings)
     ]
 
+    def _pad_empty_voices() -> None:
+        # Guitar Pro never writes a voice with zero beats: unused measures
+        # carry a whole-measure rest (voice 1) or an empty beat (voice 2).
+        # alphaTab's importer/renderer crashes on truly empty voices.
+        for tr in song.tracks:
+            for measure in tr.measures:
+                for vi, voice in enumerate(measure.voices[:2]):
+                    if not voice.beats:
+                        pad = gp.Beat(voice)
+                        pad.status = (gp.BeatStatus.rest if vi == 0
+                                      else gp.BeatStatus.empty)
+                        pad.duration = gp.Duration(value=1)
+                        voice.beats.append(pad)
+
     quarter = 60.0 / bpm
     measure_len = quarter * beats_per_measure
     if not shapes:
+        _pad_empty_voices()
         gp.write(song, str(path))
         return
 
@@ -94,6 +109,7 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
             beat.notes.append(note)
         voice.beats.append(beat)
 
+    _pad_empty_voices()
     gp.write(song, str(path))
 
 

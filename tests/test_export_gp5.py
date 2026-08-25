@@ -23,7 +23,10 @@ def _roundtrip(shapes, cfg, **kwargs):
         song = gp.parse(str(path))
     track = song.tracks[0]
     string_value = {s.number: s.value for s in track.strings}
-    beats = [b for m in track.measures for v in m.voices for b in v.beats]
+    all_beats = [b for m in track.measures for v in m.voices for b in v.beats]
+    # rest/empty padding beats carry no notes; the note-bearing ones are
+    # what the melodic assertions care about
+    beats = [b for b in all_beats if b.notes]
     pitches = [string_value[n.string] + n.value for b in beats for n in b.notes]
     return track, beats, pitches
 
@@ -59,6 +62,23 @@ class TestGp5Roundtrip(unittest.TestCase):
         _, beats, pitches = _roundtrip(shapes, self.cfg, bpm=120.0)
         self.assertEqual(len(beats), 1)
         self.assertEqual(Counter(pitches), Counter(chord))
+
+    def test_no_empty_voices(self):
+        # A line starting late leaves leading measures without notes; Guitar
+        # Pro pads such voices with rests and alphaTab crashes without them.
+        import guitarpro as gp
+        from tabforge.export.writers import export_gp5
+
+        notes = [NoteEvent(60, 20.0 + i * 0.5, 0.4) for i in range(4)]
+        shapes = assign_tab(notes, self.cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "late.gp5"
+            export_gp5(shapes, path, self.cfg, bpm=120.0)
+            song = gp.parse(str(path))
+        for m in song.tracks[0].measures:
+            for voice in m.voices[:2]:
+                self.assertGreaterEqual(len(voice.beats), 1,
+                                        f"measure {m.number} has an empty voice")
 
     def test_bass_tuning(self):
         cfg = TabConfig(tuning=TUNINGS["bass_4"], max_fret=20)
