@@ -193,8 +193,11 @@ body {
 .virtualbar .v-dot.alt:hover { fill: rgba(212,166,87,.35); }
 .virtualbar .v-dot.cur { opacity: 1; fill: var(--bone-dim); }
 .virtualbar .v-dot.live { pointer-events: all; cursor: pointer; }
-.virtualbar .v-note-name { fill: var(--bone); text-anchor: middle;
-                           font: 600 9px var(--mono); pointer-events: none; }
+.virtualbar .v-note-name { fill: var(--wood); text-anchor: middle;
+                           font: 800 11px "Bricolage Grotesque", sans-serif;
+                           pointer-events: none; }
+.virtualbar .v-open { fill: var(--bone-dim); text-anchor: start;
+                      font: 700 10px var(--mono); }
 .virtualbar .v-chord { fill: var(--brass); text-anchor: end;
                        font: 600 14px "Bricolage Grotesque", sans-serif; }
 .virtualbar .v-white { fill: #efe9dc; stroke: #b5ab99; }

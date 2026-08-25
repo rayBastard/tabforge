@@ -215,10 +215,6 @@ async function startTranscribe() {
         stems: picked,
         tuning: tuningSel ? tuningSel.value : "standard",
         subdivision: parseInt($("#instPrecision")?.value || "2", 10),
-        treat: Object.fromEntries(
-          [...document.querySelectorAll(".inst-treat")]
-            .filter((s) => s.value !== s.dataset.def)
-            .map((s) => [s.dataset.stem, s.value])),
       }),
     });
     if (!res.ok) throw new Error(await errorDetail(res));
@@ -247,26 +243,18 @@ const GUITAR_TUNINGS = [
   ["drop_a", "Drop A (6-string)"],
   ["seven_string", "7-string · B standard"],
   ["seven_drop_a", "7-string · Drop A"],
-  ["eight_string", "8-string · F♯ standard"],
   ["dadgad", "DADGAD"],
   ["open_g", "Open G"],
 ];
 
 // what the tagger SHOULD hear per stem; a miss means demucs put
-// something else in there and "treat as" deserves a look
+// something else in there
 const EXPECTED_SOUND = {
   guitar: ["guitar", "banjo", "ukulele", "mandolin"],
   bass: ["bass", "guitar"],
   piano: ["piano", "keyboard", "organ", "harpsichord", "celesta"],
   vocals: ["sing", "choir", "vocal", "speech", "chant", "yodel"],
 };
-const TREAT_ROLES = [
-  ["guitar", "Guitar — tablature"],
-  ["piano", "Keys — notation"],
-  ["vocals", "Voice — notation"],
-];
-const DEFAULT_ROLE = { guitar: "guitar", piano: "piano", vocals: "vocals",
-                       other: "guitar" };
 
 function showInstruments(job) {
   currentJobId = job.id;
@@ -298,27 +286,9 @@ function showInstruments(job) {
       const p = document.createElement("p");
       p.className = "inst-note" + (off ? "" : " inst-heard");
       p.textContent = off
-        ? `⚠ sounds like ${heard.toLowerCase()} — check "treat as" below`
+        ? `⚠ sounds like ${heard.toLowerCase()}`
         : `sounds like: ${a.sounds_like.join(", ").toLowerCase()}`;
       box.appendChild(p);
-    }
-    // role override: how this stem should be WRITTEN
-    if (a.stem in DEFAULT_ROLE && a.status !== "absent") {
-      const def = DEFAULT_ROLE[a.stem];
-      const wrap = document.createElement("div");
-      wrap.className = "inst-tuning";
-      const sel = document.createElement("select");
-      sel.className = "inst-treat";
-      sel.dataset.stem = a.stem;
-      sel.dataset.def = def;
-      for (const [value, label] of TREAT_ROLES) {
-        const o = document.createElement("option");
-        o.value = value; o.textContent = label;
-        o.selected = value === def;
-        sel.appendChild(o);
-      }
-      wrap.append("treat as: ", sel);
-      box.appendChild(wrap);
     }
 
     if (a.stem === "guitar" && a.status !== "absent") hasGuitar = true;
@@ -808,9 +778,14 @@ function buildFretboard(bar, tuning) {
     svg.appendChild(svgEl("line", { x1: 20, x2: W - 5,
                                     y1: sy(row), y2: sy(row),
                                     class: "v-string" }));
+    // the tuning at the nut: which note the OPEN string is
+    const open = svgEl("text", { x: 2, y: sy(row) + 3.5,
+                                 class: "v-open" });
+    open.textContent = NOTE_LETTERS[tuning[row] % 12];
+    svg.appendChild(open);
     const dots = [];
     for (let f = 0; f <= MAX_VFRET; f++) {
-      const c = svgEl("circle", { cx: fx(f), cy: sy(row), r: 6,
+      const c = svgEl("circle", { cx: fx(f), cy: sy(row), r: 7,
                                   class: "v-dot" });
       c.dataset.s = row + 1;                    // string 1..n from the top
       svg.appendChild(c);
@@ -926,9 +901,9 @@ function virtualLiveHighlight(notes) {
       const row = virtual.tuning.length - note.string;   // alphaTab: 1=low
       const fret = note.fret;
       el = virtual.fretEls[row]?.[Math.min(fret, MAX_VFRET)];
-      if (el && virtual.labelLayer) {   // note letter above the dot
+      if (el && virtual.labelLayer) {   // a BIG letter riding the dot
         const t = svgEl("text", { x: el.getAttribute("cx"),
-                                  y: el.getAttribute("cy") - 8,
+                                  y: parseFloat(el.getAttribute("cy")) + 3.5,
                                   class: "v-note-name" });
         t.textContent = NOTE_LETTERS[note.realValue % 12];
         virtual.labelLayer.appendChild(t);

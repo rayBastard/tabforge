@@ -42,6 +42,19 @@ def export_midi(shapes: Sequence[Shape], path: Path, program: int = 25,
     pm.write(str(path))
 
 
+def _write_atomic(gp, song, path: Path) -> None:
+    """gp.write raises MID-FILE on bad input, leaving a truncated score
+    that the player silently chokes on — write a sibling temp file and
+    rename only on success, so a failed export leaves nothing behind."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        gp.write(song, str(tmp))
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+    tmp.replace(path)
+
+
 @dataclass(slots=True)
 class SongPart:
     """One instrument of a multi-track score."""
@@ -93,6 +106,14 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
     track gets its profile's MIDI program on its own channel pair.
     """
     import guitarpro as gp
+
+    for part in parts:
+        if len(part.cfg.tuning) > 7:
+            # gp5 keeps string flags in one 7-bit byte: an 8-string
+            # would corrupt the file mid-write — refuse loudly instead
+            raise ValueError(
+                f"{part.name}: gp5 stores at most 7 strings, "
+                f"got {len(part.cfg.tuning)}")
 
     song = gp.Song()
     song.title = title
@@ -316,7 +337,7 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
         for header in song.measureHeaders:
             _apply_time_signature(header)
         _pad_empty_voices()
-        gp.write(song, str(path))
+        _write_atomic(gp, song, path)
         return
 
     n_measures = last_slot // slots_per_measure + 1
@@ -368,7 +389,7 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
             _fill_rests(voice, slots_per_measure - cursor)
 
     _pad_empty_voices()
-    gp.write(song, str(path))
+    _write_atomic(gp, song, path)
 
 
 def export_musicxml(shapes: Sequence[Shape], path: Path, bpm: float = 120.0,

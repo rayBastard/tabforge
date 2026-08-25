@@ -28,9 +28,10 @@ TUNINGS: dict[str, tuple[int, ...]] = {
     "drop_a": (33, 40, 45, 50, 54, 59),        # 6-string drop A
     "dadgad": (38, 45, 50, 55, 57, 62),
     "open_g": (38, 43, 50, 55, 59, 62),
+    # 7 strings is the CEILING: the gp5 format keeps string flags in
+    # one byte with 7 usable bits — an 8-string cannot be written
     "seven_string": (35, 40, 45, 50, 55, 59, 64),   # 7-string B standard
     "seven_drop_a": (33, 40, 45, 50, 55, 59, 64),
-    "eight_string": (30, 35, 40, 45, 50, 55, 59, 64),  # F#1 standard
     "bass_4": (28, 33, 38, 43),                # E1 A1 D2 G2
     "bass_5": (23, 28, 33, 38, 43),
     "ukulele": (67, 60, 64, 69),

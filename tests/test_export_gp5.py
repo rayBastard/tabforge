@@ -464,6 +464,22 @@ class TestGp5Roundtrip(unittest.TestCase):
         g_notes = [n for _, b in self._flat_beats(g) for n in b.notes]
         self.assertFalse(any(n.effect.letRing for n in g_notes))
 
+    def test_eight_strings_refused_loudly_and_atomically(self):
+        from tabforge.core.instruments import profile_for
+        from tabforge.export.writers import SongPart, export_song_gp5
+
+        cfg = TabConfig(tuning=(30, 35, 40, 45, 50, 55, 59, 64),
+                        max_fret=24)
+        notes = [NoteEvent(40, 0.0, 0.4)]
+        part = SongPart("g8", assign_tab(notes, cfg), cfg,
+                        profile_for("guitar"))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "song.gp5"
+            with self.assertRaises(ValueError):
+                export_song_gp5([part], path, bpm=120.0)
+            self.assertFalse(path.exists(),
+                             "a refused export must leave NO file")
+
     def test_melodic_channels_never_collide_with_percussion(self):
         import guitarpro as gp
         from tabforge.core.instruments import profile_for

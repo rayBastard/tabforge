@@ -168,8 +168,9 @@ class TestTuningCatalog(unittest.TestCase):
         self.assertEqual(suggest_tuning("guitar", 40), "standard")
         self.assertEqual(suggest_tuning("guitar", 38), "drop_d")
         self.assertEqual(suggest_tuning("guitar", 36), "drop_c")
-        # drop A territory is 7-string territory, as players expect
+        # drop A territory is 7-string territory, as players expect;
+        # anything lower clamps there — gp5 cannot write an 8th string
         self.assertEqual(suggest_tuning("guitar", 33), "seven_drop_a")
-        self.assertEqual(suggest_tuning("guitar", 31), "eight_string")
-        self.assertEqual(suggest_tuning("guitar", 25), "eight_string")
+        self.assertEqual(suggest_tuning("guitar", 31), "seven_drop_a")
+        self.assertEqual(suggest_tuning("guitar", 25), "seven_drop_a")
         self.assertEqual(suggest_tuning("bass", 27), "bass_5")

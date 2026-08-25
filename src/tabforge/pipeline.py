@@ -130,7 +130,7 @@ def choose_tempo_source(stems: dict[str, Path], mix: Path,
 _GUITAR_LADDER = (
     (40, "standard"), (39, "eb_standard"), (38, "drop_d"),
     (37, "drop_db"), (36, "drop_c"), (35, "drop_b"),
-    (34, "drop_bb"), (33, "seven_drop_a"), (30, "eight_string"),
+    (34, "drop_bb"), (33, "seven_drop_a"),
 )
 
 
@@ -140,11 +140,11 @@ def suggest_tuning(stem: str, min_pitch: int | None) -> str | None:
     suggestion."""
     if min_pitch is None:
         return None
-    if stem.startswith("guitar") or stem == "other":
+    if stem.startswith("guitar"):
         for low, name in _GUITAR_LADDER:
             if min_pitch >= low:
                 return name
-        return "eight_string"
+        return "seven_drop_a"     # the lowest gp5 can express
     if stem == "bass":
         return "bass_4" if min_pitch >= 28 else "bass_5"
     return None
@@ -178,13 +178,24 @@ def _quick_note_stats(wav: Path, stem: str, work_dir: Path,
         else 10 if stem == "piano" else 6)
     if not notes:
         return 0, None, None
-    # ROBUST range: a single ghost note an octave below the riff must
-    # not drive the tuning suggestion (one stray 27 turned a drop-A
-    # seven-string into an 8-string suggestion). The extremes must
-    # repeat — at least 2% of the notes (min 3) at or beyond them.
-    pitches = sorted(n.pitch for n in notes)
-    need = min(max(3, len(pitches) // 50), len(pitches))
-    return len(notes), pitches[need - 1], pitches[-need]
+    # ROBUST range: a real lowest note is a note the part actually
+    # PLAYS — the riff hammers its root at one pitch again and again
+    # (drop-A material: A1 dozens of times), while transcription ghosts
+    # and bleed scatter across many pitches with a few hits each. The
+    # extreme pitches must individually repeat: at least 1% of the
+    # notes (min 3) AT that exact pitch.
+    from collections import Counter
+    hist = Counter(n.pitch for n in notes)
+    need = max(3, len(notes) // 100)
+
+    def robust(ordered) -> int:
+        for p in ordered:
+            if hist[p] >= need:
+                return p
+        return ordered[0]
+
+    pitches = sorted(hist)
+    return len(notes), robust(pitches), robust(pitches[::-1])
 
 
 RMS_FOUND = 0.005      # same threshold family as stem_is_audible
@@ -334,10 +345,13 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
             progress("transcribe", f"{name}: no notes found, skipped")
             continue
 
-        # the user can overrule demucs' idea of a stem's role: an
-        # orchestral line in the "guitar" stem deserves notation
+        # a stem's ROLE decides how it is written. "other" is whatever
+        # demucs could not name — strings, synths, brass — and none of
+        # that has frets: it always reads as notation (keys profile).
+        # opts.treat can still overrule per stem (CLI / saved projects).
         def role_of(nm: str) -> str:
-            return opts.treat.get(nm, nm)
+            default = "piano" if nm == "other" else nm
+            return opts.treat.get(nm, default)
 
         stem_profile = profile_for(role_of(name))
         if stem_profile.chord_gather_window > 0:
