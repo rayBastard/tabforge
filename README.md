@@ -8,10 +8,12 @@ One codebase — three platforms: laptop, browser, mobile.
 ```bash
 docker compose up -d --build      # 1. build & start
 open http://localhost:8000        # 2. open the app
-#                                   3. drop a track, press "Transcribe to tab"
+#                                   3. drop a track — it gets analyzed,
+#                                      you pick the instruments, and the
+#                                      project opens as a playable score
 ```
 
-![TabForge with a transcribed track](docs/screenshot-main.png)
+![The TabForge project screen](docs/screenshot-main.png)
 
 No Docker? Grab **TabForge.app** from the
 [latest release](https://github.com/rayBastard/tabforge/releases/latest)
@@ -120,6 +122,35 @@ opens standalone with the lamp icon.
 Remaining tail as an issue: vendoring alphaTab + the soundfont for a
 fully offline PWA (#8).
 
+### Phase 7 — the project player ✅ (done)
+- [x] two-step flow: the track is separated and **analyzed** first —
+      each instrument card shows whether it sounds at all
+      (found / quiet / absent), its note range, and a suggested tuning
+      (a D2 low note suggests drop D; a bass below E1 hints at a
+      5-string) — then only the instruments you pick are transcribed,
+      from the cached stems; changing the selection never re-runs demucs
+- [x] instrument profiles: keys and vocals are notation-only (no bends,
+      slides, or hammer-ons — legato becomes a slur), every track plays
+      with its own MIDI program, rolled piano chords are gathered back
+      into real chords
+- [x] tick-based gp5 export: note positions ride the detected beat
+      grid, so a Suno track whose tempo breathes no longer drifts into
+      wrong measures
+- [x] backing track mixed from the stems you did NOT pick — practice
+      over the rest of the band
+- [x] the project screen: transport bar, track list with per-track
+      **mute/solo**, and ONE multi-track score (a single alphaTab
+      instance with a playback cursor) instead of per-stem fragments
+- [x] the note editor: click any note, pick the string/fret it should
+      live on — the fingering search re-arranges the surrounding notes
+      around your pin; one-step undo
+- [x] drum track: percussion is transcribed by onsets + spectral kit
+      classification (kick / snare / hi-hat / tom / crash), rendered as
+      a percussion staff (GM channel 10) in the project score, with a
+      K/S/H ASCII grid and its own .gp5/.mid downloads
+
+![Analyze step: instrument cards](docs/screenshot-start.png)
+
 ## Installation (development)
 
 ```bash
@@ -138,7 +169,7 @@ python -m tabforge.desktop
 uvicorn tabforge.server.app:app --port 8000   # open http://localhost:8000
 
 # console, no UI
-tabforge song.mp3 --stems guitar bass --out ./result
+tabforge song.mp3 --stems guitar bass drums --out ./result
 
 # core tests (fast, no ML)
 python -m unittest discover -s tests
@@ -253,3 +284,7 @@ All behavior lives in `TabConfig` (`src/tabforge/core/fretboard.py`):
   do occur. The algorithm finds the closest playable one.
 - Tempo changes within a track are averaged for now (the grid assumes
   one tempo per track).
+- Drum transcription is a spectral heuristic, not a learned model: it
+  hears kick/snare/cymbal reliably, but a kick+hi-hat played together
+  classifies as the louder voice, and toms are easily mistaken for
+  either neighbor.

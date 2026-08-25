@@ -7,7 +7,7 @@
  */
 "use strict";
 
-const VERSION = "0.3.1-dev";
+const VERSION = "0.4.0";
 const CACHE = `tabforge-shell-${VERSION}`;
 const SHELL = [
   "/",
