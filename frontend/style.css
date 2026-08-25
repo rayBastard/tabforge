@@ -126,6 +126,29 @@ body {
 .project-meta { color: var(--wire); font-size: 13px;
                 font-family: "JetBrains Mono", monospace; }
 .transport-spacer { flex: 1; }
+.transport-pos { font-family: var(--mono); font-size: 13px;
+                 color: var(--bone-dim); margin-right: 12px;
+                 min-width: 90px; text-align: right; }
+
+/* instrument view tabs above the score */
+.score-tabs { display: flex; gap: 6px; flex-wrap: wrap;
+              margin: 0 0 10px; }
+.score-tabs button {
+  font: 600 13px/1 "Bricolage Grotesque", sans-serif;
+  color: var(--bone-dim); background: none;
+  border: 1px solid rgba(138,123,104,.4); border-radius: 6px 6px 0 0;
+  padding: 9px 16px; cursor: pointer;
+}
+.score-tabs button:hover { color: var(--bone); }
+.score-tabs button.active {
+  color: var(--wood); background: var(--brass); border-color: var(--brass);
+}
+
+/* alphaTab's playback cursor and note highlighting are bare divs and
+   svg classes — without author styles they are invisible */
+.at-cursor-bar { background: rgba(212,166,87,.12); }
+.at-cursor-beat { background: rgba(212,166,87,.85); width: 3px; }
+.at-highlight * { fill: #a86f1f; stroke: #a86f1f; }
 
 .project-body {
   display: grid;

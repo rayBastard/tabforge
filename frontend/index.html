@@ -72,6 +72,7 @@
     <span class="project-name" id="projectName">—</span>
     <span class="project-meta" id="projectMeta"></span>
     <span class="transport-spacer"></span>
+    <span class="transport-pos" id="transportPos"></span>
     <button id="undoBtn" class="transport-btn" hidden
             title="Undo the last note pin">↩</button>
     <button id="transportPlay" class="transport-btn play" disabled
@@ -85,6 +86,8 @@
   <div class="project-body">
     <aside class="tracklist" id="tracklist" aria-label="Instruments"></aside>
     <main class="score" id="scoreMain">
+      <nav id="scoreTabs" class="score-tabs" hidden
+           aria-label="Instrument view"></nav>
       <div id="unifiedScore" class="alphatab" hidden></div>
       <div id="results"></div>
     </main>

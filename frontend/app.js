@@ -409,12 +409,41 @@ function finish(job) {
 
 /* ---------- the unified project player (one alphaTab, all tracks) ---- */
 
-const unified = { api: null, armed: false, mixer: new Map() };
+const unified = { api: null, armed: false, mixer: new Map(), view: "all" };
 window._tf = unified;                 // exposed for tests
+
+function renderView() {
+  // one instrument per tab, or everything at once — display only:
+  // every track still SOUNDS, mute/solo stay in charge of the mix
+  const api = unified.api;
+  if (!api || !api.score) return;
+  const picked = unified.view === "all" ? api.score.tracks
+    : api.score.tracks.filter((t) => t.name === unified.view);
+  api.renderTracks(picked.length ? picked : api.score.tracks);
+  document.querySelectorAll("#scoreTabs button").forEach((b) =>
+    b.classList.toggle("active", b.dataset.view === unified.view));
+}
+
+function buildScoreTabs(job) {
+  const nav = $("#scoreTabs");
+  nav.innerHTML = "";
+  const views = [["all", "All"],
+                 ...job.results.map((r) => [r.stem, STEM_NAMES[r.stem] || r.stem])];
+  if (!job.results.some((r) => r.stem === unified.view)) unified.view = "all";
+  for (const [view, label] of views) {
+    const b = document.createElement("button");
+    b.dataset.view = view;
+    b.textContent = label;
+    b.addEventListener("click", () => { unified.view = view; renderView(); });
+    nav.appendChild(b);
+  }
+  nav.hidden = job.results.length < 2;
+}
 
 function initUnifiedScore(job) {
   const atEl = $("#unifiedScore");
   const playBtn = $("#transportPlay");
+  const posEl = $("#transportPos");
   if (!job.song || !window.alphaTab) {
     atEl.hidden = true;
     playBtn.disabled = true;
@@ -424,6 +453,7 @@ function initUnifiedScore(job) {
   const tabByName = Object.fromEntries(
     job.results.map((r) => [r.stem, r.tablature !== false]));
   unified.mixer.clear();
+  buildScoreTabs(job);
 
   const makeApi = (withPlayer) => {
     const api = new alphaTab.AlphaTabApi(atEl, {
@@ -444,8 +474,17 @@ function initUnifiedScore(job) {
           }
         }
       }
-      api.renderTracks(score.tracks);   // render ALL tracks together
+      posEl.textContent = `${score.masterBars.length} bars`;
+      renderView();                     // honors the selected tab
     });
+    if (withPlayer) {
+      // "where am I": the transport counts bars as playback advances
+      api.playedBeatChanged.on((beat) => {
+        if (!beat) return;
+        posEl.textContent =
+          `bar ${beat.voice.bar.index + 1} / ${api.score.masterBars.length}`;
+      });
+    }
     // the note editor: click a note, pick where it should live
     api.noteMouseDown.on((note) => showNotePopover(note));
     return api;
