@@ -1,125 +1,127 @@
 # TabForge
 
-Аудио (в том числе треки из Suno) → табулатура и ноты.
-Один код — три платформы: сегодня ноутбук, потом браузер, потом мобильные.
+Audio (including tracks from Suno) → tablature and sheet music.
+One codebase — three platforms: laptop today, then browser, then mobile.
 
-## Как это возможно
+## How it works
 
-Приложение — это локальный сервер (FastAPI) + веб-интерфейс.
-На ноутбуке интерфейс открывается в нативном окне (pywebview), в браузере —
-по адресу сервера, на телефоне — как PWA. Логика не переписывается ни разу.
+The app is a local server (FastAPI) + a web UI.
+On a laptop the UI opens in a native window (pywebview), in a browser —
+at the server's address, on a phone — as a PWA. The logic is never rewritten.
 
 ```
 ┌─────────────────────────── frontend/ ────────────────────────────┐
-│  один и тот же HTML/JS: окно на ноутбуке, вкладка, экран телефона │
+│  the same HTML/JS: window on a laptop, browser tab, phone screen  │
 └──────────────────────────────┬───────────────────────────────────┘
-                        HTTP (localhost или сеть)
+                        HTTP (localhost or network)
 ┌──────────────────────────────┴───────────────────────────────────┐
-│ server/   FastAPI: задачи, прогресс, выдача файлов                │
+│ server/   FastAPI: jobs, progress, file delivery                  │
 │ pipeline  Demucs → Basic Pitch → librosa → fretboard → export     │
-│ core/     аппликатура (Витерби по позициям руки) — ядро, 0 завис. │
+│ core/     fingering (Viterbi over hand positions) — core, 0 deps  │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-## План работ
+## Roadmap
 
-### Фаза 0 — каркас репозитория ✅ (готово)
-- [x] структура `src/`, `frontend/`, `tests/`
-- [x] `pyproject.toml` с extras: ядро ставится без ML-зависимостей
-- [x] CI на GitHub Actions (Python 3.10–3.12)
-- [x] MIT-лицензия, .gitignore
+### Phase 0 — repository skeleton ✅ (done)
+- [x] `src/`, `frontend/`, `tests/` structure
+- [x] `pyproject.toml` with extras: the core installs without ML dependencies
+- [x] CI on GitHub Actions (Python 3.10–3.12)
+- [x] MIT license, .gitignore
 
-### Фаза 1 — ядро ✅ (готово, 18 тестов)
-- [x] `core/fretboard.py`: нота → струна+лад. Витерби с состоянием
-      «аппликатура + позиция кисти». Проверено: гамма C-dur ложится
-      в первую позицию, аккорды Em/G/C/D — в открытые формы,
-      соло — в компактный бокс
-- [x] `core/quantize.py`: привязка к сетке долей, нотные длительности
-- [x] строи: стандарт, drop D, E♭, DADGAD, open G, бас 4/5, укулеле
+### Phase 1 — core ✅ (done, 18 tests)
+- [x] `core/fretboard.py`: note → string+fret. Viterbi with a
+      "fingering + hand position" state. Verified: the C major scale lands
+      in first position, Em/G/C/D chords in open shapes,
+      solos in a compact box
+- [x] `core/quantize.py`: snapping to the beat grid, note durations
+- [x] tunings: standard, drop D, E♭, DADGAD, open G, 4/5-string bass, ukulele
 
-### Фаза 2 — конвейер аудио 🔧 (код написан, нужен прогон)
-- [x] `audio/transcribe.py`: Demucs (партии) + Basic Pitch (ноты) + librosa (темп)
-- [x] `pipeline.py`: единый вызов для CLI/сервера/десктопа
-- [ ] **прогнать на реальном треке из Suno** ← вы здесь
-- [ ] подобрать пороги Basic Pitch под характер треков Suno
-- [ ] чистка призрачных обертонов: сейчас эвристика, можно умнее
+### Phase 2 — audio pipeline 🔧 (code written, needs a run)
+- [x] `audio/transcribe.py`: Demucs (stems) + Basic Pitch (notes) + librosa (tempo)
+- [x] `pipeline.py`: a single entry point for CLI/server/desktop
+- [ ] **run it on a real Suno track** ← you are here
+- [ ] tune Basic Pitch thresholds for the character of Suno tracks
+- [ ] ghost-overtone cleanup: currently a heuristic, could be smarter
 
-### Фаза 3 — экспорт 🔧 (код написан, нужна проверка)
-- [x] MIDI, ASCII-таб
-- [x] .gp5 (PyGuitarPro) — **проверить открытие в Guitar Pro/TuxGuitar**,
-      библиотека капризна к структуре Beat/Voice
-- [x] MusicXML (music21) для MuseScore
-- [ ] знаки при ключе (нужно определение тональности)
-- [ ] приёмы: hammer-on/pull-off, слайды, бенды из pitch-bend данных
+### Phase 3 — export 🔧 (code written, needs verification)
+- [x] MIDI, ASCII tab
+- [x] .gp5 (PyGuitarPro) — **verify it opens in Guitar Pro/TuxGuitar**,
+      the library is picky about the Beat/Voice structure
+- [x] MusicXML (music21) for MuseScore
+- [ ] key signatures (needs key detection)
+- [ ] techniques: hammer-on/pull-off, slides, bends from pitch-bend data
 
-### Фаза 4 — приложение для ноутбука 🔧 (код написан)
-- [x] сервер: POST /api/jobs, прогресс, скачивание файлов
-- [x] интерфейс: загрузка, прогресс «по грифу», ASCII-таб,
-      рендер нот+табов через alphaTab из .gp5
-- [x] `desktop.py`: нативное окно (pywebview)
-- [ ] проверить end-to-end
-- [ ] сборка в один файл: `pyinstaller --onefile -n TabForge src/tabforge/desktop.py`
-      (модели Demucs скачиваются при первом запуске в `~/.cache`)
+### Phase 4 — laptop app 🔧 (code written)
+- [x] server: POST /api/jobs, progress, file download
+- [x] UI: upload, "fretboard-style" progress, ASCII tab,
+      notes+tabs rendering via alphaTab from .gp5
+- [x] `desktop.py`: native window (pywebview)
+- [ ] verify end-to-end
+- [ ] single-file build: `pyinstaller --onefile -n TabForge src/tabforge/desktop.py`
+      (Demucs models are downloaded on first run into `~/.cache`)
 
-### Фаза 5 — браузер
-- [ ] задеплоить сервер (нужен GPU-хостинг или терпение на CPU)
-- [ ] очередь задач вместо ThreadPool (например, arq/Celery)
-- [ ] лимиты на размер файла и время
+### Phase 5 — browser
+- [ ] deploy the server (needs GPU hosting or patience on CPU)
+- [ ] a job queue instead of ThreadPool (e.g. arq/Celery)
+- [ ] limits on file size and processing time
 
-### Фаза 6 — мобильные
-- [ ] PWA-манифест + офлайн-оболочка (интерфейс уже адаптивный)
-- [ ] вариант «всё на сервере, телефон — только клиент» работает сразу
+### Phase 6 — mobile
+- [ ] PWA manifest + offline shell (the UI is already responsive)
+- [ ] the "everything on the server, the phone is just a client" option works right away
 
-## Установка (разработка)
+## Installation (development)
 
 ```bash
-git clone https://github.com/<ваш-ник>/tabforge && cd tabforge
+git clone https://github.com/<your-username>/tabforge && cd tabforge
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[all]"
 ```
 
-## Запуск
+## Running
 
 ```bash
-# приложение (нативное окно)
+# the app (native window)
 python -m tabforge.desktop
 
-# то же, но в браузере
-uvicorn tabforge.server.app:app --port 8000   # открыть http://localhost:8000
+# the same, but in a browser
+uvicorn tabforge.server.app:app --port 8000   # open http://localhost:8000
 
-# консоль, без интерфейса
+# console, no UI
 tabforge song.mp3 --stems guitar bass --out ./result
 
-# тесты ядра (быстрые, без ML)
+# core tests (fast, no ML)
 python -m unittest discover -s tests
 ```
 
-## Публикация на GitHub
+## Publishing to GitHub
 
 ```bash
 cd tabforge
-git remote add origin git@github.com:<ваш-ник>/tabforge.git
+git remote add origin git@github.com:<your-username>/tabforge.git
 git push -u origin main
 ```
 
-CI запустится сам: на каждый push прогоняются тесты ядра на трёх версиях Python.
+CI starts on its own: every push runs the core tests on three Python versions.
 
-## Настройка аппликатуры
+## Tuning the fingering
 
-Всё поведение — в `TabConfig` (`src/tabforge/core/fretboard.py`):
+All behavior lives in `TabConfig` (`src/tabforge/core/fretboard.py`):
 
-| Не нравится | Крутить |
+| Don't like | Tweak |
 |---|---|
-| соло уезжает высоко по грифу | ↑ `high_fret_penalty` |
-| слишком много открытых струн | ↓ `open_string_bonus` |
-| рука дёргается по грифу | ↑ `move_penalty` |
-| нужны широкие растяжки | ↑ `max_stretch`, ↓ `stretch_penalty` |
+| the solo drifts high up the neck | ↑ `high_fret_penalty` |
+| too many open strings | ↓ `open_string_bonus` |
+| the hand jumps around the neck | ↑ `move_penalty` |
+| you need wide stretches | ↑ `max_stretch`, ↓ `stretch_penalty` |
 
-## Честные ограничения
+## Honest limitations
 
-- Полифоническая транскрипция гитары не решена никем: ждите 70–90 %
-  на чистом звуке, хуже на дисторшне. Бас снимается почти идеально.
-- Гитара звучит октавой ниже записи — если ноты «не там», проверьте это первым.
-- Треки Suno сгенерированы, а не сыграны: встречаются физически неисполнимые
-  голосоведения. Алгоритм находит ближайшее играбельное.
-- Размер зашит 4/4; смены темпа внутри трека пока усредняются.
+- Polyphonic guitar transcription is an unsolved problem: expect 70–90%
+  on clean tone, worse with distortion. Bass transcribes almost perfectly.
+- Guitar sounds an octave lower than written — if the notes seem "off",
+  check this first.
+- Suno tracks are generated, not played: physically unplayable voicings
+  do occur. The algorithm finds the closest playable one.
+- The time signature is hardcoded to 4/4; tempo changes within a track
+  are averaged for now.
