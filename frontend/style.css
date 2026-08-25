@@ -122,6 +122,11 @@ body {
 .transport-btn:disabled { opacity: .4; cursor: default; }
 .transport-btn.play { background: var(--brass); color: var(--wood);
                       border-color: var(--brass); }
+#approveBtn, #undoBtn { font: 600 13px "Bricolage Grotesque", sans-serif;
+                        padding: 0 14px; white-space: nowrap; }
+#approveBtn { border-color: var(--brass); color: var(--brass); }
+
+.popover-note { margin: 6px 2px 2px; color: var(--wire); font-size: 12px; }
 .project-name { font-weight: 800; font-size: 17px; }
 .project-meta { color: var(--wire); font-size: 13px;
                 font-family: "JetBrains Mono", monospace; }
@@ -181,6 +186,11 @@ body {
 }
 .virtualbar .v-dot.alt:hover { fill: rgba(212,166,87,.35); }
 .virtualbar .v-dot.cur { opacity: 1; fill: var(--bone-dim); }
+.virtualbar .v-dot.live { pointer-events: all; cursor: pointer; }
+.virtualbar .v-note-name { fill: var(--bone); text-anchor: middle;
+                           font: 600 9px var(--mono); pointer-events: none; }
+.virtualbar .v-chord { fill: var(--brass); text-anchor: end;
+                       font: 600 14px "Bricolage Grotesque", sans-serif; }
 .virtualbar .v-white { fill: #efe9dc; stroke: #b5ab99; }
 .virtualbar .v-black { fill: #3a332c; stroke: #26211c; }
 .virtualbar .v-white.live { fill: var(--brass); }

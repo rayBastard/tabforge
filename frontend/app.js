@@ -605,7 +605,7 @@ function setupBackingPlayer(url) {
    popover, second entry point into repin). */
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const MAX_VFRET = 22;      // the full neck: a 17th-fret alternative
+const MAX_VFRET = 24;      // the full neck: a high-fret alternative
                            // must be clickable, not silently dropped
 
 const virtual = {
@@ -644,6 +644,8 @@ function rebuildVirtual() {
   virtual.tuning = tuning;
   virtual.editing = null;
   virtual.lit = [];
+  virtual.labelLayer = null;
+  virtual.chordText = null;
   if (staff.isPercussion || (tuning.length && tuning.every((v) => !v))) {
     virtual.mode = "drums";
     buildDrumPads(bar);
@@ -671,7 +673,7 @@ function buildFretboard(bar, tuning) {
                                     y1: sy(0), y2: sy(n - 1),
                                     class: "v-fret" }));
   }
-  for (const f of [3, 5, 7, 9, 12, 15, 17, 19, 21]) {
+  for (const f of [3, 5, 7, 9, 12, 15, 17, 19, 21, 24]) {
     svg.appendChild(svgEl("circle", { cx: fx(f), cy: sy(n - 1) + 12, r: 3,
                                       class: "v-marker" }));
     const t = svgEl("text", { x: fx(f) - 3, y: H - 1, class: "v-label" });
@@ -693,14 +695,54 @@ function buildFretboard(bar, tuning) {
     }
     virtual.fretEls.push(dots);
   }
+  virtual.labelLayer = svgEl("g", {});
+  svg.appendChild(virtual.labelLayer);
+  virtual.chordText = svgEl("text", { x: W - 6, y: 12, class: "v-chord" });
+  svg.appendChild(virtual.chordText);
   svg.addEventListener("click", (e) => {
-    const dot = e.target.closest(".v-dot.alt");
-    if (!dot || !virtual.editing) return;
-    const { part, qticks, pitch, n: nStr } = virtual.editing;
-    repin(part, qticks, pitch, nStr - parseInt(dot.dataset.s, 10), null);
-    closePopover();
+    const alt = e.target.closest(".v-dot.alt");
+    if (alt && virtual.editing) {
+      const { part, qticks, pitch, n: nStr } = virtual.editing;
+      repin(part, qticks, pitch, nStr - parseInt(alt.dataset.s, 10), null);
+      closePopover();
+      return;
+    }
+    // a LIT playback dot is the natural editing entry: pause where the
+    // note plays, click the dot itself
+    const live = e.target.closest(".v-dot.live");
+    if (live && live._tfNote) showNotePopover(live._tfNote);
   });
   bar.replaceChildren(svg);
+}
+
+const NOTE_LETTERS = ["C", "C♯", "D", "D♯", "E", "F",
+                      "F♯", "G", "G♯", "A", "A♯", "B"];
+
+// chord templates, roughly by how specific they are
+const CHORD_SHAPES = [
+  ["7", [0, 4, 7, 10]], ["m7", [0, 3, 7, 10]], ["maj7", [0, 4, 7, 11]],
+  ["", [0, 4, 7]], ["m", [0, 3, 7]], ["dim", [0, 3, 6]], ["aug", [0, 4, 8]],
+  ["sus4", [0, 5, 7]], ["sus2", [0, 2, 7]], ["5", [0, 7]],
+];
+
+function chordName(pitches) {
+  if (!pitches.length) return "";
+  const pcs = [...new Set(pitches.map((p) => p % 12))];
+  if (pcs.length < 2) return noteName(Math.min(...pitches));
+  const bass = Math.min(...pitches) % 12;
+  const roots = [bass, ...pcs.filter((r) => r !== bass)];
+  for (const exact of [true, false]) {
+    for (const root of roots) {
+      for (const [suffix, shape] of CHORD_SHAPES) {
+        const set = new Set(shape.map((i) => (root + i) % 12));
+        if (!pcs.every((pc) => set.has(pc))) continue;
+        if (exact && set.size !== pcs.length) continue;
+        const name = NOTE_LETTERS[root] + suffix;
+        return root === bass ? name : `${name}/${NOTE_LETTERS[bass]}`;
+      }
+    }
+  }
+  return NOTE_LETTERS[bass] + "…";
 }
 
 function buildKeyboard(bar) {
@@ -726,6 +768,8 @@ function buildKeyboard(bar) {
       virtual.keyEls[m + 1] = r;
     }
   });
+  virtual.chordText = svgEl("text", { x: W - 6, y: 14, class: "v-chord" });
+  svg.appendChild(virtual.chordText);
   bar.replaceChildren(svg);
 }
 
@@ -747,14 +791,25 @@ function buildDrumPads(bar) {
 }
 
 function virtualLiveHighlight(notes) {
-  for (const el of virtual.lit) el.classList.remove("live");
+  for (const el of virtual.lit) {
+    el.classList.remove("live");
+    el._tfNote = null;
+  }
   virtual.lit = [];
+  if (virtual.labelLayer) virtual.labelLayer.innerHTML = "";
   for (const note of notes) {
     let el = null;
     if (virtual.mode === "frets") {
       const row = virtual.tuning.length - note.string;   // alphaTab: 1=low
       const fret = note.fret;
       el = virtual.fretEls[row]?.[Math.min(fret, MAX_VFRET)];
+      if (el && virtual.labelLayer) {   // note letter above the dot
+        const t = svgEl("text", { x: el.getAttribute("cx"),
+                                  y: el.getAttribute("cy") - 8,
+                                  class: "v-note-name" });
+        t.textContent = NOTE_LETTERS[note.realValue % 12];
+        virtual.labelLayer.appendChild(t);
+      }
     } else if (virtual.mode === "keys") {
       el = virtual.keyEls[note.realValue];
     } else {
@@ -762,7 +817,15 @@ function virtualLiveHighlight(notes) {
       const idx = DRUM_PADS.findIndex(([, gms]) => gms.includes(gm));
       el = virtual.padEls[idx >= 0 ? idx : 3];
     }
-    if (el) { el.classList.add("live"); virtual.lit.push(el); }
+    if (el) {
+      el.classList.add("live");
+      el._tfNote = note;                // click the lit dot to edit it
+      virtual.lit.push(el);
+    }
+  }
+  if (virtual.chordText) {              // name what is sounding
+    virtual.chordText.textContent =
+      chordName(notes.map((n) => n.realValue));
   }
   if (notes.length) virtual.hits += 1;
 }
@@ -822,6 +885,7 @@ function showNotePopover(note) {
   const currentS = n - note.string + 1;
   // second entry point: the same alternatives light up on the fretboard
   virtualShowAlternatives(track.name, tuning, pitch, currentS, qticks);
+  let alternatives = 0;
   for (let s = 1; s <= n; s++) {
     const fret = pitch - tuning[s - 1];
     if (fret < 0 || fret > 24) continue;
@@ -829,9 +893,16 @@ function showNotePopover(note) {
     b.textContent = `string ${s}, fret ${fret}` +
       (s === currentS ? "  ← now" : "");
     if (s === currentS) b.classList.add("current");
+    else alternatives += 1;
     b.addEventListener("click", () =>
       repin(track.name, qticks, pitch, n - s, b));   // server counts from low E
     pop.appendChild(b);
+  }
+  if (!alternatives) {           // honesty beats a silent dead end
+    const p = document.createElement("p");
+    p.className = "popover-note";
+    p.textContent = "the only playable position in this tuning";
+    pop.appendChild(p);
   }
   const close = document.createElement("button");
   close.textContent = "✕ close";
@@ -854,7 +925,9 @@ async function repin(part, qticks, pitch, string, btn) {
     if (!res.ok) throw new Error(await errorDetail(res));
     const data = await res.json();
     editor.lastAction = { part, qticks, pitch, prev: data.prev };
+    // the pin is applied — keep it or put the note back
     $("#undoBtn").hidden = false;
+    $("#approveBtn").hidden = false;
     closePopover();
     reloadScore(data.song);
   } catch (err) {
@@ -876,6 +949,14 @@ $("#undoBtn")?.addEventListener("click", async () => {
   await repin(a.part, a.qticks, a.pitch, a.prev ?? null, null);
   editor.lastAction = null;
   $("#undoBtn").hidden = true;
+  $("#approveBtn").hidden = true;
+});
+
+$("#approveBtn")?.addEventListener("click", () => {
+  // the pin is already saved server-side — approving just settles it
+  editor.lastAction = null;
+  $("#undoBtn").hidden = true;
+  $("#approveBtn").hidden = true;
 });
 
 function toggleTrack(name, what, btn) {
