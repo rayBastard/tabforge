@@ -222,9 +222,32 @@ every cheap cure failed on the saved golden estimates:
    the est context is too polluted to trust.
 
 The real upstream problem: the bass estimate carries 1.4-1.8× MORE
-notes than the truth. Next lever: per-instrument Basic Pitch threshold
-sweeps against the golden corpus (stems are cached — each config is
-minutes, not a full pipeline run), targeting precision first.
+notes than the truth.
+
+### Threshold sweep and RoFormer on golden: the ceiling is mapped
+
+- **Bass threshold sweep** (onset 0.5-0.7 × frame 0.3-0.4 against the
+  cached golden stems): every tightening drops recall faster than
+  precision rises — the current preset (0.45/0.25) already sits at the
+  F1 optimum (Hero 0.24 raw, Loken 0.40 raw). Octave-error rate falls
+  0.45→0.13 with stricter thresholds (the octave matches live in ghost
+  notes) but never with an F1 gain. Side-finding: quantization HELPS
+  matching on Hero (+0.09 — Suno MIDI is grid-aligned) and hurts on
+  Loken (−0.06); timing tolerance interplay, worth remembering.
+- **RoFormer separation on golden**: the synthetic-stand win did NOT
+  transfer — bass 0.24 vs demucs 0.34, everything else flat or worse
+  (Fulgrim piano 0.05 vs 0.14). Demucs stays the default on merit now,
+  not just speed.
+
+**The strategic picture after six measured approaches in one day**
+(sub-harmonic, blanket shift, continuity DP, double-pass retest,
+threshold sweep, separator swap): Basic-Pitch-on-separated-stems is
+squeezed dry at F1 ≈ 0.24-0.40 for bass/guitar on this material.
+Meaningful gains now require different NOTE SOURCES per stem
+(dedicated bass/vocal transcribers, frame-level models), better
+truth-side alignment handling, or leaning into the human loop the
+editor already provides. Every cheap lever has been measured and
+documented — nothing was left to feelings.
 
 Now with real ground truth for one track: the user provided the
 actual sheet music for FulgrimUpd.wav — it is a PIANO piece (dense
