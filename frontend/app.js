@@ -157,31 +157,43 @@ function finish(job) {
     const playBtn = card.querySelector(".stem-play");
     resultsEl.appendChild(card);
 
-    // alphaTab renders staff + tab from the .gp5, if it was built
+    // alphaTab renders staff + tab from the .gp5, if it was built.
+    // The synth + ~2 MB soundfont load lazily on the first Play click:
+    // booting one per card upfront froze the results panel.
     if (r.files.gp5 && window.alphaTab) {
       atEl.hidden = false;
+      const makeApi = (withPlayer) => new alphaTab.AlphaTabApi(atEl, {
+        file: r.files.gp5,
+        display: { staveProfile: "ScoreTab" },
+        player: withPlayer ? {
+          enablePlayer: true,
+          soundFont: "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.4.0/dist/soundfont/sonivox.sf2",
+          scrollElement: atEl,
+        } : { enablePlayer: false },
+      });
       try {
-        const api = new alphaTab.AlphaTabApi(atEl, {
-          file: r.files.gp5,
-          display: { staveProfile: "ScoreTab" },
-          player: {
-            enablePlayer: true,
-            soundFont: "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.4.0/dist/soundfont/sonivox.sf2",
-            scrollElement: atEl,
-          },
+        let api = makeApi(false);
+        let playerArmed = false;
+        playBtn.hidden = false;
+        playBtn.disabled = false;
+        playBtn.addEventListener("click", () => {
+          if (playerArmed) { api.playPause(); return; }
+          playerArmed = true;
+          playBtn.disabled = true;
+          playBtn.textContent = "… loading";
+          api.destroy();
+          api = makeApi(true);
+          api.playerReady.on(() => { playBtn.disabled = false; api.playPause(); });
+          api.playerStateChanged.on((e) => {
+            playBtn.textContent =
+              e.state === alphaTab.synth.PlayerState.Playing ? "⏸ Pause" : "▶ Play";
+          });
+          // async load failures (offline, blocked CDN soundfont) would
+          // leave the button disabled with cursor:wait forever
+          api.error.on(() => {
+            if (playBtn.disabled) playBtn.hidden = true;
+          });
         });
-        playBtn.hidden = false;                  // enabled once the synth is ready
-        api.playerReady.on(() => { playBtn.disabled = false; });
-        // async load failures (offline, blocked CDN soundfont) would leave
-        // the button disabled with cursor:wait forever
-        api.error.on(() => {
-          if (playBtn.disabled) playBtn.hidden = true;
-        });
-        api.playerStateChanged.on((e) => {
-          playBtn.textContent =
-            e.state === alphaTab.synth.PlayerState.Playing ? "⏸ Pause" : "▶ Play";
-        });
-        playBtn.addEventListener("click", () => api.playPause());
       } catch (e) {
         atEl.hidden = true;   // the ASCII tab remains
         playBtn.hidden = true;
