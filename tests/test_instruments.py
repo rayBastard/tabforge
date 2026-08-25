@@ -36,6 +36,16 @@ class TestProfiles(unittest.TestCase):
         # unknown stems keep the historical guitar treatment
         self.assertTrue(profile_for("other").tablature)
 
+    def test_drums_are_percussion(self):
+        drums = profile_for("drums")
+        self.assertTrue(drums.percussion)
+        self.assertFalse(drums.tablature)
+        self.assertEqual(drums.tuning, "percussion")
+        self.assertFalse(drums.allow_bends)
+        # nothing else is percussion
+        self.assertFalse(profile_for("guitar").percussion)
+        self.assertFalse(profile_for("piano").percussion)
+
     def test_notation_wide_covers_the_piano_range(self):
         cfg = TabConfig(tuning=TUNINGS["notation_wide"], max_fret=24)
         for pitch in (26, 36, 60, 84):     # D1 .. C6

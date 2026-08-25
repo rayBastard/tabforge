@@ -228,6 +228,21 @@ def run_analyze(audio: Path, out_dir: Path,
             suggested_tuning=suggest_tuning(stem, lo))
         progress("analyze", f"{stem}: {status}, {count} notes in the sample")
 
+    # drums are unpitched: no note range, no tuning — just "does the kit
+    # sound at all" and roughly how busy it is
+    drums_wav = all_stems.get("drums")
+    if drums_wav is not None:
+        y, sr = librosa.load(str(drums_wav), mono=True)
+        rms = float(np.sqrt(np.mean(y ** 2))) if len(y) else 0.0
+        if rms < RMS_ABSENT:
+            analysis["drums"] = StemAnalysis("drums", "absent", rms)
+        else:
+            status = "found" if rms >= RMS_FOUND else "quiet"
+            onsets = librosa.onset.onset_detect(y=y, sr=sr)
+            analysis["drums"] = StemAnalysis(
+                "drums", status, rms, note_count=len(onsets))
+            progress("analyze", f"drums: {status}, {len(onsets)} hits")
+
     return AnalyzeResult(stems=all_stems, analysis=analysis,
                          bpm=bpm, beats=beats,
                          tempo_reliable=tempo_reliable, key=key,
@@ -242,7 +257,11 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
     from .audio import transcribe
     from .export import writers
 
-    stems = {k: v for k, v in analyzed.stems.items() if k in opts.stems}
+    # demucs emits drums first; a score reads melodic-top, drums-bottom
+    part_order = {name: i for i, name in enumerate((*PITCHED_STEMS, "drums"))}
+    stems = dict(sorted(
+        ((k, v) for k, v in analyzed.stems.items() if k in opts.stems),
+        key=lambda kv: part_order.get(kv[0], len(part_order))))
 
     # Everything the user did NOT pick becomes a play-along backing track.
     backing_dir = out_dir / "backing"
@@ -258,6 +277,13 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
     results: list[StemResult] = []
     song_parts: list = []          # writers.SongPart, one per produced part
     for name, wav in stems.items():
+        if name == "drums":
+            result = _transcribe_drums_part(out_dir, wav, analyzed, opts,
+                                            grid, warnings, song_parts,
+                                            progress)
+            if result is not None:
+                results.append(result)
+            continue
         progress("transcribe", f"{name}: detecting notes")
         notes = transcribe.transcribe_stem(wav, **transcribe.PRESETS.get(name, {}))
         notes = transcribe.cleanup(
@@ -362,6 +388,60 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
         except Exception as e:
             progress("export", f"project score failed to build ({e})")
     return results
+
+
+def _transcribe_drums_part(out_dir: Path, wav: Path,
+                           analyzed: AnalyzeResult, opts: PipelineOptions,
+                           grid, warnings: list[str], song_parts: list,
+                           progress: ProgressFn) -> StemResult | None:
+    """The percussion branch of run_transcribe: onsets instead of
+    Basic Pitch, kit voices instead of a fretboard — so no fingering
+    search, no pins, and no parts.json entry (nothing to re-pin)."""
+    from .audio import drums as drum_mod
+    from .export import writers
+
+    progress("transcribe", "drums: detecting hits")
+    hits = drum_mod.transcribe_drums(wav)
+    if not hits:
+        progress("transcribe", "drums: no hits found, skipped")
+        return None
+    if grid is not None:
+        hits = quantize(hits, grid, strength=opts.quantize_strength)
+
+    profile = profile_for("drums")
+    cfg = TabConfig(tuning=TUNINGS["percussion"], max_fret=profile.max_fret)
+    shapes = drum_mod.drum_shapes(hits)
+    ascii_grid = drum_mod.render_drum_ascii(shapes)
+
+    progress("export", "drums: writing files")
+    stem_dir = out_dir / "drums"
+    stem_dir.mkdir(parents=True, exist_ok=True)
+    files: dict[str, Path] = {}
+
+    midi = stem_dir / "drums.mid"
+    writers.export_midi(shapes, midi, program=0, is_drum=True)
+    files["mid"] = midi
+    txt = stem_dir / "drums.txt"
+    txt.write_text(ascii_grid, encoding="utf-8")
+    files["txt"] = txt
+    try:
+        gp5 = stem_dir / "drums.gp5"
+        writers.export_gp5(shapes, gp5, cfg, bpm=analyzed.bpm,
+                           beats_per_measure=opts.beats_per_measure,
+                           subdivision=opts.subdivision,
+                           title="drums", key=analyzed.key,
+                           grid=grid, profile=profile)
+        files["gp5"] = gp5
+    except Exception as e:
+        progress("export", f"drums: gp5 failed to build ({e})")
+
+    song_parts.append(writers.SongPart(
+        name="drums", shapes=shapes, cfg=cfg, profile=profile))
+    return StemResult(
+        stem="drums", bpm=analyzed.bpm,
+        key=analyzed.key.name if analyzed.key else "unknown key",
+        note_count=len(hits), ascii_tab=ascii_grid,
+        files=files, warnings=list(warnings), tablature=False)
 
 
 # ---------------------------------------------------------------------------

@@ -27,6 +27,9 @@ TUNINGS: dict[str, tuple[int, ...]] = {
     # gp5 stores every note as string+fret, so seven "strings" in fifths
     # cover C1..F#6+. The tab staff is never shown for these profiles.
     "notation_wide": (24, 31, 38, 45, 52, 59, 66),
+    # Percussion track encoder: gp5 drum tracks keep six zero-tuned
+    # strings and put the GM kit number straight into the fret field.
+    "percussion": (0, 0, 0, 0, 0, 0),
 }
 
 

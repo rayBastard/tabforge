@@ -347,6 +347,57 @@ class TestGp5Roundtrip(unittest.TestCase):
         self.assertEqual(len(track.strings), 4)
         self.assertEqual(Counter(pitches), Counter(source))
 
+    def test_drums_track_is_percussion_on_channel_9(self):
+        import guitarpro as gp
+        from tabforge.audio.drums import drum_shapes
+        from tabforge.core.instruments import profile_for
+        from tabforge.export.writers import SongPart, export_song_gp5
+
+        d_cfg = TabConfig(tuning=TUNINGS["percussion"], max_fret=127)
+        hits = [NoteEvent(36, 0.0, 0.1), NoteEvent(42, 0.0, 0.1),
+                NoteEvent(38, 0.5, 0.1)]
+        g_cfg = TabConfig()
+        g_notes = [NoteEvent(60 + i, i * 0.5, 0.4) for i in range(4)]
+        parts = [
+            SongPart("guitar", assign_tab(g_notes, g_cfg), g_cfg,
+                     profile_for("guitar")),
+            SongPart("drums", drum_shapes(hits), d_cfg,
+                     profile_for("drums")),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "song.gp5"
+            export_song_gp5(parts, path, bpm=120.0)
+            song = gp.parse(str(path))
+
+        guitar, drums = song.tracks
+        self.assertTrue(drums.isPercussionTrack)
+        self.assertEqual(drums.channel.channel, 9,
+                         "GM percussion lives on channel 10 (index 9)")
+        self.assertNotEqual(guitar.channel.channel, 9)
+        # the GM kit numbers ride in the fret field on zero-tuned strings
+        values = sorted(n.value
+                        for m in drums.measures for v in m.voices
+                        for b in v.beats for n in b.notes)
+        self.assertEqual(values, [36, 38, 42])
+
+    def test_melodic_channels_never_collide_with_percussion(self):
+        import guitarpro as gp
+        from tabforge.core.instruments import profile_for
+        from tabforge.export.writers import SongPart, export_song_gp5
+
+        cfg = TabConfig()
+        notes = [NoteEvent(60, 0.0, 0.4)]
+        shapes = assign_tab(notes, cfg)
+        parts = [SongPart(f"m{i}", shapes, cfg, profile_for("guitar"))
+                 for i in range(6)]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "song.gp5"
+            export_song_gp5(parts, path, bpm=120.0)
+            song = gp.parse(str(path))
+        used = [t.channel.channel for t in song.tracks[:6]]
+        self.assertNotIn(9, used, "channel 9 is reserved for drums")
+        self.assertEqual(len(used), len(set(used)))
+
 
 if __name__ == "__main__":
     unittest.main()

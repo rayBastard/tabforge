@@ -29,6 +29,8 @@ class InstrumentProfile:
     # rolled-chord gathering window, seconds (0 = off): sustained-keyboard
     # transcription smears one chord's onsets across neighboring ticks
     chord_gather_window: float = 0.0
+    # GM channel 10: pitches are kit voices, not notes on strings
+    percussion: bool = False
 
     @property
     def wants_legato_pairs(self) -> bool:
@@ -53,6 +55,14 @@ _PIANO = InstrumentProfile(
     allow_hammer=False, legato_as_slur=True,
     tuning="notation_wide", max_fret=24, chord_gather_window=0.08)
 
+# Drums: everything a string can do is meaningless here — the whole
+# track is percussion channel 10, where the "pitch" names a kit voice.
+_DRUMS = InstrumentProfile(
+    name="drums", midi_program=0, tablature=False,
+    allow_bends=False, allow_vibrato=False, allow_slides=False,
+    allow_hammer=False, legato_as_slur=False,
+    tuning="percussion", max_fret=127, percussion=True)
+
 # Voice: notes and slides (portamento is real), nothing fretted.
 _VOCALS = InstrumentProfile(
     name="vocals", midi_program=52, tablature=False,
@@ -68,6 +78,7 @@ PROFILES: dict[str, InstrumentProfile] = {
     "bass": _BASS,
     "piano": _PIANO,
     "vocals": _VOCALS,
+    "drums": _DRUMS,
 }
 
 

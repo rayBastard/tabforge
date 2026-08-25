@@ -20,12 +20,14 @@ from ..core.instruments import InstrumentProfile, profile_for
 NOTATED_BEND_MIN = 0.5
 
 
-def export_midi(shapes: Sequence[Shape], path: Path, program: int = 25) -> None:
-    """program 25 = steel guitar, 33 = fingered bass."""
+def export_midi(shapes: Sequence[Shape], path: Path, program: int = 25,
+                is_drum: bool = False) -> None:
+    """program 25 = steel guitar, 33 = fingered bass; is_drum puts the
+    part on percussion channel 10, where pitches name kit voices."""
     import pretty_midi
 
     pm = pretty_midi.PrettyMIDI()
-    inst = pretty_midi.Instrument(program=program)
+    inst = pretty_midi.Instrument(program=program, is_drum=is_drum)
     for shape in shapes:
         for p in shape.placements:
             inst.notes.append(
@@ -109,15 +111,23 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
             header.keySignature = signature
 
     # one gp5 track per part, each on its own MIDI channel pair so the
-    # player gives every instrument its own sound
+    # player gives every instrument its own sound; drums must sit on
+    # channel 9 (GM percussion), so melodic pairs are dealt around it
     while len(song.tracks) < len(parts):
         song.tracks.append(gp.Track(song))
+    melodic_channels = (c for c in range(16) if c != 9)
     for i, (track, part) in enumerate(zip(song.tracks, parts)):
         track.number = i + 1
         track.name = part.name or part.profile.name
-        track.channel.channel = i * 2
-        track.channel.effectChannel = i * 2 + 1
-        track.channel.instrument = part.profile.midi_program
+        if part.profile.percussion:
+            track.isPercussionTrack = True
+            track.channel.channel = 9
+            track.channel.effectChannel = 9
+            track.channel.instrument = 0
+        else:
+            track.channel.channel = next(melodic_channels)
+            track.channel.effectChannel = next(melodic_channels)
+            track.channel.instrument = part.profile.midi_program
         n = len(part.cfg.tuning)
         track.strings = [
             gp.GuitarString(number=s + 1, value=part.cfg.tuning[n - 1 - s])

@@ -156,8 +156,10 @@ function showInstruments(job) {
     row.className = "inst " + a.status;
     const checked = a.status === "found" ? "checked" : "";
     const disabled = a.status === "absent" ? "disabled" : "";
-    const range = a.min_pitch != null
-      ? `${noteName(a.min_pitch)}–${noteName(a.max_pitch)}` : "—";
+    const range = a.stem === "drums"                 // unpitched: no range
+      ? (a.notes ? `${a.notes} hits` : "—")
+      : a.min_pitch != null
+        ? `${noteName(a.min_pitch)}–${noteName(a.max_pitch)}` : "—";
     row.innerHTML =
       `<input type="checkbox" value="${a.stem}" ${checked} ${disabled}>
        <span class="inst-name">${STEM_NAMES[a.stem] || a.stem}</span>
@@ -249,7 +251,8 @@ function fail(msg) {
 /* ---------- results ---------- */
 
 const STEM_NAMES = { guitar: "Guitar", bass: "Bass", vocals: "Vocals",
-                     piano: "Keys", other: "Other", mix: "Full mix",
+                     piano: "Keys", drums: "Drums", other: "Other",
+                     mix: "Full mix",
                      guitar_lead: "Guitar · Lead",
                      guitar_rhythm: "Guitar · Rhythm" };
 
@@ -434,9 +437,12 @@ function closePopover() {
 
 function showNotePopover(note) {
   closePopover();
-  const track = note.beat.voice.bar.staff.track;
-  const tuning = note.beat.voice.bar.staff.tuning;   // index 0 = string 1
+  const staff = note.beat.voice.bar.staff;
+  const track = staff.track;
+  const tuning = staff.tuning;                       // index 0 = string 1
   if (!tuning || !tuning.length) return;             // notation-only part
+  // drums: pitches are kit voices, there is no string to move a hit to
+  if (staff.isPercussion || tuning.every((v) => !v)) return;
   const pitch = note.realValue;
   const qticks = note.beat.absolutePlaybackStart ?? note.beat.playbackStart;
 
