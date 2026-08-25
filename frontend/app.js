@@ -366,32 +366,6 @@ function finish(job) {
   const first = job.results[0];
   $("#projectMeta").textContent = `${first.bpm} BPM · ${first.key}`;
 
-  // instrument list on the left: click scrolls to that part's score;
-  // mute/solo arrive with the unified player (task 28)
-  const tracklist = $("#tracklist");
-  tracklist.innerHTML = "";
-  for (const r of job.results) {
-    const row = document.createElement("div");
-    row.className = "track-row";
-    row.setAttribute("role", "button");
-    row.tabIndex = 0;
-    row.innerHTML =
-      `<span class="track-name">${STEM_NAMES[r.stem] || r.stem}</span>
-       <span class="track-notes">${r.notes}</span>
-       <button class="track-toggle" data-what="mute" title="mute">M</button>
-       <button class="track-toggle" data-what="solo" title="solo">S</button>`;
-    row.addEventListener("click", (e) => {
-      const toggle = e.target.closest(".track-toggle");
-      if (toggle) {
-        toggleTrack(r.stem, toggle.dataset.what, toggle);
-        return;
-      }
-      const card = document.getElementById(`card-${r.stem}`);
-      if (card) card.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-    tracklist.appendChild(row);
-  }
-
   // switch BEFORE rendering: alphaTab measures its container, and a
   // hidden one has zero width
   showScreen("project");
@@ -433,25 +407,41 @@ function renderView() {
   if (!api || !api.score) return;
   const picked = api.score.tracks.filter((t) => t.name === unified.view);
   api.renderTracks(picked.length ? picked : api.score.tracks);
-  document.querySelectorAll("#scoreTabs button").forEach((b) =>
-    b.classList.toggle("active", b.dataset.view === unified.view));
+  document.querySelectorAll("#scoreTabs .tab-chip").forEach((c) =>
+    c.classList.toggle("active", c.dataset.view === unified.view));
   rebuildVirtual();
 }
 
 function buildScoreTabs(job) {
+  // one chip per instrument at the bottom: the name switches the view,
+  // M/S mute and solo THAT track right on the tab
   const nav = $("#scoreTabs");
   nav.innerHTML = "";
   if (!job.results.some((r) => r.stem === unified.view)) {
     unified.view = job.results[0]?.stem ?? null;
   }
   for (const r of job.results) {
-    const b = document.createElement("button");
-    b.dataset.view = r.stem;
-    b.textContent = STEM_NAMES[r.stem] || r.stem;
-    b.addEventListener("click", () => { unified.view = r.stem; renderView(); });
-    nav.appendChild(b);
+    const chip = document.createElement("div");
+    chip.className = "tab-chip";
+    chip.dataset.view = r.stem;
+    const name = document.createElement("button");
+    name.className = "tab-name";
+    name.textContent = STEM_NAMES[r.stem] || r.stem;
+    name.title = `${r.notes} notes`;
+    name.addEventListener("click", () => { unified.view = r.stem; renderView(); });
+    chip.appendChild(name);
+    for (const what of ["mute", "solo"]) {
+      const b = document.createElement("button");
+      b.className = "track-toggle";
+      b.dataset.what = what;
+      b.title = what;
+      b.textContent = what === "mute" ? "M" : "S";
+      b.addEventListener("click", () => toggleTrack(r.stem, what, b));
+      chip.appendChild(b);
+    }
+    nav.appendChild(chip);
   }
-  nav.hidden = job.results.length < 2;
+  nav.hidden = !job.results.length;
 }
 
 function initUnifiedScore(job) {
@@ -509,6 +499,13 @@ function initUnifiedScore(job) {
         virtualLiveHighlight(notes);
       });
     }
+    // clicking ANYWHERE in the score shows that beat's notes on the
+    // virtual instrument — no need to catch them during playback
+    api.beatMouseDown.on((beat) => {
+      if (beat && beat.voice.bar.staff.track.name === virtual.track?.name) {
+        virtualLiveHighlight(beat.notes);
+      }
+    });
     // the note editor: click a note, pick where it should live
     api.noteMouseDown.on((note) => showNotePopover(note));
     return api;

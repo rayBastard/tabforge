@@ -85,20 +85,21 @@
        title="Download the backing track">⬇</a>
   </header>
 
+  <!-- the virtual instrument: fretboard / keyboard / drum pads for the
+       ACTIVE tab, right under the transport where the eyes are; lights
+       up with the playback and with any click in the score, and on the
+       fretboard a clicked note shows its alternatives for re-pinning -->
+  <div class="virtualbar" id="virtualBar" hidden></div>
+
   <div class="project-body">
-    <aside class="tracklist" id="tracklist" aria-label="Instruments"></aside>
     <main class="score" id="scoreMain">
-      <nav id="scoreTabs" class="score-tabs" hidden
-           aria-label="Instrument view"></nav>
       <div id="unifiedScore" class="alphatab" hidden></div>
       <div id="results"></div>
     </main>
   </div>
 
-  <!-- the virtual instrument: fretboard / keyboard / drum pads for the
-       ACTIVE tab; lights up with the playback, and on the fretboard a
-       clicked score note shows its alternative positions for re-pinning -->
-  <footer class="virtualbar" id="virtualBar" hidden></footer>
+  <!-- instrument tabs with their own mute/solo, docked at the bottom -->
+  <nav id="scoreTabs" class="tabbar" hidden aria-label="Instruments"></nav>
 </section>
 
 <template id="stemCard">
