@@ -64,21 +64,30 @@ def quantize(notes: list[NoteEvent], grid: Grid,
 
 
 def gather_chords(notes: list[NoteEvent], window: float = 0.08,
-                  max_size: int = 8) -> list[NoteEvent]:
+                  max_size: int = 8,
+                  merge_window: float = 0.12) -> list[NoteEvent]:
     """Pull the rolled attacks of one chord onto a common onset.
 
     Piano transcription (and real playing) smears a chord's onsets by
     50-120 ms; quantization then lands the notes on NEIGHBORING ticks and
-    a chord plays as a run of jumps. A note joins the current group when
-    it starts within `window` of the group's FIRST note (anchored — a fast
-    run chains forever, an anchor does not) AND that first note is still
-    sounding (a staccato run never gathers). Gathered notes get the
-    anchor's start; their ends stay put.
+    a chord plays as a run of jumps.
+
+    Pass 1: a note joins the current group when it starts within `window`
+    of the group's FIRST note (anchored — a fast run chains forever, an
+    anchor does not) AND that first note is still sounding (a staccato
+    run never gathers). Gathered notes get the anchor's start; their ends
+    stay put.
+
+    Pass 2: a LONE note right next to a chord (gap <= merge_window,
+    sounding together with it) is a shard of that chord whose attack
+    smeared past the window — it folds in. Singles never merge with
+    singles and chords never merge with chords, so runs and repeated
+    chords stay intact.
     """
     if not notes:
         return []
     ordered = sorted(notes, key=lambda n: (n.start, n.pitch))
-    out: list[NoteEvent] = []
+    grouped: list[list[NoteEvent]] = []
     anchor = ordered[0]
     group = [anchor]
     for n in ordered[1:]:
@@ -87,10 +96,38 @@ def gather_chords(notes: list[NoteEvent], window: float = 0.08,
                 and len(group) < max_size):
             group.append(n)
             continue
-        out.extend(_aligned(group, anchor))
+        grouped.append(_aligned(group, anchor))
         anchor, group = n, [n]
-    out.extend(_aligned(group, anchor))
-    return out
+    grouped.append(_aligned(group, anchor))
+
+    def _sounds_with(lone: NoteEvent, chord: list[NoteEvent]) -> bool:
+        start = chord[0].start
+        end = max(n.end for n in chord)
+        return min(lone.end, end) - max(lone.start, start) > 0.05
+
+    for i, g in enumerate(grouped):
+        if len(g) != 1:
+            continue
+        lone = g[0]
+        candidates = []
+        for j in (i - 1, i + 1):
+            if not (0 <= j < len(grouped)):
+                continue
+            other = grouped[j]
+            if (len(other) >= 2 and len(other) < max_size
+                    and abs(other[0].start - lone.start) <= merge_window
+                    and _sounds_with(lone, other)):
+                candidates.append(other)
+        if candidates:
+            target = min(candidates,
+                         key=lambda o: abs(o[0].start - lone.start))
+            target.append(NoteEvent(
+                lone.pitch, target[0].start,
+                max(lone.end - target[0].start, 0.02),
+                lone.velocity, list(lone.bends)))
+            g.clear()
+
+    return [n for g in grouped for n in g]
 
 
 def _aligned(group: list[NoteEvent], anchor: NoteEvent) -> list[NoteEvent]:

@@ -66,6 +66,22 @@ class TestGatherChords(unittest.TestCase):
         out = gather_chords(run, window=0.08)
         self.assertEqual(len({n.start for n in out}), 6)
 
+    def test_shard_next_to_a_chord_folds_in(self):
+        from tabforge.core.quantize import gather_chords
+        # a chord, then a lone shard 100 ms later that sounds with it
+        notes = [NoteEvent(60, 0.0, 1.0), NoteEvent(64, 0.03, 1.0),
+                 NoteEvent(67, 0.10, 1.0)]        # shard past the 80ms window
+        out = gather_chords(notes, window=0.08)
+        self.assertEqual({n.start for n in out}, {0.0},
+                         "the shard must fold into the chord")
+
+    def test_singles_never_merge_with_singles(self):
+        from tabforge.core.quantize import gather_chords
+        # two sustained melody notes 100 ms apart stay two events
+        notes = [NoteEvent(60, 0.0, 0.8), NoteEvent(72, 0.10, 0.8)]
+        out = gather_chords(notes, window=0.08)
+        self.assertEqual(len({n.start for n in out}), 2)
+
     def test_two_chords_stay_separate(self):
         from tabforge.core.quantize import gather_chords
         a = [NoteEvent(60, 0.0, 0.4), NoteEvent(64, 0.05, 0.4)]
