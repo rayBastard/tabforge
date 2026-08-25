@@ -216,6 +216,10 @@ async function startTranscribe() {
         tuning: tuningSel ? tuningSel.value : "standard",
         subdivision: parseInt($("#instPrecision")?.value || "2", 10),
         split_guitars: $("#splitGuitars").checked,
+        treat: Object.fromEntries(
+          [...document.querySelectorAll(".inst-treat")]
+            .filter((s) => s.value !== s.dataset.def)
+            .map((s) => [s.dataset.stem, s.value])),
       }),
     });
     if (!res.ok) throw new Error(await errorDetail(res));
@@ -238,6 +242,22 @@ const GUITAR_TUNINGS = [
   ["open_g", "Open G"],
 ];
 
+// what the tagger SHOULD hear per stem; a miss means demucs put
+// something else in there and "treat as" deserves a look
+const EXPECTED_SOUND = {
+  guitar: ["guitar", "banjo", "ukulele", "mandolin"],
+  bass: ["bass", "guitar"],
+  piano: ["piano", "keyboard", "organ", "harpsichord", "celesta"],
+  vocals: ["sing", "choir", "vocal", "speech", "chant", "yodel"],
+};
+const TREAT_ROLES = [
+  ["guitar", "Guitar — tablature"],
+  ["piano", "Keys — notation"],
+  ["vocals", "Voice — notation"],
+];
+const DEFAULT_ROLE = { guitar: "guitar", piano: "piano", vocals: "vocals",
+                       other: "guitar" };
+
 function showInstruments(job) {
   currentJobId = job.id;
   const box = $("#instruments");
@@ -258,6 +278,39 @@ function showInstruments(job) {
        <span class="inst-status ${a.status}">${a.status}</span>
        <span class="inst-range">${range}</span>`;
     box.appendChild(row);
+
+    // what the tagger heard, with a warning when it contradicts the name
+    if ((a.sounds_like || []).length && a.status !== "absent") {
+      const heard = a.sounds_like[0];
+      const expected = EXPECTED_SOUND[a.stem];
+      const off = expected
+        && !expected.some((k) => heard.toLowerCase().includes(k));
+      const p = document.createElement("p");
+      p.className = "inst-note" + (off ? "" : " inst-heard");
+      p.textContent = off
+        ? `⚠ sounds like ${heard.toLowerCase()} — check "treat as" below`
+        : `sounds like: ${a.sounds_like.join(", ").toLowerCase()}`;
+      box.appendChild(p);
+    }
+    // role override: how this stem should be WRITTEN
+    if (a.stem in DEFAULT_ROLE && a.status !== "absent") {
+      const def = DEFAULT_ROLE[a.stem];
+      const wrap = document.createElement("div");
+      wrap.className = "inst-tuning";
+      const sel = document.createElement("select");
+      sel.className = "inst-treat";
+      sel.dataset.stem = a.stem;
+      sel.dataset.def = def;
+      for (const [value, label] of TREAT_ROLES) {
+        const o = document.createElement("option");
+        o.value = value; o.textContent = label;
+        o.selected = value === def;
+        sel.appendChild(o);
+      }
+      wrap.append("treat as: ", sel);
+      box.appendChild(wrap);
+    }
+
     if (a.stem === "guitar" && a.status !== "absent") hasGuitar = true;
     if (a.stem === "guitar" && a.suggested_tuning) {
       const sel = document.createElement("select");

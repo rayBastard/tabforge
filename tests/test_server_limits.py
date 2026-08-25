@@ -166,6 +166,22 @@ class TestTwoStepFlow(ServerTestCase):
                              json={"stems": ["guitar"]})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(srv.JOBS[job_id].opts.subdivision, 2)
+
+    def test_treat_override_is_validated_and_reaches_options(self):
+        job_id, _ = self._analyzed_job()
+        r = self.client.post(f"/api/jobs/{job_id}/transcribe",
+                             json={"stems": ["guitar"],
+                                   "treat": {"guitar": "harp"}})
+        self.assertEqual(r.status_code, 400)
+        r = self.client.post(f"/api/jobs/{job_id}/transcribe",
+                             json={"stems": ["guitar"],
+                                   "treat": {"trombone": "piano"}})
+        self.assertEqual(r.status_code, 400)
+        r = self.client.post(f"/api/jobs/{job_id}/transcribe",
+                             json={"stems": ["guitar"],
+                                   "treat": {"guitar": "piano"}})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(srv.JOBS[job_id].opts.treat, {"guitar": "piano"})
         r = self.client.post(f"/api/jobs/{job_id}/transcribe",
                              json={"stems": ["theremin"]})
         self.assertEqual(r.status_code, 400)

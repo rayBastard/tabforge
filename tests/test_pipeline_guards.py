@@ -60,3 +60,22 @@ class TestKeyDetectionGuard(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTagging(unittest.TestCase):
+    def test_tagging_can_be_disabled(self):
+        import os
+        from unittest import mock
+
+        from tabforge.audio.tagging import tag_stem
+        with mock.patch.dict(os.environ, {"TABFORGE_NO_TAGGING": "1"}):
+            self.assertEqual(tag_stem(Path("/nonexistent.wav")), [])
+
+    def test_tagging_survives_a_missing_backend(self):
+        # no checkpoint, no network, bad path — must return [], not raise
+        from unittest import mock
+
+        from tabforge.audio import tagging
+        with mock.patch.object(tagging, "_ensure_files", return_value=False), \
+             mock.patch.object(tagging, "_tagger", None):
+            self.assertEqual(tagging.tag_stem(Path("/nonexistent.wav")), [])

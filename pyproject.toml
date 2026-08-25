@@ -21,6 +21,9 @@ ml = [
     "demucs>=4.0.1",
     "librosa>=0.10.1",
     "numpy<2.0",
+    # instrument identification of separated stems (PANNs CNN14);
+    # optional at runtime — tagging degrades gracefully without it
+    "panns-inference>=0.1.1",
     # resampy 0.4.2 (pulled in by basic-pitch) imports pkg_resources at
     # runtime but does not declare setuptools; pip >= 26 no longer ships
     # setuptools in fresh venvs, and setuptools >= 81 dropped pkg_resources.

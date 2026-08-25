@@ -40,6 +40,9 @@ class PipelineOptions:
     quantize_strength: float = 0.9
     separate: bool = True          # False = transcribe the whole mix
     split_guitars: bool = False    # split guitar into lead & rhythm parts
+    # per-stem role override, e.g. {"guitar": "piano"} when the "guitar"
+    # stem actually holds an orchestral line and deserves notation
+    treat: dict = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -51,6 +54,9 @@ class StemAnalysis:
     min_pitch: int | None = None
     max_pitch: int | None = None
     suggested_tuning: str | None = None
+    # what the tagger actually HEARS in the stem (demucs names outputs
+    # by role, not by listening — an orchestra lands in "guitar")
+    sounds_like: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -58,6 +64,7 @@ class StemAnalysis:
             "rms": round(self.rms, 4), "notes": self.note_count,
             "min_pitch": self.min_pitch, "max_pitch": self.max_pitch,
             "suggested_tuning": self.suggested_tuning,
+            "sounds_like": list(self.sounds_like),
         }
 
 
@@ -215,6 +222,14 @@ def run_analyze(audio: Path, out_dir: Path,
 
     import librosa
 
+    import os as _os
+
+    from .audio import tagging
+    if (not tagging._CHECKPOINT.exists()
+            and not _os.environ.get("TABFORGE_NO_TAGGING")):
+        progress("analyze",
+                 "downloading the instrument tagger (~320 MB, first run only)")
+
     analysis: dict[str, StemAnalysis] = {}
     for stem in PITCHED_STEMS:
         wav = all_stems.get(stem)
@@ -228,11 +243,16 @@ def run_analyze(audio: Path, out_dir: Path,
         status = "found" if rms >= RMS_FOUND else "quiet"
         progress("analyze", f"{stem}: listening for its range")
         count, lo, hi = _quick_note_stats(wav, stem, out_dir)
+        from .audio.tagging import tag_stem
+        heard = tag_stem(wav)
         analysis[stem] = StemAnalysis(
             stem, status, rms, note_count=count,
             min_pitch=lo, max_pitch=hi,
-            suggested_tuning=suggest_tuning(stem, lo))
-        progress("analyze", f"{stem}: {status}, {count} notes in the sample")
+            suggested_tuning=suggest_tuning(stem, lo),
+            sounds_like=heard)
+        progress("analyze",
+                 f"{stem}: {status}, {count} notes in the sample"
+                 + (f" — sounds like {heard[0]}" if heard else ""))
 
     # drums are unpitched: no note range, no tuning — just "does the kit
     # sound at all" and roughly how busy it is
@@ -298,7 +318,12 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
             progress("transcribe", f"{name}: no notes found, skipped")
             continue
 
-        stem_profile = profile_for(name)
+        # the user can overrule demucs' idea of a stem's role: an
+        # orchestral line in the "guitar" stem deserves notation
+        def role_of(nm: str) -> str:
+            return opts.treat.get(nm, nm)
+
+        stem_profile = profile_for(role_of(name))
         if stem_profile.chord_gather_window > 0:
             notes = gather_chords(notes,
                                   window=stem_profile.chord_gather_window)
@@ -306,7 +331,7 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
             notes = quantize(notes, grid, strength=opts.quantize_strength)
 
         parts = [(name, notes)]
-        if name == "piano":
+        if name == "piano" and role_of(name) == "piano":
             # a grand staff is two tracks: right hand (treble) and left
             # hand (bass); the frontend renders them as one Keys view
             hands = split_hands(notes)
@@ -316,7 +341,8 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
                 progress("fingering",
                          f"piano: grand staff — {len(right)} right-hand "
                          f"and {len(left)} left-hand notes")
-        if opts.split_guitars and name == "guitar":
+        if opts.split_guitars and name == "guitar" \
+                and role_of(name) == "guitar":
             split = split_lead_rhythm(notes)
             if split is not None:
                 lead, rhythm = split
@@ -329,7 +355,7 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
 
         for part_name, part_notes in parts:
             progress("fingering", f"{part_name}: choosing the fingering")
-            profile = profile_for(part_name)
+            profile = profile_for(role_of(part_name))
             tuning_key = profile.tuning or opts.tuning
             cfg = TabConfig(tuning=TUNINGS[tuning_key],
                             max_fret=profile.max_fret)

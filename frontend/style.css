@@ -522,6 +522,7 @@ select {
                display: flex; gap: 8px; align-items: center; }
 .inst-tuning select { min-height: 36px; width: auto; }
 .inst-note { margin: 0 0 8px 30px; color: var(--brass); font-size: 13px; }
+.inst-note.inst-heard { color: var(--wire); }
 
 #backingRow { display: flex; gap: 12px; align-items: baseline;
               margin: 14px 0 4px; flex-wrap: wrap; }

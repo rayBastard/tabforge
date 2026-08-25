@@ -366,12 +366,22 @@ async def transcribe_job(job_id: str, selection: dict) -> dict:
     subdivision = selection.get("subdivision", 2)
     if subdivision not in (2, 3, 4):
         raise HTTPException(400, "subdivision must be 2, 3, or 4")
+    # per-stem role override: what the stem should be WRITTEN as
+    treat = selection.get("treat", {}) or {}
+    if not isinstance(treat, dict):
+        raise HTTPException(400, "treat must be an object")
+    for k, v in treat.items():
+        if k not in job.analyzed.stems:
+            raise HTTPException(400, f"Unknown stem in treat: {k}")
+        if v not in ("guitar", "piano", "vocals"):
+            raise HTTPException(400, f"Unknown role in treat: {v}")
 
     opts = PipelineOptions(
         stems=stems,
         tuning=tuning,
         subdivision=subdivision,
         split_guitars=bool(selection.get("split_guitars", False)),
+        treat={str(k): str(v) for k, v in treat.items()},
     )
     job.opts = opts
     POOL.submit(_run_transcribe, job, opts)
@@ -481,7 +491,8 @@ async def export_project(job_id: str):
         "opts": {"stems": list(o.stems), "tuning": o.tuning,
                  "subdivision": o.subdivision,
                  "beats_per_measure": o.beats_per_measure,
-                 "split_guitars": o.split_guitars},
+                 "split_guitars": o.split_guitars,
+                 "treat": dict(o.treat)},
         "results": results,
     }
     out = job.dir / "out"
@@ -555,7 +566,8 @@ async def import_project(file: UploadFile) -> dict:
             stems=tuple(mo["stems"]), tuning=mo["tuning"],
             subdivision=int(mo["subdivision"]),
             beats_per_measure=int(mo.get("beats_per_measure", 4)),
-            split_guitars=bool(mo.get("split_guitars", False)))
+            split_guitars=bool(mo.get("split_guitars", False)),
+            treat=dict(mo.get("treat", {})))
         job.results = _remap_file_urls(meta.get("results", []), job.id)
         if (out / "backing" / "backing.wav").is_file():
             job.backing = f"/api/jobs/{job.id}/files/backing/backing.wav"
