@@ -13,6 +13,38 @@ const resultsEl = $("#results");
 
 let pickedFile = null;
 
+/* ---------- API access: optional token, readable errors ---------- */
+
+function apiToken() {
+  try { return localStorage.getItem("tabforge_token") || ""; } catch { return ""; }
+}
+
+function withToken(url) {
+  const t = apiToken();
+  if (!t) return url;
+  return url + (url.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(t);
+}
+
+async function apiFetch(url, opts = {}) {
+  const t = apiToken();
+  opts.headers = Object.assign({}, opts.headers, t ? { "X-API-Token": t } : {});
+  let res = await fetch(url, opts);
+  if (res.status === 401) {
+    const entered = prompt("This server requires an API token:");
+    if (entered) {
+      try { localStorage.setItem("tabforge_token", entered); } catch {}
+      opts.headers = Object.assign({}, opts.headers, { "X-API-Token": entered });
+      res = await fetch(url, opts);
+    }
+  }
+  return res;
+}
+
+async function errorDetail(res) {
+  try { return (await res.json()).detail || `HTTP ${res.status}`; }
+  catch { return `HTTP ${res.status}`; }
+}
+
 /* ---------- file picking ---------- */
 
 fileInput.addEventListener("change", () => setFile(fileInput.files[0]));
@@ -56,8 +88,8 @@ goBtn.addEventListener("click", async () => {
   });
 
   try {
-    const res = await fetch(`/api/jobs?${params}`, { method: "POST", body: form });
-    if (!res.ok) throw new Error(await res.text());
+    const res = await apiFetch(`/api/jobs?${params}`, { method: "POST", body: form });
+    if (!res.ok) throw new Error(await errorDetail(res));
     const { id } = await res.json();
     poll(id);
   } catch (err) {
@@ -72,8 +104,8 @@ const MAX_POLL_FAILURES = 4;   // fail only after a series, not one hiccup
 
 async function poll(id, failures = 0) {
   try {
-    const res = await fetch(`/api/jobs/${id}`);
-    if (!res.ok) throw new Error(`status request failed (HTTP ${res.status})`);
+    const res = await apiFetch(`/api/jobs/${id}`);
+    if (!res.ok) throw new Error(await errorDetail(res));
     const job = await res.json();
 
     markStage(job.stage, job.stages);
@@ -144,7 +176,7 @@ function finish(job) {
     const nav = card.querySelector(".stem-downloads");
     for (const [ext, url] of Object.entries(r.files)) {
       const a = document.createElement("a");
-      a.href = url;
+      a.href = withToken(url);   // <a> can't send headers
       a.textContent = `.${ext}`;
       a.setAttribute("download", "");
       nav.appendChild(a);
@@ -163,7 +195,7 @@ function finish(job) {
     if (r.files.gp5 && window.alphaTab) {
       atEl.hidden = false;
       const makeApi = (withPlayer) => new alphaTab.AlphaTabApi(atEl, {
-        file: r.files.gp5,
+        file: withToken(r.files.gp5),
         display: { staveProfile: "ScoreTab" },
         player: withPlayer ? {
           enablePlayer: true,
