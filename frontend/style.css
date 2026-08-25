@@ -299,6 +299,17 @@ select {
 
 .alphatab { background: #f6f1e7; border-radius: 8px; margin-top: 14px; }
 
+.stem-play {
+  font: 600 13px/1 "Bricolage Grotesque", sans-serif;
+  color: var(--wood);
+  background: var(--brass);
+  border: 0;
+  border-radius: 6px;
+  padding: 7px 14px;
+  cursor: pointer;
+}
+.stem-play:disabled { opacity: .45; cursor: wait; }
+
 .asciitab {
   margin: 14px 0 0;
   padding: 14px 16px;

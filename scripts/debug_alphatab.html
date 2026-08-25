@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>alphaTab debug</title>
+<style>
+  body { background: #241F1B; margin: 20px; }
+  .alphatab { background: #f6f1e7; border-radius: 8px; margin-bottom: 30px; }
+</style>
+</head>
+<body>
+<!-- usage: debug_alphatab.html?v=1.4.0&files=/result/guitar/guitar.gp5,/result/bass/bass.gp5 -->
+<script>
+const params = new URLSearchParams(location.search);
+const VERSION = params.get("v") || "1.4.0";
+const FILES = (params.get("files") || "/result/guitar/guitar.gp5,/result/bass/bass.gp5").split(",");
+
+const s = document.createElement("script");
+s.src = `https://cdn.jsdelivr.net/npm/@coderline/alphatab@${VERSION}/dist/alphaTab.min.js`;
+s.onload = () => {
+  FILES.forEach((file, i) => {
+    const el = document.createElement("div");
+    el.className = "alphatab";
+    el.id = `at${i}`;
+    document.body.appendChild(el);
+    const api = new alphaTab.AlphaTabApi(el, {
+      file,
+      display: { staveProfile: "ScoreTab" },
+      player: {
+        enablePlayer: true,
+        soundFont: `https://cdn.jsdelivr.net/npm/@coderline/alphatab@${VERSION}/dist/soundfont/sonivox.sf2`,
+        scrollElement: el,
+      },
+    });
+    api.error.on((e) => console.error(`at${i} error:`, e.message || e));
+    api.scoreLoaded.on(() => console.log(`at${i} scoreLoaded`));
+    api.renderFinished.on(() => console.log(`at${i} renderFinished`));
+    api.playerReady.on(() => console.log(`at${i} playerReady`));
+  });
+};
+document.head.appendChild(s);
+</script>
+</body>
+</html>

@@ -141,19 +141,33 @@ function finish(job) {
     card.querySelector(".asciitab").textContent = r.ascii;
 
     const atEl = card.querySelector(".alphatab");
+    // grab the button before appendChild empties the template fragment
+    const playBtn = card.querySelector(".stem-play");
     resultsEl.appendChild(card);
 
     // alphaTab renders staff + tab from the .gp5, if it was built
     if (r.files.gp5 && window.alphaTab) {
       atEl.hidden = false;
       try {
-        new alphaTab.AlphaTabApi(atEl, {
+        const api = new alphaTab.AlphaTabApi(atEl, {
           file: r.files.gp5,
           display: { staveProfile: "ScoreTab" },
-          player: { enablePlayer: false },
+          player: {
+            enablePlayer: true,
+            soundFont: "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.4.0/dist/soundfont/sonivox.sf2",
+            scrollElement: atEl,
+          },
         });
+        playBtn.hidden = false;                  // enabled once the synth is ready
+        api.playerReady.on(() => { playBtn.disabled = false; });
+        api.playerStateChanged.on((e) => {
+          playBtn.textContent =
+            e.state === alphaTab.synth.PlayerState.Playing ? "⏸ Pause" : "▶ Play";
+        });
+        playBtn.addEventListener("click", () => api.playPause());
       } catch (e) {
         atEl.hidden = true;   // the ASCII tab remains
+        playBtn.hidden = true;
       }
     }
   }
