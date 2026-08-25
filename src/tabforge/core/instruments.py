@@ -26,6 +26,9 @@ class InstrumentProfile:
     legato_as_slur: bool    # legato pairs become notation slurs instead
     tuning: str | None      # fixed tuning key; None = the user's choice
     max_fret: int = 22
+    # rolled-chord gathering window, seconds (0 = off): sustained-keyboard
+    # transcription smears one chord's onsets across neighboring ticks
+    chord_gather_window: float = 0.0
 
     @property
     def wants_legato_pairs(self) -> bool:
@@ -48,7 +51,7 @@ _PIANO = InstrumentProfile(
     name="piano", midi_program=0, tablature=False,
     allow_bends=False, allow_vibrato=False, allow_slides=False,
     allow_hammer=False, legato_as_slur=True,
-    tuning="notation_wide", max_fret=24)
+    tuning="notation_wide", max_fret=24, chord_gather_window=0.08)
 
 # Voice: notes and slides (portamento is real), nothing fretted.
 _VOCALS = InstrumentProfile(

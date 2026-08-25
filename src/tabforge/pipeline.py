@@ -13,7 +13,7 @@ from .core.articulation import detect_legato_pairs
 from .core.fretboard import TUNINGS, TabConfig, assign_tab, render_ascii
 from .core.instruments import profile_for
 from .core.partition import split_lead_rhythm
-from .core.quantize import Grid, quantize
+from .core.quantize import Grid, gather_chords, quantize
 
 ProgressFn = Callable[[str, str], None]  # (stage, message)
 
@@ -133,6 +133,10 @@ def run_pipeline(audio: Path, out_dir: Path,
             progress("transcribe", f"{name}: no notes found, skipped")
             continue
 
+        stem_profile = profile_for(name)
+        if stem_profile.chord_gather_window > 0:
+            notes = gather_chords(notes,
+                                  window=stem_profile.chord_gather_window)
         if grid is not None:
             notes = quantize(notes, grid, strength=opts.quantize_strength)
 

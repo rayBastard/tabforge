@@ -63,6 +63,45 @@ def quantize(notes: list[NoteEvent], grid: Grid,
     return out
 
 
+def gather_chords(notes: list[NoteEvent], window: float = 0.08,
+                  max_size: int = 8) -> list[NoteEvent]:
+    """Pull the rolled attacks of one chord onto a common onset.
+
+    Piano transcription (and real playing) smears a chord's onsets by
+    50-120 ms; quantization then lands the notes on NEIGHBORING ticks and
+    a chord plays as a run of jumps. A note joins the current group when
+    it starts within `window` of the group's FIRST note (anchored — a fast
+    run chains forever, an anchor does not) AND that first note is still
+    sounding (a staccato run never gathers). Gathered notes get the
+    anchor's start; their ends stay put.
+    """
+    if not notes:
+        return []
+    ordered = sorted(notes, key=lambda n: (n.start, n.pitch))
+    out: list[NoteEvent] = []
+    anchor = ordered[0]
+    group = [anchor]
+    for n in ordered[1:]:
+        if (n.start - anchor.start <= window
+                and n.start < anchor.end
+                and len(group) < max_size):
+            group.append(n)
+            continue
+        out.extend(_aligned(group, anchor))
+        anchor, group = n, [n]
+    out.extend(_aligned(group, anchor))
+    return out
+
+
+def _aligned(group: list[NoteEvent], anchor: NoteEvent) -> list[NoteEvent]:
+    if len(group) == 1:
+        return group
+    return [NoteEvent(n.pitch, anchor.start,
+                      max(n.end - anchor.start, 0.02),
+                      n.velocity, list(n.bends))
+            for n in group]
+
+
 def _tick_len(grid: Grid) -> float:
     if len(grid.beats) < 2:
         return 0.125
