@@ -139,6 +139,47 @@ class TestGp5Roundtrip(unittest.TestCase):
         self.assertEqual(slots(0.7, 0.7), [0, 6, 29],
                          "a 0.7 s lead-in shifted the measures")
 
+    def test_breathing_tempo_does_not_drift_measures(self):
+        # Regression for the "jumping tempo": Suno tracks breathe, and a
+        # fixed seconds->BPM conversion accumulated drift until notes
+        # landed in wrong measures. With the real Grid the note position
+        # is its tick index, so drift is impossible by construction.
+        import guitarpro as gp
+        from tabforge.core.quantize import Grid
+        from tabforge.export.writers import export_gp5
+
+        # 48 beats whose duration slows steadily to +4% (nominal 0.5 s)
+        beats, t = [], 0.0
+        for i in range(48):
+            beats.append(t)
+            t += 0.5 * (1.0 + 0.04 * i / 47)
+        grid = Grid(beats, subdivision=4)
+
+        # one note exactly on every 4th beat = every measure's downbeat
+        downbeats = list(range(0, 48, 4))
+        notes = [NoteEvent(60 + (i % 12), beats[b], 0.3)
+                 for i, b in enumerate(downbeats)]
+        shapes = assign_tab(notes, self.cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "drift.gp5"
+            export_gp5(shapes, path, self.cfg, bpm=120.0, grid=grid)
+            song = gp.parse(str(path))
+
+        note_measures = [m.number for m in song.tracks[0].measures
+                         for v in m.voices for b in v.beats if b.notes
+                         for _ in [0]]
+        self.assertEqual(note_measures, list(range(1, 13)),
+                         "every downbeat note must sit in its own measure")
+        # and each one exactly ON the downbeat (first slot of the measure)
+        origin = song.measureHeaders[0].start
+        for m in song.tracks[0].measures:
+            for v in m.voices:
+                for b in v.beats:
+                    if b.notes:
+                        self.assertEqual(b.start, m.start,
+                                         f"note off the downbeat in "
+                                         f"measure {m.number}")
+
     def test_key_signature_roundtrip(self):
         import guitarpro as gp
         from tabforge.audio.keydetect import Key

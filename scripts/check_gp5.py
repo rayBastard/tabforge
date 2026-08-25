@@ -49,11 +49,13 @@ def timing_deviation(gp5: list[tuple[float, int]],
                      midi: list[tuple[float, int]]) -> float:
     """Max timing deviation in quarter notes, per pitch.
 
-    The gp5 tempo is rounded to an integer (scale drift) and measure 1 is
-    anchored at the first detected beat, not second zero (offset), so an
-    affine fit seconds->quarters (slope + intercept) is computed and the
-    residuals compared. This checks exactly what broken measure assembly
-    breaks: relative note positions.
+    gp5 positions live in musical time (tick indices of the real beat
+    grid) while MIDI stays in seconds, so globally they differ by however
+    much the track's tempo breathes — that is correct, not an error.
+    Assembly bugs look different: a note in the wrong measure is a JUMP
+    of whole quarters. So the fit is piecewise: affine seconds->quarters
+    within windows of ~40 notes (tempo drift is slow, locally affine),
+    and the max residual over all windows is reported.
     """
     by_pitch_gp5: dict[int, list[float]] = {}
     by_pitch_midi: dict[int, list[float]] = {}
@@ -67,17 +69,29 @@ def timing_deviation(gp5: list[tuple[float, int]],
         other = sorted(by_pitch_midi.get(p, []))
         for a, b in zip(sorted(times), other):
             pairs.append((b, a))
-    n = len(pairs)
-    if n < 2:
+    if len(pairs) < 2:
         return 0.0
-    mean_s = sum(s for s, _ in pairs) / n
-    mean_q = sum(q for _, q in pairs) / n
-    den = sum((s - mean_s) ** 2 for s, _ in pairs)
-    if den == 0:
-        return 0.0
-    scale = sum((s - mean_s) * (q - mean_q) for s, q in pairs) / den
-    offset = mean_q - scale * mean_s
-    return max(abs(q - (s * scale + offset)) for s, q in pairs)
+    pairs.sort()
+
+    def affine_residual(chunk: list[tuple[float, float]]) -> float:
+        n = len(chunk)
+        mean_s = sum(s for s, _ in chunk) / n
+        mean_q = sum(q for _, q in chunk) / n
+        den = sum((s - mean_s) ** 2 for s, _ in chunk)
+        if den == 0:
+            return 0.0
+        scale = sum((s - mean_s) * (q - mean_q) for s, q in chunk) / den
+        offset = mean_q - scale * mean_s
+        return max(abs(q - (s * scale + offset)) for s, q in chunk)
+
+    WINDOW = 40
+    worst = 0.0
+    for i in range(0, len(pairs), WINDOW):
+        chunk = pairs[i:i + WINDOW]
+        if len(chunk) < 5:          # a degenerate tail joins its neighbor
+            chunk = pairs[max(0, i - WINDOW):i + WINDOW]
+        worst = max(worst, affine_residual(chunk))
+    return worst
 
 
 def main() -> int:

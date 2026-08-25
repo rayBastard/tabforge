@@ -35,6 +35,19 @@ class Grid:
         idx = min(range(len(ticks)), key=lambda i: abs(ticks[i] - t))
         return idx, ticks[idx]
 
+    def tick_index(self, t: float) -> int:
+        """Grid slot for a time, drift-proof: inside the grid it is the
+        nearest REAL tick (the beats follow the audio, however much the
+        tempo breathes); beyond the ends it extrapolates linearly by the
+        average tick length. Can return a negative index for times before
+        the first beat — callers clamp as needed."""
+        ticks = self.ticks
+        if t <= ticks[0]:
+            return -int(round((ticks[0] - t) / _tick_len(self)))
+        if t >= ticks[-1]:
+            return len(ticks) - 1 + int(round((t - ticks[-1]) / _tick_len(self)))
+        return self.snap(t)[0]
+
 
 def quantize(notes: list[NoteEvent], grid: Grid,
              strength: float = 1.0) -> list[NoteEvent]:

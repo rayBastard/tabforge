@@ -43,18 +43,24 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
                subdivision: int = 4,
                title: str = "TabForge", artist: str = "",
                key: Key | None = None, origin: float = 0.0,
-               legato: Sequence[tuple] | None = None) -> None:
+               legato: Sequence[tuple] | None = None,
+               grid=None) -> None:
     """
     Builds a .gp5. In PyGuitarPro string #1 is the THINNEST,
     while our index 0 is the thickest. Hence the flip.
 
-    subdivision: grid slots per quarter note, matching quantize.Grid
-    (4 = sixteenths, 3 = eighth triplets, 8 = thirty-seconds).
-    beats_per_measure is written as the time signature (n/4).
+    grid: the quantize.Grid the notes were snapped to. When given, a
+    note's position is its TICK INDEX in that grid — the beats follow
+    the audio, so a track whose tempo breathes never drifts into wrong
+    measures (a fixed seconds->BPM conversion would accumulate error).
+    Tick 0 is the first beat, which also anchors measure 1; subdivision
+    is taken from the grid.
 
-    origin: time of the first BEAT (grid.beats[0]) — measure 1 starts
-    there, not at second zero of the file; anchoring at t=0 would shift
-    every note by the lead-in and put downbeats off the barline.
+    Without a grid (standalone use, unreliable tempo) positions fall
+    back to a uniform 60/bpm grid anchored at `origin`, with the given
+    `subdivision` slots per quarter.
+
+    beats_per_measure is written as the time signature (n/4).
 
     legato: (first, second, kind) triples from detect_legato_pairs;
     the first note of a pair gets Note.effect.hammer. Per-note bend
@@ -105,8 +111,15 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
         header.timeSignature = gp.TimeSignature(
             numerator=beats_per_measure, denominator=gp.Duration(value=4))
 
-    quarter = 60.0 / bpm
-    slot_len = quarter / subdivision            # one grid slot, seconds
+    if grid is not None:
+        subdivision = grid.subdivision          # the grids must never differ
+        def slot_of(t: float) -> int:
+            return max(0, grid.tick_index(t))
+    else:
+        quarter = 60.0 / bpm
+        slot_len = quarter / subdivision        # one uniform slot, seconds
+        def slot_of(t: float) -> int:
+            return max(0, int(round((t - origin) / slot_len)))
     slots_per_measure = beats_per_measure * subdivision
 
     # Durations expressible as one gp5 Duration, in slot units, largest
@@ -206,7 +219,7 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
     for shape in shapes:
         if not shape.placements:
             continue
-        slot = max(0, int(round((shape.start - origin) / slot_len)))
+        slot = slot_of(shape.start)
         while slot in placed:
             slot += 1
         placed[slot] = shape
@@ -246,7 +259,10 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
             nxt = (events[i + 1] - base) if i + 1 < len(events) else slots_per_measure
             shape = placed[slot]
             longest = max(p.note.duration for p in shape.placements)
-            sounded = max(1, min(nxt - local, round(longest / slot_len)))
+            # sounded length in slots: measured on the same grid as the
+            # position, so a breathing tempo cannot stretch note values
+            end_slot = slot_of(shape.start + longest)
+            sounded = max(1, min(nxt - local, end_slot - (base + local)))
             used = _add_beat(voice, sounded, shape)
             _fill_rests(voice, nxt - local - used)
             cursor = nxt

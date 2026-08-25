@@ -176,8 +176,7 @@ def run_pipeline(audio: Path, out_dir: Path,
                                    beats_per_measure=opts.beats_per_measure,
                                    subdivision=opts.subdivision,
                                    title=part_name, key=key,
-                                   origin=beats[0] if beats else 0.0,
-                                   legato=legato)
+                                   legato=legato, grid=grid)
                 files["gp5"] = gp5
             except Exception as e:
                 progress("export", f"{part_name}: gp5 failed to build ({e})")
