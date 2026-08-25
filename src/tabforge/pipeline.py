@@ -96,7 +96,11 @@ def run_pipeline(audio: Path, out_dir: Path,
         tempo_source, source_name = audio, "mix"
 
     progress("tempo", f"tempo and beat grid ({source_name})")
-    bpm, beats, tempo_reliable = transcribe.detect_tempo(tempo_source)
+    # When tempo comes from the mix itself, decode it once for both
+    # detectors instead of twice.
+    mix_data = transcribe.load_audio(audio) if tempo_source == audio else None
+    bpm, beats, tempo_reliable = transcribe.detect_tempo(
+        tempo_source, audio_data=mix_data)
     warnings: list[str] = []
     if not tempo_reliable:
         warnings.append("tempo: estimated poorly")
@@ -110,7 +114,7 @@ def run_pipeline(audio: Path, out_dir: Path,
     # detector must never take the whole job down with it.
     progress("tempo", "detecting the key")
     try:
-        key = keydetect.detect_key(audio)
+        key = keydetect.detect_key(audio, audio_data=mix_data)
         progress("tempo", f"key: {key.name}")
     except Exception as e:  # noqa: BLE001 — degrade, don't die
         key = None

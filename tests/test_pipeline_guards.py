@@ -14,6 +14,7 @@ class TestKeyDetectionGuard(unittest.TestCase):
         patches = {
             "transcribe_stem": mock.Mock(return_value=notes),
             "detect_tempo": mock.Mock(return_value=(120.0, [], True)),
+            "load_audio": mock.Mock(return_value=(None, 22050)),
         }
         with tempfile.TemporaryDirectory() as tmp, \
              mock.patch.multiple("tabforge.audio.transcribe", **patches), \

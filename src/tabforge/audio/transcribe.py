@@ -140,6 +140,14 @@ def collapse_tempo_candidates(
     return out
 
 
+def load_audio(audio: Path) -> tuple:
+    """Decode+resample once; pass the result to detect_tempo/detect_key
+    via audio_data to avoid decoding the same file twice."""
+    import librosa
+
+    return librosa.load(str(audio), mono=True)
+
+
 def stem_is_audible(wav: Path, rms_threshold: float = 0.005) -> bool:
     """True when the stem carries real signal.
 
@@ -175,8 +183,10 @@ def guard_tempo(bpm: float, beats: list[float],
     return FALLBACK_BPM, [], False
 
 
-def detect_tempo(audio: Path) -> tuple[float, list[float], bool]:
+def detect_tempo(audio: Path,
+                 audio_data: tuple | None = None) -> tuple[float, list[float], bool]:
     """Returns (BPM, beat times in seconds, reliable).
+    audio_data: optional preloaded (y, sr) from load_audio.
 
     beat_track's single estimate flips between tempo multiples from run to
     run, so the tempo is chosen from explicit hypotheses instead: local
@@ -192,13 +202,15 @@ def detect_tempo(audio: Path) -> tuple[float, list[float], bool]:
     import librosa
     import numpy as np
 
-    y, sr = librosa.load(str(audio), mono=True)
+    y, sr = audio_data if audio_data is not None else load_audio(audio)
     oenv = librosa.onset.onset_strength(y=y, sr=sr)
     local = librosa.feature.tempo(onset_envelope=oenv, sr=sr, aggregate=None)
     families = collapse_tempo_candidates(local)
 
+    # Top 2 families only: each extra family costs up to 3 beat_track
+    # dynamic programs, and the weight ordering is what decides anyway.
     hypotheses: dict[float, int] = {}
-    for bpm, weight in families[:4]:
+    for bpm, weight in families[:2]:
         for ratio in (1.0, 4 / 3, 3 / 4):
             h = round(fold_tempo(bpm * ratio), 4)
             hypotheses[h] = max(hypotheses.get(h, 0), weight)

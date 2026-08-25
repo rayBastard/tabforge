@@ -70,11 +70,15 @@ def detect_key_from_chroma(chroma: Sequence[float]) -> Key:
     return best
 
 
-def detect_key(audio: Path) -> Key:
-    """Wav/mp3 -> Key, via the time-averaged chroma_cqt."""
+def detect_key(audio: Path, audio_data: tuple | None = None) -> Key:
+    """Wav/mp3 -> Key, via the time-averaged chroma_cqt.
+    audio_data: optional preloaded (y, sr) from transcribe.load_audio."""
     import librosa
     import numpy as np
 
-    y, sr = librosa.load(str(audio), mono=True)
+    if audio_data is not None:
+        y, sr = audio_data
+    else:
+        y, sr = librosa.load(str(audio), mono=True)
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
     return detect_key_from_chroma(np.mean(chroma, axis=1).tolist())
