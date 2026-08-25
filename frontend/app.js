@@ -471,12 +471,20 @@ function initUnifiedScore(job) {
       } : { enablePlayer: false },
     });
     api.scoreLoaded.on((score) => {
-      // notation-only tracks lose their tab staff
+      // fretted instruments read TAB, keys/vocals read notation —
+      // nobody needs both staves at once
       for (const t of score.tracks) {
-        if (tabByName[t.name] === false) {
-          for (const stave of t.staves) {
+        const percussion = t.staves[0]?.isPercussion;
+        for (const stave of t.staves) {
+          if (percussion) {
             stave.showTablature = false;
             stave.showStandardNotation = true;
+          } else if (tabByName[t.name] === false) {
+            stave.showTablature = false;
+            stave.showStandardNotation = true;
+          } else {
+            stave.showTablature = true;
+            stave.showStandardNotation = false;
           }
         }
       }
@@ -744,7 +752,7 @@ function chordName(pitches) {
 }
 
 function buildKeyboard(bar) {
-  const LO = 36, HI = 96;                        // C2..C7
+  const LO = 21, HI = 108;         // the full classical piano: A0..C8
   const isBlack = (m) => [1, 3, 6, 8, 10].includes(m % 12);
   const whites = [];
   for (let m = LO; m <= HI; m++) if (!isBlack(m)) whites.push(m);
