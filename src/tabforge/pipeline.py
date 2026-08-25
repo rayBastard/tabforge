@@ -46,6 +46,18 @@ def _noop(_stage: str, _msg: str) -> None:
     pass
 
 
+def choose_tempo_source(stems: dict[str, Path], mix: Path,
+                        is_audible: Callable[[Path], bool]) -> tuple[Path, str]:
+    """Drums carry the clearest attacks — but only when they exist AND
+    actually contain signal: htdemucs always writes a drums.wav, and for
+    drumless material it is just residual bleed that would yield a garbage
+    beat grid. Anything else falls back to the full mix."""
+    drums = stems.get("drums")
+    if drums is not None and is_audible(drums):
+        return drums, "drums"
+    return mix, "mix"
+
+
 def run_pipeline(audio: Path, out_dir: Path,
                  opts: PipelineOptions | None = None,
                  progress: ProgressFn = _noop) -> list[StemResult]:
@@ -59,10 +71,9 @@ def run_pipeline(audio: Path, out_dir: Path,
         progress("separate", "Separating into stems (first run downloads the model)")
         all_stems = transcribe.separate_stems(audio, out_dir / "stems")
         stems = {k: v for k, v in all_stems.items() if k in opts.stems}
-        # Drums carry the clearest attacks, so the shared grid comes from
-        # them; the tempo must be computed once or stems drift apart.
-        tempo_source = all_stems.get("drums", audio)
-        source_name = "drums" if "drums" in all_stems else "mix"
+        # The tempo must be computed once or stems drift apart.
+        tempo_source, source_name = choose_tempo_source(
+            all_stems, audio, transcribe.stem_is_audible)
     else:
         stems = {"mix": audio}
         tempo_source, source_name = audio, "mix"

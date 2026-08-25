@@ -138,6 +138,22 @@ def collapse_tempo_candidates(
     return out
 
 
+def stem_is_audible(wav: Path, rms_threshold: float = 0.005) -> bool:
+    """True when the stem carries real signal.
+
+    Calibrated on htdemucs_6s output: a stem that is only residual bleed
+    (e.g. the piano stem of a piano-less track) sits around RMS 0.002,
+    real content starts an order of magnitude higher.
+    """
+    import librosa
+    import numpy as np
+
+    y, _sr = librosa.load(str(wav), mono=True)
+    if not len(y):
+        return False
+    return float(np.sqrt(np.mean(y ** 2))) >= rms_threshold
+
+
 FALLBACK_BPM = 120.0
 
 
