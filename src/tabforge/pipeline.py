@@ -78,9 +78,17 @@ def run_pipeline(audio: Path, out_dir: Path,
     grid = Grid(beats, subdivision=opts.subdivision) if len(beats) > 1 else None
 
     # Key is track-global, so it comes from the full mix, not a stem.
+    # It is also purely cosmetic (key signatures in the exports): a broken
+    # detector must never take the whole job down with it.
     progress("tempo", "detecting the key")
-    key = keydetect.detect_key(audio)
-    progress("tempo", f"key: {key.name}")
+    try:
+        key = keydetect.detect_key(audio)
+        progress("tempo", f"key: {key.name}")
+    except Exception as e:  # noqa: BLE001 — degrade, don't die
+        key = None
+        warnings.append("key: detection failed")
+        progress("tempo", f"key detection failed ({e}), "
+                          "continuing without a key signature")
 
     results: list[StemResult] = []
     for name, wav in stems.items():
@@ -141,7 +149,8 @@ def run_pipeline(audio: Path, out_dir: Path,
                 progress("export", f"{part_name}: musicxml failed to build ({e})")
 
             results.append(StemResult(
-                stem=part_name, bpm=bpm, key=key.name,
+                stem=part_name, bpm=bpm,
+                key=key.name if key else "unknown key",
                 note_count=len(part_notes),
                 ascii_tab=render_ascii(shapes, cfg), files=files,
                 warnings=list(warnings),
