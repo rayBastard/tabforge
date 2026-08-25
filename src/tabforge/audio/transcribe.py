@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Sequence
 
@@ -19,8 +20,25 @@ from ..core.fretboard import NoteEvent
 # Instruments that htdemucs_6s can extract
 SIX_STEMS = ("drums", "bass", "other", "vocals", "guitar", "piano")
 
+# Separations in flight, keyed by the caller's cancel token: a canceled
+# job must be able to kill its demucs subprocess instead of waiting
+# minutes for the next cooperative checkpoint.
+_ACTIVE: dict[object, subprocess.Popen] = {}
+_ACTIVE_LOCK = threading.Lock()
 
-def separate_stems(audio: Path, out_dir: Path, model: str = "htdemucs_6s") -> dict[str, Path]:
+
+def abort_separation(cancel_token: object) -> bool:
+    """Kill the demucs subprocess registered under this token, if any."""
+    with _ACTIVE_LOCK:
+        proc = _ACTIVE.get(cancel_token)
+    if proc is None:
+        return False
+    proc.kill()
+    return True
+
+
+def separate_stems(audio: Path, out_dir: Path, model: str = "htdemucs_6s",
+                   cancel_token: object | None = None) -> dict[str, Path]:
     """Splits the mix into stems. Returns {stem_name: wav_path}.
 
     demucs runs strictly in a subprocess: in-process it reports failure
@@ -29,6 +47,9 @@ def separate_stems(audio: Path, out_dir: Path, model: str = "htdemucs_6s") -> di
     sys.executable cannot run `-m demucs`, so the frozen app re-invokes
     itself with a --demucs-worker sentinel (dispatched by the entry
     script) instead.
+
+    cancel_token registers the subprocess so abort_separation(token)
+    can kill it mid-run.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     demucs_args = ["-n", model, "-o", str(out_dir), str(audio)]
@@ -36,9 +57,19 @@ def separate_stems(audio: Path, out_dir: Path, model: str = "htdemucs_6s") -> di
         cmd = [sys.executable, "--demucs-worker", *demucs_args]
     else:
         cmd = [sys.executable, "-m", "demucs", *demucs_args]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True)
+    if cancel_token is not None:
+        with _ACTIVE_LOCK:
+            _ACTIVE[cancel_token] = proc
+    try:
+        _out, err = proc.communicate()
+    finally:
+        if cancel_token is not None:
+            with _ACTIVE_LOCK:
+                _ACTIVE.pop(cancel_token, None)
     if proc.returncode != 0:
-        tail = "\n".join((proc.stderr or "").strip().splitlines()[-5:])
+        tail = "\n".join((err or "").strip().splitlines()[-5:])
         raise RuntimeError(
             f"demucs failed with exit code {proc.returncode}:\n{tail}")
 

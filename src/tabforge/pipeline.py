@@ -172,9 +172,14 @@ RMS_ABSENT = 0.002
 
 
 def run_analyze(audio: Path, out_dir: Path,
-                progress: ProgressFn = _noop) -> AnalyzeResult:
+                progress: ProgressFn = _noop,
+                cancel_token: object | None = None) -> AnalyzeResult:
     """Separate + quick per-stem facts + shared tempo/key. No demucs work
-    is ever repeated after this: the stems stay in out_dir/stems."""
+    is ever repeated after this: the stems stay in out_dir/stems.
+
+    cancel_token lets a caller abort the demucs subprocess mid-run via
+    transcribe.abort_separation(token); cooperative cancellation between
+    stages happens by raising from the progress callback."""
     import numpy as np
 
     from .audio import keydetect, transcribe
@@ -182,7 +187,8 @@ def run_analyze(audio: Path, out_dir: Path,
     out_dir.mkdir(parents=True, exist_ok=True)
     progress("separate", "Separating into stems (first run downloads the model)")
     demucs_input = transcribe.ensure_decodable_wav(audio, out_dir)
-    all_stems = transcribe.separate_stems(demucs_input, out_dir / "stems")
+    all_stems = transcribe.separate_stems(demucs_input, out_dir / "stems",
+                                          cancel_token=cancel_token)
 
     warnings: list[str] = []
 

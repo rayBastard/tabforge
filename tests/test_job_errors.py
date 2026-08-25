@@ -13,14 +13,29 @@ except ImportError:
     HAVE_SERVER = False
 
 
+class _FakePopen:
+    """Stand-in for the demucs subprocess (now Popen, so a cancel can
+    kill it mid-run)."""
+
+    def __init__(self, returncode=0, stderr=""):
+        self.returncode = returncode
+        self._stderr = stderr
+
+    def communicate(self):
+        return "", self._stderr
+
+    def kill(self):
+        pass
+
+
 class TestSeparateStemsErrors(unittest.TestCase):
     def test_nonzero_exit_becomes_runtime_error(self):
         # demucs failures must surface as a plain Exception (catchable by
         # `except Exception`), never a SystemExit, with stderr attached.
-        failed = subprocess.CompletedProcess(
-            args=["demucs"], returncode=1,
-            stdout="", stderr="some noise\nfatal: could not load model\n")
-        with mock.patch.object(transcribe.subprocess, "run",
+        failed = _FakePopen(
+            returncode=1,
+            stderr="some noise\nfatal: could not load model\n")
+        with mock.patch.object(transcribe.subprocess, "Popen",
                                return_value=failed):
             with self.assertRaises(RuntimeError) as ctx:
                 transcribe.separate_stems(Path("x.wav"), Path("/tmp/out"))
@@ -30,12 +45,10 @@ class TestSeparateStemsErrors(unittest.TestCase):
     def test_runs_demucs_in_subprocess(self):
         # The in-process demucs API call must never come back: a SystemExit
         # raised inside it would escape `except Exception` in the server.
-        ok = subprocess.CompletedProcess(args=[], returncode=0,
-                                         stdout="", stderr="")
-        with mock.patch.object(transcribe.subprocess, "run",
-                               return_value=ok) as run:
+        with mock.patch.object(transcribe.subprocess, "Popen",
+                               return_value=_FakePopen()) as popen:
             transcribe.separate_stems(Path("x.wav"), Path("/tmp/out"))
-        cmd = run.call_args.args[0]
+        cmd = popen.call_args.args[0]
         self.assertIn("demucs", " ".join(str(c) for c in cmd))
 
 

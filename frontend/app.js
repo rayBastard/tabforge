@@ -88,11 +88,50 @@ function setFile(f) {
 /* ---------- the two-step flow: analyze, choose, transcribe ---------- */
 
 let currentJobId = null;               // set once the track is analyzed
+let activeJobId = null;                // the job being worked on right now
 
 goBtn.addEventListener("click", () => {
   if (currentJobId) startTranscribe();
   else startAnalyze();
 });
+
+/* ---------- the Stop button: cancel a running analyze/transcribe ----- */
+
+const stopBtn = $("#stopBtn");
+
+function showStop(on) {
+  stopBtn.hidden = !on;
+  stopBtn.disabled = false;
+  stopBtn.textContent = "✕ stop";
+}
+
+stopBtn.addEventListener("click", async () => {
+  if (!activeJobId) return;
+  stopBtn.disabled = true;
+  stopBtn.textContent = "stopping…";
+  try {
+    const res = await apiFetch(`/api/jobs/${activeJobId}/cancel`,
+                               { method: "POST" });
+    if (!res.ok) throw new Error(await errorDetail(res));
+    // the poll loop notices the job land in canceled/analyzed
+  } catch (err) {
+    setLog(`Failed to stop: ${err.message}`, true);
+    showStop(true);
+  }
+});
+
+function resetAfterCancel() {
+  neck.classList.remove("playing");
+  showStop(false);
+  markStage(null);
+  currentJobId = null;
+  activeJobId = null;
+  $("#instruments").hidden = true;
+  $("#splitRow").hidden = true;
+  goBtn.textContent = "Analyze track";
+  goBtn.disabled = !pickedFile;
+  setLog("Stopped. Press Analyze to start again.");
+}
 
 let serverLimits = null;               // fetched once, best-effort
 
@@ -119,6 +158,7 @@ async function startAnalyze() {
   resultsEl.innerHTML = "";
   neck.hidden = false;
   neck.classList.add("playing");
+  showStop(true);
   setLog("Uploading the file for processing…");
   markStage(null);
 
@@ -128,6 +168,7 @@ async function startAnalyze() {
     const res = await apiFetch("/api/jobs", { method: "POST", body: form });
     if (!res.ok) throw new Error(await errorDetail(res));
     const { id } = await res.json();
+    activeJobId = id;
     poll(id);
   } catch (err) {
     fail(`Failed to start: ${err.message}`);
@@ -141,6 +182,7 @@ async function startTranscribe() {
   goBtn.disabled = true;
   resultsEl.innerHTML = "";
   neck.classList.add("playing");
+  showStop(true);
   const tuningSel = $("#instTuning");
   try {
     const res = await apiFetch(`/api/jobs/${currentJobId}/transcribe`, {
@@ -153,6 +195,7 @@ async function startTranscribe() {
       }),
     });
     if (!res.ok) throw new Error(await errorDetail(res));
+    activeJobId = currentJobId;
     poll(currentJobId);
   } catch (err) {
     fail(`Failed to start: ${err.message}`);
@@ -217,6 +260,7 @@ function showInstruments(job) {
   box.hidden = false;
   $("#splitRow").hidden = !hasGuitar;
   neck.classList.remove("playing");
+  showStop(false);
   setLog("Analyzed. Pick the instruments and press Transcribe.");
   goBtn.textContent = "Transcribe to tab";
   goBtn.disabled = false;
@@ -238,6 +282,7 @@ async function poll(id, failures = 0) {
 
     if (job.status === "analyzed") return showInstruments(job);
     if (job.status === "done") return finish(job);
+    if (job.status === "canceled") return resetAfterCancel();
     if (job.status === "error") return fail(job.error);
     setTimeout(() => poll(id, 0), POLL_INTERVAL);   // success resets the streak
   } catch (err) {
@@ -269,6 +314,7 @@ function setLog(msg, isError = false) {
 
 function fail(msg) {
   neck.classList.remove("playing");
+  showStop(false);
   setLog(msg, true);
   goBtn.disabled = false;
 }
@@ -283,6 +329,7 @@ const STEM_NAMES = { guitar: "Guitar", bass: "Bass", vocals: "Vocals",
 
 function finish(job) {
   neck.classList.remove("playing");
+  showStop(false);
   markStage("done");
   setLog("Done. Change the selection and transcribe again if you like.");
   goBtn.disabled = false;              // re-transcribe with a new selection

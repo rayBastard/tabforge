@@ -34,6 +34,7 @@ from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from ..audio.transcribe import abort_separation
 from ..core.fretboard import TUNINGS
 from ..pipeline import (STAGES, PipelineOptions, apply_repin, run_analyze,
                         run_transcribe)
@@ -57,10 +58,14 @@ MAX_JOBS = int(os.environ.get("TABFORGE_MAX_JOBS", "20"))
 CLEANUP_INTERVAL_S = 300.0
 
 
+class JobCancelled(Exception):
+    """Raised from the progress hook when the user pressed Stop."""
+
+
 @dataclass
 class Job:
     id: str
-    status: str = "queued"      # queued | running | analyzed | done | error
+    status: str = "queued"  # queued | running | analyzed | done | error | canceled
     stage: str = ""
     log: list[str] = field(default_factory=list)
     analysis: list[dict] = field(default_factory=list)
@@ -75,6 +80,7 @@ class Job:
     created_at: float = field(default_factory=time.time)
     finished_at: float | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
+    cancel: threading.Event = field(default_factory=threading.Event)
 
     def public(self) -> dict:
         with self.lock:
@@ -126,7 +132,7 @@ def cleanup_jobs(now: float | None = None) -> int:
     expired = []
     for job_id, job in list(JOBS.items()):
         with job.lock:
-            done = job.status in ("done", "error")
+            done = job.status in ("done", "error", "canceled")
             stamp = job.finished_at
         if done and stamp is not None and now - stamp > JOB_TTL_S:
             expired.append(job_id)
@@ -142,7 +148,7 @@ def _evict_for_capacity() -> bool:
         return True
     finished = sorted(
         (j for j in JOBS.values()
-         if j.status in ("done", "error")),
+         if j.status in ("done", "error", "canceled")),
         key=lambda j: j.finished_at or j.created_at)
     if not finished:
         return False
@@ -203,6 +209,10 @@ async def _save_upload(file: UploadFile, target: Path) -> None:
 
 def _progress_fn(job: Job):
     def progress(stage: str, msg: str) -> None:
+        # cooperative cancellation: the pipeline calls this at every
+        # step, so a raise here unwinds the whole run cleanly
+        if job.cancel.is_set():
+            raise JobCancelled()
         with job.lock:
             job.stage = stage
             job.log.append(msg)
@@ -211,9 +221,14 @@ def _progress_fn(job: Job):
 
 def _run_analyze(job: Job, audio: Path) -> None:
     with job.lock:
+        if job.cancel.is_set():          # canceled while still queued
+            job.status = "canceled"
+            job.finished_at = time.time()
+            return
         job.status = "running"
     try:
-        analyzed = run_analyze(audio, job.dir / "out", _progress_fn(job))
+        analyzed = run_analyze(audio, job.dir / "out", _progress_fn(job),
+                               cancel_token=job.id)
         with job.lock:
             job.analyzed = analyzed
             job.analysis = [a.to_dict()
@@ -222,14 +237,19 @@ def _run_analyze(job: Job, audio: Path) -> None:
             job.stage = "analyze"
     except Exception as e:  # noqa: BLE001 — shown to the user
         with job.lock:
-            job.status = "error"
-            job.error = str(e)
+            # a killed demucs also surfaces as an exception: any failure
+            # after the user pressed Stop is a cancellation, not an error
+            if job.cancel.is_set():
+                job.status = "canceled"
+            else:
+                job.status = "error"
+                job.error = str(e)
     finally:
         with job.lock:
             if job.status == "running":
                 job.status = "error"
                 job.error = job.error or "analysis crashed unexpectedly"
-            if job.status == "error":
+            if job.status in ("error", "canceled"):
                 job.finished_at = time.time()
 
 
@@ -255,8 +275,16 @@ def _run_transcribe(job: Job, opts: PipelineOptions) -> None:
             job.stage = "done"
     except Exception as e:  # noqa: BLE001 — shown to the user
         with job.lock:
-            job.status = "error"
-            job.error = str(e)
+            if job.cancel.is_set() and job.analyzed is not None:
+                # canceled mid-transcription: the separation is intact,
+                # so drop back to the instrument picker instead of dying
+                job.cancel.clear()
+                job.status = "analyzed"
+                job.stage = "analyze"
+                job.log.append("transcription canceled")
+            else:
+                job.status = "error"
+                job.error = str(e)
     finally:
         # Whatever escaped above (BaseException included), a job must
         # never be left in "running" — the frontend would poll forever.
@@ -264,7 +292,8 @@ def _run_transcribe(job: Job, opts: PipelineOptions) -> None:
             if job.status == "running":
                 job.status = "error"
                 job.error = job.error or "job crashed unexpectedly"
-            job.finished_at = time.time()
+            if job.status != "analyzed":
+                job.finished_at = time.time()
 
 
 # ---------------------------------------------------------------------------
@@ -340,6 +369,25 @@ async def transcribe_job(job_id: str, selection: dict) -> dict:
     job.opts = opts
     POOL.submit(_run_transcribe, job, opts)
     return {"id": job.id}
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str) -> dict:
+    """Stop a running analyze or transcribe. Cancel during analyze ends
+    the job; cancel during transcribe drops back to the instrument
+    picker (the cached separation survives)."""
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    with job.lock:
+        if job.status not in ("queued", "running"):
+            raise HTTPException(
+                409, f"Nothing to cancel (status: {job.status})")
+        job.cancel.set()
+        job.log.append("stopping…")
+    # demucs won't reach a cooperative checkpoint for minutes — kill it
+    abort_separation(job.id)
+    return {"id": job.id, "status": "canceling"}
 
 
 @app.post("/api/jobs/{job_id}/repin")

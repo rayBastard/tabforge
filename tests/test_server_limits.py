@@ -1,6 +1,7 @@
 """Limits, validation, auth, and job-lifecycle tests for the server API.
 Uses FastAPI's TestClient (httpx); skipped in core-only CI installs."""
 import io
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -308,6 +309,85 @@ class TestJobLifecycle(ServerTestCase):
         res = post_job(self.client, tiny_wav_bytes())
         self.assertEqual(res.status_code, 200)
         self.assertNotIn(finished.id, srv.JOBS)
+
+
+@unittest.skipUnless(HAVE_AUDIO, "numpy/soundfile are not installed")
+class TestCancel(ServerTestCase):
+    def _wait_status(self, job_id: str, wanted: str, timeout_s: float = 5.0):
+        deadline = time.time() + timeout_s
+        status = None
+        while time.time() < deadline:
+            status = self.client.get(f"/api/jobs/{job_id}").json()["status"]
+            if status == wanted:
+                return status
+            time.sleep(0.02)
+        return status
+
+    def test_cancel_during_analyze_ends_the_job(self):
+        started = threading.Event()
+
+        def slow_analyze(audio, out_dir, progress, cancel_token=None):
+            started.set()
+            for _ in range(400):           # ~4 s unless canceled
+                progress("separate", "working")
+                time.sleep(0.01)
+            return self.fake_analysis
+
+        with mock.patch.object(srv, "run_analyze", side_effect=slow_analyze):
+            job_id = post_job(self.client, tiny_wav_bytes()).json()["id"]
+            self.assertTrue(started.wait(5), "worker never started")
+            res = self.client.post(f"/api/jobs/{job_id}/cancel")
+            self.assertEqual(res.status_code, 200)
+            self.assertEqual(self._wait_status(job_id, "canceled"), "canceled")
+
+    def test_cancel_during_transcribe_returns_to_the_picker(self):
+        started = threading.Event()
+
+        def slow_transcribe(out_dir, analyzed, opts, progress):
+            started.set()
+            for _ in range(400):
+                progress("transcribe", "working")
+                time.sleep(0.01)
+            return []
+
+        job_id = post_job(self.client, tiny_wav_bytes()).json()["id"]
+        self.assertEqual(self._wait_status(job_id, "analyzed"), "analyzed")
+        with mock.patch.object(srv, "run_transcribe",
+                               side_effect=slow_transcribe):
+            res = self.client.post(f"/api/jobs/{job_id}/transcribe",
+                                   json={"stems": ["guitar"]})
+            self.assertEqual(res.status_code, 200)
+            self.assertTrue(started.wait(5), "worker never started")
+            self.client.post(f"/api/jobs/{job_id}/cancel")
+            # the cached separation survives: back to picking instruments
+            self.assertEqual(self._wait_status(job_id, "analyzed"), "analyzed")
+
+    def test_cancel_needs_a_running_job(self):
+        res = self.client.post("/api/jobs/nonexistent/cancel")
+        self.assertEqual(res.status_code, 404)
+        job_id = post_job(self.client, tiny_wav_bytes()).json()["id"]
+        self._wait_status(job_id, "analyzed")
+        res = self.client.post(f"/api/jobs/{job_id}/cancel")
+        self.assertEqual(res.status_code, 409)
+
+    def test_abort_separation_kills_the_registered_process(self):
+        from tabforge.audio import transcribe as T
+
+        class FakeProc:
+            killed = False
+            def kill(self):
+                self.killed = True
+
+        proc = FakeProc()
+        with T._ACTIVE_LOCK:
+            T._ACTIVE["tok"] = proc
+        try:
+            self.assertTrue(T.abort_separation("tok"))
+            self.assertTrue(proc.killed)
+        finally:
+            with T._ACTIVE_LOCK:
+                T._ACTIVE.pop("tok", None)
+        self.assertFalse(T.abort_separation("missing"))
 
 
 if __name__ == "__main__":

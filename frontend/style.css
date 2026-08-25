@@ -66,6 +66,14 @@ body {
 .about { margin: 10px auto 0; max-width: 520px;
          color: var(--wire); font-size: 14px; line-height: 1.5; }
 
+.stop { display: block; margin: 12px auto 0;
+        font: 600 13px/1 "Bricolage Grotesque", sans-serif;
+        color: var(--bone-dim); background: none;
+        border: 1px solid var(--wire); border-radius: 6px;
+        padding: 8px 16px; cursor: pointer; }
+.stop:hover { color: var(--bone); border-color: var(--bone-dim); }
+.stop:disabled { opacity: .45; cursor: wait; }
+
 /* ---------- screen 1: Start — a centered funnel ---------- */
 
 #screenStart {
