@@ -109,6 +109,40 @@ class TestAssign(unittest.TestCase):
         self.assertEqual(got, [28, 31, 33, 35])
 
 
+class TestPins(unittest.TestCase):
+    def test_pin_moves_the_note_and_its_neighbors(self):
+        # E4-F4-G4... lays out around the open top strings by default;
+        # pinning the first E4 onto the G string (fret 9) must pull the
+        # NEIGHBORS up into the fret 9-12 box too — the surroundings
+        # re-arrange around the pin instead of jumping back down.
+        notes = seq([64, 65, 67, 65, 64], step=0.3)
+        plain = assign_tab(notes)
+        self.assertEqual(plain[0].placements[0].fret, 0,
+                         "baseline must start on the open E for the "
+                         "test to be meaningful")
+
+        pinned = assign_tab(notes, pins={0: 3})
+        first = pinned[0].placements[0]
+        self.assertEqual(first.string, 3, "the pin is a hard constraint")
+        self.assertEqual(first.fret, 9)
+        # pitches survive untouched
+        got = sorted(p.note.pitch for s in pinned for p in s.placements)
+        self.assertEqual(got, sorted([64, 65, 67, 65, 64]))
+        # immediate neighbors follow into the pin's box instead of the
+        # open strings (the far-away last note may legitimately return)
+        for s in pinned[1:4]:
+            self.assertGreaterEqual(
+                s.placements[0].fret, 5,
+                "neighbors should re-arrange around the pin")
+
+    def test_impossible_pin_drops_only_that_event(self):
+        notes = seq([55, 59], step=0.3)
+        # pitch 55 cannot live on the top E string (would need fret -9)
+        shapes = assign_tab(notes, pins={0: 5})
+        got = sorted(p.note.pitch for s in shapes for p in s.placements)
+        self.assertEqual(got, [59], "unplayable pin drops that note only")
+
+
 class TestAscii(unittest.TestCase):
     def test_render_has_six_lines(self):
         shapes = assign_tab(seq([48, 50]))

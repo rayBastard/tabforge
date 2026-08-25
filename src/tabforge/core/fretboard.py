@@ -120,9 +120,18 @@ def candidates_for_pitch(pitch: int, cfg: TabConfig) -> list[tuple[int, int]]:
     return out
 
 
-def shapes_for_event(event: Sequence[NoteEvent], cfg: TabConfig) -> list[Shape]:
-    """All physically possible ways to play this chord."""
-    per_note = [candidates_for_pitch(n.pitch, cfg) for n in event]
+def shapes_for_event(event: Sequence[NoteEvent], cfg: TabConfig,
+                     pinned: dict[int, int] | None = None) -> list[Shape]:
+    """All physically possible ways to play this chord.
+
+    pinned: {id(note): string} — a user-pinned note may ONLY sit on that
+    string; every other note re-arranges around it."""
+    per_note = []
+    for n in event:
+        cands = candidates_for_pitch(n.pitch, cfg)
+        if pinned and id(n) in pinned:
+            cands = [c for c in cands if c[0] == pinned[id(n)]]
+        per_note.append(cands)
     if any(not c for c in per_note):
         # some note is outside the instrument's range — drop it
         keep = [(n, c) for n, c in zip(event, per_note) if c]
@@ -209,13 +218,20 @@ def transition_cost(prev: Shape, prev_pos: int, cur: Shape, pos: int,
 # ---------------------------------------------------------------------------
 
 def assign_tab(notes: Sequence[NoteEvent], cfg: TabConfig | None = None,
-               legato: Sequence[tuple] | None = None) -> list[Shape]:
+               legato: Sequence[tuple] | None = None,
+               pins: dict[int, int] | None = None) -> list[Shape]:
     """legato: (first_note, second_note, ...) tuples from
     articulation.detect_legato_pairs — pairs are matched by object
-    identity and rewarded when they land on one string in one position."""
+    identity and rewarded when they land on one string in one position.
+
+    pins: {note_index_in_notes: string} — hard constraints from the note
+    editor. A pinned note may only sit on that string; the Viterbi search
+    re-arranges everything else around the pin."""
     cfg = cfg or TabConfig()
     legato_ids = frozenset(
         (id(pair[0]), id(pair[1])) for pair in legato) if legato else None
+    pinned = ({id(notes[i]): s for i, s in pins.items()
+               if 0 <= i < len(notes)} if pins else None)
     events = group_into_events(notes, cfg.onset_tolerance)
     if not events:
         return []
@@ -226,7 +242,7 @@ def assign_tab(notes: Sequence[NoteEvent], cfg: TabConfig | None = None,
 
     beam: list[State] = []
     for event in events:
-        options = [(sh, p) for sh in shapes_for_event(event, cfg)
+        options = [(sh, p) for sh in shapes_for_event(event, cfg, pinned)
                    for p in positions_for_shape(sh, cfg)]
         if not options:
             continue

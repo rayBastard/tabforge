@@ -374,6 +374,8 @@ function initUnifiedScore(job) {
       }
       api.renderTracks(score.tracks);   // render ALL tracks together
     });
+    // the note editor: click a note, pick where it should live
+    api.noteMouseDown.on((note) => showNotePopover(note));
     return api;
   };
 
@@ -417,6 +419,92 @@ function applyMixer() {
     api.changeTrackSolo([t], !!st.solo);
   }
 }
+
+/* ---------- the note editor: click a note, choose its string --------- */
+
+let lastPointer = { x: 200, y: 200 };
+document.addEventListener("mousedown",
+  (e) => { lastPointer = { x: e.clientX, y: e.clientY }; }, true);
+
+const editor = { lastAction: null };   // for one-step undo
+
+function closePopover() {
+  document.querySelector(".note-popover")?.remove();
+}
+
+function showNotePopover(note) {
+  closePopover();
+  const track = note.beat.voice.bar.staff.track;
+  const tuning = note.beat.voice.bar.staff.tuning;   // index 0 = string 1
+  if (!tuning || !tuning.length) return;             // notation-only part
+  const pitch = note.realValue;
+  const qticks = note.beat.absolutePlaybackStart ?? note.beat.playbackStart;
+
+  const pop = document.createElement("div");
+  pop.className = "note-popover";
+  const title = document.createElement("p");
+  title.textContent = `${noteName(pitch)} — where should it live?`;
+  pop.appendChild(title);
+
+  const n = tuning.length;
+  // alphaTab counts note.string from the LOWEST string; our loop (and
+  // the tuning array) go from the highest — mirror before comparing
+  const currentS = n - note.string + 1;
+  for (let s = 1; s <= n; s++) {
+    const fret = pitch - tuning[s - 1];
+    if (fret < 0 || fret > 24) continue;
+    const b = document.createElement("button");
+    b.textContent = `string ${s}, fret ${fret}` +
+      (s === currentS ? "  ← now" : "");
+    if (s === currentS) b.classList.add("current");
+    b.addEventListener("click", () =>
+      repin(track.name, qticks, pitch, n - s, b));   // server counts from low E
+    pop.appendChild(b);
+  }
+  const close = document.createElement("button");
+  close.textContent = "✕ close";
+  close.addEventListener("click", closePopover);
+  pop.appendChild(close);
+
+  pop.style.left = Math.min(lastPointer.x, window.innerWidth - 240) + "px";
+  pop.style.top = (lastPointer.y + 12) + "px";
+  document.body.appendChild(pop);
+}
+
+async function repin(part, qticks, pitch, string, btn) {
+  if (btn) { btn.disabled = true; btn.textContent += " …"; }
+  try {
+    const res = await apiFetch(`/api/jobs/${currentJobId}/repin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ part, qticks, pitch, string }),
+    });
+    if (!res.ok) throw new Error(await errorDetail(res));
+    const data = await res.json();
+    editor.lastAction = { part, qticks, pitch, prev: data.prev };
+    $("#undoBtn").hidden = false;
+    closePopover();
+    reloadScore(data.song);
+  } catch (err) {
+    closePopover();
+    setLog(`Repin failed: ${err.message}`, true);
+  }
+}
+
+function reloadScore(songUrl) {
+  if (!unified.api) return;
+  // cache-buster: the gp5 on disk changed but the URL did not
+  unified.api.load(withToken(songUrl) +
+    (songUrl.includes("?") ? "&" : "?") + "v=" + Date.now());
+}
+
+$("#undoBtn")?.addEventListener("click", async () => {
+  const a = editor.lastAction;
+  if (!a) return;
+  await repin(a.part, a.qticks, a.pitch, a.prev ?? null, null);
+  editor.lastAction = null;
+  $("#undoBtn").hidden = true;
+});
 
 function toggleTrack(name, what, btn) {
   const st = unified.mixer.get(name) || { mute: false, solo: false };

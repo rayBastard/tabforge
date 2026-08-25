@@ -164,6 +164,35 @@ body {
 .track-toggle.active { background: var(--brass); color: var(--wood);
                        border-color: var(--brass); }
 
+.note-popover {
+  position: fixed;
+  z-index: 40;
+  background: var(--plank);
+  border: 1px solid var(--brass);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 8px 30px rgba(0,0,0,.5);
+  max-width: 230px;
+}
+.note-popover p { margin: 0 0 4px; font-size: 13px; color: var(--bone-dim); }
+.note-popover button {
+  min-height: 36px;
+  border: 1px solid var(--wire);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--bone);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 6px 10px;
+}
+.note-popover button:hover { border-color: var(--brass); }
+.note-popover button.current { color: var(--brass); border-color: var(--brass); }
+
 .score { padding: 18px 22px 60px; min-width: 0; }
 
 /* ---------- left panel ---------- */

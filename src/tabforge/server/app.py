@@ -35,7 +35,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..core.fretboard import TUNINGS
-from ..pipeline import STAGES, PipelineOptions, run_analyze, run_transcribe
+from ..pipeline import (STAGES, PipelineOptions, apply_repin, run_analyze,
+                        run_transcribe)
 
 if getattr(sys, "frozen", False):
     # PyInstaller bundle: data files are unpacked next to the binary
@@ -68,6 +69,7 @@ class Job:
     dir: Path | None = None
     audio: Path | None = None         # the uploaded file
     analyzed: object | None = None    # pipeline.AnalyzeResult (server-side)
+    opts: object | None = None        # PipelineOptions of the last transcribe
     created_at: float = field(default_factory=time.time)
     finished_at: float | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
@@ -333,8 +335,41 @@ async def transcribe_job(job_id: str, selection: dict) -> dict:
         tuning=tuning,
         split_guitars=bool(selection.get("split_guitars", False)),
     )
+    job.opts = opts
     POOL.submit(_run_transcribe, job, opts)
     return {"id": job.id}
+
+
+@app.post("/api/jobs/{job_id}/repin")
+async def repin_note(job_id: str, req: dict) -> dict:
+    """Note editor: pin a note to a string (string=null removes the pin)
+    and re-run the fingering around it. Fast — pure math, no audio."""
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if job.status != "done" or job.opts is None:
+        raise HTTPException(409, "Transcribe first, then edit")
+    part = req.get("part")
+    try:
+        # the UI sends the beat position in alphaTab's quarter ticks
+        # (960/quarter); the grid tick depends on our subdivision
+        tick = round(int(req["qticks"]) * job.opts.subdivision / 960)
+        result = apply_repin(
+            job.dir / "out", part,
+            tick=tick, pitch=int(req["pitch"]),
+            string=(None if req.get("string") is None
+                    else int(req["string"])),
+            shared=job.analyzed, opts=job.opts)
+    except (KeyError, TypeError):
+        raise HTTPException(400, "repin needs part, qticks, pitch, string")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    with job.lock:
+        for r in job.results:
+            if r.get("stem") == part and result["ascii"]:
+                r["ascii"] = result["ascii"]
+    return {"prev": result["prev"], "song": job.song}
 
 
 @app.get("/api/jobs/{job_id}")

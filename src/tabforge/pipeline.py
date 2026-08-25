@@ -17,7 +17,8 @@ from pathlib import Path
 from typing import Callable
 
 from .core.articulation import detect_legato_pairs
-from .core.fretboard import TUNINGS, TabConfig, assign_tab, render_ascii
+from .core.fretboard import (NoteEvent, TUNINGS, TabConfig, assign_tab,
+                             render_ascii)
 from .core.instruments import profile_for
 from .core.partition import split_lead_rhythm
 from .core.quantize import Grid, gather_chords, quantize
@@ -333,6 +334,8 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
             song_parts.append(writers.SongPart(
                 name=part_name, shapes=shapes, cfg=cfg,
                 profile=profile, legato=legato))
+            _save_part_state(out_dir, part_name, part_notes, legato,
+                             tuning_key, profile.name)
             results.append(StemResult(
                 stem=part_name, bpm=bpm,
                 key=key.name if key else "unknown key",
@@ -359,6 +362,126 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
         except Exception as e:
             progress("export", f"project score failed to build ({e})")
     return results
+
+
+# ---------------------------------------------------------------------------
+# The note editor: parts are persisted as JSON so a pin can re-run the
+# fingering search for one instrument without touching the audio again.
+# ---------------------------------------------------------------------------
+
+def _parts_file(out_dir: Path) -> Path:
+    return out_dir / "parts.json"
+
+
+def _save_part_state(out_dir: Path, part_name: str, notes, legato,
+                     tuning_key: str, profile_name: str) -> None:
+    import json
+
+    path = _parts_file(out_dir)
+    state = json.loads(path.read_text()) if path.exists() else {}
+    index_of = {id(n): i for i, n in enumerate(notes)}
+    state[part_name] = {
+        "notes": [{"pitch": n.pitch, "start": n.start,
+                   "duration": n.duration, "velocity": n.velocity,
+                   "bends": list(n.bends)} for n in notes],
+        "legato": [[index_of[id(a)], index_of[id(b)], kind]
+                   for a, b, kind in (legato or [])
+                   if id(a) in index_of and id(b) in index_of],
+        "tuning": tuning_key,
+        "profile": profile_name,
+        "pins": {},
+    }
+    path.write_text(json.dumps(state))
+
+
+def apply_repin(out_dir: Path, part_name: str, tick: int, pitch: int,
+                string: int | None, shared: AnalyzeResult,
+                opts: PipelineOptions) -> dict:
+    """Pin (or unpin, string=None) a note of one part and rebuild its
+    files plus the multi-track song.gp5. Returns {'prev': old_pin,
+    'ascii': new_ascii} — raises ValueError when the note isn't found."""
+    import json
+
+    from .export import writers
+
+    path = _parts_file(out_dir)
+    state = json.loads(path.read_text())
+    if part_name not in state:
+        raise ValueError(f"unknown part: {part_name}")
+
+    grid = (Grid(shared.beats, subdivision=opts.subdivision)
+            if len(shared.beats) > 1 else None)
+
+    def revive(part):
+        return [NoteEvent(n["pitch"], n["start"], n["duration"],
+                          n["velocity"], list(n["bends"]))
+                for n in part["notes"]]
+
+    # locate the clicked note: same tick (the collision shift allows ±1)
+    # and the same pitch
+    part = state[part_name]
+    notes = revive(part)
+    target = None
+    for i, n in enumerate(notes):
+        if n.pitch != pitch:
+            continue
+        t = grid.tick_index(n.start) if grid else round(
+            n.start / (60.0 / shared.bpm / opts.subdivision))
+        if abs(t - tick) <= 1:
+            target = i
+            break
+    if target is None:
+        raise ValueError("note not found at that position")
+
+    pins = {int(k): v for k, v in part["pins"].items()}
+    prev = pins.get(target)
+    if string is None:
+        pins.pop(target, None)
+    else:
+        pins[target] = int(string)
+    part["pins"] = {str(k): v for k, v in pins.items()}
+    path.write_text(json.dumps(state))
+
+    # rebuild every part's shapes (cheap — pure math), rewrite the edited
+    # part's files and the shared song.gp5
+    song_parts = []
+    edited_ascii = ""
+    for name, p in state.items():
+        p_notes = revive(p)
+        profile = profile_for(p["profile"])
+        cfg = TabConfig(tuning=TUNINGS[p["tuning"]],
+                        max_fret=profile.max_fret)
+        p_legato = [(p_notes[a], p_notes[b], kind)
+                    for a, b, kind in p["legato"]]
+        p_pins = {int(k): v for k, v in p["pins"].items()}
+        shapes = assign_tab(p_notes, cfg,
+                            legato=p_legato if profile.allow_hammer else None,
+                            pins=p_pins or None)
+        song_parts.append(writers.SongPart(
+            name=name, shapes=shapes, cfg=cfg,
+            profile=profile, legato=p_legato))
+        if name == part_name:
+            stem_dir = out_dir / name
+            writers.export_gp5(shapes, stem_dir / f"{name}.gp5", cfg,
+                               bpm=shared.bpm,
+                               beats_per_measure=opts.beats_per_measure,
+                               subdivision=opts.subdivision,
+                               title=name, key=shared.key,
+                               legato=p_legato, grid=grid, profile=profile)
+            writers.export_midi(shapes, stem_dir / f"{name}.mid",
+                                program=profile.midi_program)
+            if profile.tablature:
+                edited_ascii = render_ascii(shapes, cfg, legato=p_legato)
+                writers.export_ascii(shapes, stem_dir / f"{name}.txt",
+                                     cfg, legato=p_legato)
+
+    writers.export_song_gp5(song_parts, out_dir / "song" / "song.gp5",
+                            bpm=shared.bpm,
+                            beats_per_measure=opts.beats_per_measure,
+                            subdivision=opts.subdivision,
+                            title="TabForge project", key=shared.key,
+                            grid=grid)
+    return {"prev": prev, "ascii": edited_ascii}
 
 
 def _analyze_mix_only(audio: Path, opts: PipelineOptions,

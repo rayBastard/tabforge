@@ -163,6 +163,68 @@ class TestTwoStepFlow(ServerTestCase):
         srv.run_analyze.assert_called_once()
 
 
+@unittest.skipUnless(HAVE_AUDIO, "numpy/soundfile are not installed")
+class TestRepin(ServerTestCase):
+    def test_repin_requires_done_state(self):
+        res = post_job(self.client, tiny_wav_bytes())
+        job_id = res.json()["id"]
+        r = self.client.post(f"/api/jobs/{job_id}/repin",
+                             json={"part": "guitar", "qticks": 0,
+                                   "pitch": 60, "string": 2})
+        self.assertEqual(r.status_code, 409)
+
+    def test_repin_end_to_end_on_real_parts(self):
+        # a real (tiny) pipeline state: save a part, then pin through
+        # apply_repin directly — the endpoint's core path
+        import json
+        import tempfile
+
+        from tabforge.core.fretboard import NoteEvent
+        from tabforge.pipeline import (AnalyzeResult, PipelineOptions,
+                                       _save_part_state, apply_repin)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / "guitar").mkdir()
+            (out / "song").mkdir()
+            notes = [NoteEvent(64 + i, i * 0.5, 0.4) for i in range(3)]
+            _save_part_state(out, "guitar", notes, [], "standard", "guitar")
+            shared = AnalyzeResult(stems={}, analysis={}, bpm=120.0,
+                                   beats=[], tempo_reliable=True, key=None)
+            result = apply_repin(out, "guitar", tick=0, pitch=64,
+                                 string=3, shared=shared,
+                                 opts=PipelineOptions())
+            self.assertIsNone(result["prev"])
+            self.assertIn("9", result["ascii"], "pinned fret must appear")
+            state = json.loads((out / "parts.json").read_text())
+            self.assertEqual(state["guitar"]["pins"], {"0": 3})
+            self.assertTrue((out / "song" / "song.gp5").is_file())
+            # unpin restores and reports the previous pin
+            result = apply_repin(out, "guitar", tick=0, pitch=64,
+                                 string=None, shared=shared,
+                                 opts=PipelineOptions())
+            self.assertEqual(result["prev"], 3)
+
+    def test_repin_unknown_note_is_400_shaped(self):
+        import tempfile
+
+        from tabforge.core.fretboard import NoteEvent
+        from tabforge.pipeline import (AnalyzeResult, PipelineOptions,
+                                       _save_part_state, apply_repin)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / "guitar").mkdir()
+            _save_part_state(out, "guitar",
+                             [NoteEvent(60, 0.0, 0.5)], [],
+                             "standard", "guitar")
+            shared = AnalyzeResult(stems={}, analysis={}, bpm=120.0,
+                                   beats=[], tempo_reliable=True, key=None)
+            with self.assertRaises(ValueError):
+                apply_repin(out, "guitar", tick=40, pitch=99,
+                            string=1, shared=shared, opts=PipelineOptions())
+
+
 class TestToken(ServerTestCase):
     def test_no_token_configured_is_open(self):
         self.assertEqual(self.client.get("/api/tunings").status_code, 200)
