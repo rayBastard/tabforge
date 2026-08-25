@@ -8,6 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Sequence
 
+from ..audio.keydetect import Key
 from ..core.fretboard import Shape, TabConfig
 from ..core.quantize import duration_symbol
 
@@ -34,7 +35,8 @@ def export_midi(shapes: Sequence[Shape], path: Path, program: int = 25) -> None:
 
 def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
                bpm: float = 120.0, beats_per_measure: int = 4,
-               title: str = "TabForge", artist: str = "") -> None:
+               title: str = "TabForge", artist: str = "",
+               key: Key | None = None) -> None:
     """
     Builds a .gp5. In PyGuitarPro string #1 is the THINNEST,
     while our index 0 is the thickest. Hence the flip.
@@ -45,6 +47,13 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
     song.title = title
     song.artist = artist
     song.tempo = int(round(bpm))
+    if key is not None:
+        # The gp5 song-level field only stores the accidental count (the
+        # reader assumes major); the mode survives via the first measure
+        # header, which stores both bytes.
+        signature = gp.KeySignature((key.accidentals, 1 if key.minor else 0))
+        song.key = signature
+        song.measureHeaders[0].keySignature = signature
 
     track = song.tracks[0]
     track.name = "Guitar"
@@ -113,12 +122,16 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
     gp.write(song, str(path))
 
 
-def export_musicxml(shapes: Sequence[Shape], path: Path, bpm: float = 120.0) -> None:
+def export_musicxml(shapes: Sequence[Shape], path: Path, bpm: float = 120.0,
+                    key: Key | None = None) -> None:
     """For MuseScore / Sibelius. Staff notation without tablature."""
     from music21 import stream, note as m21note, tempo, chord as m21chord
+    from music21 import key as m21key
 
     part = stream.Part()
     part.append(tempo.MetronomeMark(number=bpm))
+    if key is not None:
+        part.append(m21key.KeySignature(key.accidentals))
     quarter = 60.0 / bpm
 
     for shape in shapes:

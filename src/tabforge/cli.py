@@ -28,7 +28,7 @@ def main() -> None:
     results = run_pipeline(args.audio, args.out, opts,
                            progress=lambda st, msg: print(f"[{st}] {msg}"))
     for r in results:
-        print(f"\n=== {r.stem}: {r.note_count} notes, {r.bpm:.0f} BPM ===")
+        print(f"\n=== {r.stem}: {r.note_count} notes, {r.bpm:.0f} BPM, {r.key} ===")
         print(r.ascii_tab[:800])
     print(f"\nDone: {args.out.resolve()}")
 

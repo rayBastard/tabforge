@@ -80,6 +80,21 @@ class TestGp5Roundtrip(unittest.TestCase):
                 self.assertGreaterEqual(len(voice.beats), 1,
                                         f"measure {m.number} has an empty voice")
 
+    def test_key_signature_roundtrip(self):
+        import guitarpro as gp
+        from tabforge.audio.keydetect import Key
+        from tabforge.export.writers import export_gp5
+
+        shapes = assign_tab([NoteEvent(60, 0.0, 0.5)], self.cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "key.gp5"
+            export_gp5(shapes, path, self.cfg, bpm=96.0,
+                       key=Key(5, True, 0.8))  # F minor, 4 flats
+            song = gp.parse(str(path))
+        self.assertEqual(song.measureHeaders[0].keySignature,
+                         gp.KeySignature.FMinor)
+        self.assertEqual(song.key.value[0], -4)
+
     def test_bass_tuning(self):
         cfg = TabConfig(tuning=TUNINGS["bass_4"], max_fret=20)
         source = [28, 31, 33, 35]

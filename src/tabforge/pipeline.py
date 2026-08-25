@@ -33,6 +33,7 @@ class PipelineOptions:
 class StemResult:
     stem: str
     bpm: float
+    key: str            # e.g. "F minor"
     note_count: int
     ascii_tab: str
     files: dict[str, Path] = field(default_factory=dict)  # ext -> path
@@ -45,7 +46,7 @@ def _noop(_stage: str, _msg: str) -> None:
 def run_pipeline(audio: Path, out_dir: Path,
                  opts: PipelineOptions | None = None,
                  progress: ProgressFn = _noop) -> list[StemResult]:
-    from .audio import transcribe
+    from .audio import keydetect, transcribe
     from .export import writers
 
     opts = opts or PipelineOptions()
@@ -66,6 +67,11 @@ def run_pipeline(audio: Path, out_dir: Path,
     progress("tempo", f"tempo and beat grid ({source_name})")
     bpm, beats = transcribe.detect_tempo(tempo_source)
     grid = Grid(beats, subdivision=opts.subdivision) if len(beats) > 1 else None
+
+    # Key is track-global, so it comes from the full mix, not a stem.
+    progress("tempo", "detecting the key")
+    key = keydetect.detect_key(audio)
+    progress("tempo", f"key: {key.name}")
 
     results: list[StemResult] = []
     for name, wav in stems.items():
@@ -99,19 +105,19 @@ def run_pipeline(audio: Path, out_dir: Path,
 
         try:
             gp5 = stem_dir / f"{name}.gp5"
-            writers.export_gp5(shapes, gp5, cfg, bpm=bpm, title=name)
+            writers.export_gp5(shapes, gp5, cfg, bpm=bpm, title=name, key=key)
             files["gp5"] = gp5
         except Exception as e:
             progress("export", f"{name}: gp5 failed to build ({e})")
         try:
             xml = stem_dir / f"{name}.musicxml"
-            writers.export_musicxml(shapes, xml, bpm=bpm)
+            writers.export_musicxml(shapes, xml, bpm=bpm, key=key)
             files["musicxml"] = xml
         except Exception as e:
             progress("export", f"{name}: musicxml failed to build ({e})")
 
         results.append(StemResult(
-            stem=name, bpm=bpm, note_count=len(notes),
+            stem=name, bpm=bpm, key=key.name, note_count=len(notes),
             ascii_tab=render_ascii(shapes, cfg), files=files,
         ))
     return results

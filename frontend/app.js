@@ -127,7 +127,7 @@ function finish(job) {
     const card = tpl.content.cloneNode(true);
     card.querySelector(".stem-name").textContent = STEM_NAMES[r.stem] || r.stem;
     card.querySelector(".stem-meta").textContent =
-      `${r.notes} notes · ${r.bpm} BPM`;
+      `${r.notes} notes · ${r.bpm} BPM · ${r.key}`;
 
     const nav = card.querySelector(".stem-downloads");
     for (const [ext, url] of Object.entries(r.files)) {

@@ -68,7 +68,7 @@ def _run(job: Job, audio: Path, opts: PipelineOptions) -> None:
         with job.lock:
             job.results = [
                 {
-                    "stem": r.stem, "bpm": round(r.bpm, 1),
+                    "stem": r.stem, "bpm": round(r.bpm, 1), "key": r.key,
                     "notes": r.note_count, "ascii": r.ascii_tab,
                     "files": {ext: f"/api/jobs/{job.id}/files/{r.stem}/{p.name}"
                               for ext, p in r.files.items()},
