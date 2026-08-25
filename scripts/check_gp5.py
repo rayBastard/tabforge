@@ -70,10 +70,11 @@ def timing_deviation(gp5: list[tuple[float, int]],
                      midi: list[tuple[float, int]]) -> float:
     """Max timing deviation in quarter notes, per pitch.
 
-    The gp5 tempo is rounded to an integer, so absolute seconds drift;
-    instead the best linear scale seconds->quarters is fitted through the
-    origin and residuals are compared. This checks exactly what broken
-    measure assembly breaks: relative note positions.
+    The gp5 tempo is rounded to an integer (scale drift) and measure 1 is
+    anchored at the first detected beat, not second zero (offset), so an
+    affine fit seconds->quarters (slope + intercept) is computed and the
+    residuals compared. This checks exactly what broken measure assembly
+    breaks: relative note positions.
     """
     by_pitch_gp5: dict[int, list[float]] = {}
     by_pitch_midi: dict[int, list[float]] = {}
@@ -87,12 +88,17 @@ def timing_deviation(gp5: list[tuple[float, int]],
         other = sorted(by_pitch_midi.get(p, []))
         for a, b in zip(sorted(times), other):
             pairs.append((b, a))
-    num = sum(s * q for s, q in pairs)
-    den = sum(s * s for s, _ in pairs)
+    n = len(pairs)
+    if n < 2:
+        return 0.0
+    mean_s = sum(s for s, _ in pairs) / n
+    mean_q = sum(q for _, q in pairs) / n
+    den = sum((s - mean_s) ** 2 for s, _ in pairs)
     if den == 0:
         return 0.0
-    scale = num / den                          # quarters per second
-    return max(abs(q - s * scale) for s, q in pairs)
+    scale = sum((s - mean_s) * (q - mean_q) for s, q in pairs) / den
+    offset = mean_q - scale * mean_s
+    return max(abs(q - (s * scale + offset)) for s, q in pairs)
 
 
 def main() -> int:

@@ -35,10 +35,14 @@ def export_midi(shapes: Sequence[Shape], path: Path, program: int = 25) -> None:
 def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
                bpm: float = 120.0, beats_per_measure: int = 4,
                title: str = "TabForge", artist: str = "",
-               key: Key | None = None) -> None:
+               key: Key | None = None, origin: float = 0.0) -> None:
     """
     Builds a .gp5. In PyGuitarPro string #1 is the THINNEST,
     while our index 0 is the thickest. Hence the flip.
+
+    origin: time of the first BEAT (grid.beats[0]) — measure 1 starts
+    there, not at second zero of the file; anchoring at t=0 would shift
+    every note by the lead-in and put downbeats off the barline.
     """
     import guitarpro as gp
 
@@ -124,7 +128,7 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
     for shape in shapes:
         if not shape.placements:
             continue
-        slot = int(round(shape.start / slot_len))
+        slot = max(0, int(round((shape.start - origin) / slot_len)))
         while slot in placed:
             slot += 1
         placed[slot] = shape

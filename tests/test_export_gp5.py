@@ -116,6 +116,33 @@ class TestGp5Roundtrip(unittest.TestCase):
                      for b in m.voices[0].beats if b.notes)
         self.assertEqual(got, [0, 6, 29])
 
+    def test_origin_anchors_measures_to_first_beat(self):
+        # Regression: the slot grid was anchored at t=0, so a track with a
+        # lead-in had every note shifted off the barline. Shifting all
+        # notes by +0.7 s with origin=0.7 must keep slots identical.
+        import guitarpro as gp
+        from tabforge.export.writers import export_gp5
+
+        starts = [0.0, 0.75, 3.625]
+
+        def slots(offset, origin):
+            notes = [NoteEvent(60 + i, t + offset, 0.2)
+                     for i, t in enumerate(starts)]
+            shapes = assign_tab(notes, self.cfg)
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "o.gp5"
+                export_gp5(shapes, path, self.cfg, bpm=120.0, origin=origin)
+                song = gp.parse(str(path))
+            base = song.measureHeaders[0].start
+            sixteenth = gp.Duration.quarterTime // 4
+            return sorted((b.start - base) // sixteenth
+                          for m in song.tracks[0].measures
+                          for b in m.voices[0].beats if b.notes)
+
+        self.assertEqual(slots(0.0, 0.0), [0, 6, 29])
+        self.assertEqual(slots(0.7, 0.7), [0, 6, 29],
+                         "a 0.7 s lead-in shifted the measures")
+
     def test_key_signature_roundtrip(self):
         import guitarpro as gp
         from tabforge.audio.keydetect import Key

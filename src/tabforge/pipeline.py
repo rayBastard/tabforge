@@ -128,7 +128,8 @@ def run_pipeline(audio: Path, out_dir: Path,
             try:
                 gp5 = stem_dir / f"{part_name}.gp5"
                 writers.export_gp5(shapes, gp5, cfg, bpm=bpm,
-                                   title=part_name, key=key)
+                                   title=part_name, key=key,
+                                   origin=beats[0] if beats else 0.0)
                 files["gp5"] = gp5
             except Exception as e:
                 progress("export", f"{part_name}: gp5 failed to build ({e})")
