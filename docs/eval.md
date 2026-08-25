@@ -141,6 +141,33 @@ the theory may yet hold. The Fulgrim insight also lands here: that
 track's "bass problem" was piano misattribution all along — golden
 fragments beat synthetic guesses.
 
+## The MT3 experiment — 2026-08-26 (task 51)
+
+YourMT3+ (YPTF.MoE+Multi noPS checkpoint, CPU) wrapped as an
+experiment harness in `scripts/mt3_experiment/` — the whole MIX in,
+notes WITH instrument labels out, no separation step at all.
+
+- **On the synthetic stand it is blind**: the metal piece returned
+  ZERO notes, bass/drums near-zero everywhere. A model with a strong
+  instrument prior rejects unfamiliar timbres outright, while
+  pitch-blind Basic Pitch transcribes anything — so the synthetic
+  stand cannot judge MT3. (Its one glimpse of form: ballad guitar
+  F1 0.71, the best number the stand has ever recorded.)
+- **On the real Fulgrim it nailed the attribution** that our pipeline
+  keeps getting wrong. Against the user's sheet music (a piano piece
+  with faint orchestra, no guitar): Acoustic Grand 232 notes + String
+  Ensemble 237 (the two real layers), guitar 16, bass 4 — while
+  separation+BasicPitch invents hundreds of "guitar" notes there.
+- Speed: ~0.7–1× realtime on CPU (48 s for the 65 s track) — cheaper
+  than the RoFormer separation alone.
+
+**Verdict**: the branch lives. The hybrid — MT3 decides WHAT plays
+(instrument attribution + notes), stems remain for the backing track
+and playback — is validated on real material. Full product
+integration (a TranscriptionBackend) is the next big task; the
+user's incoming real tracks with sheet music are its acceptance
+tests.
+
 ## Golden fragments (real material) — TODO
 
 Now with real ground truth for one track: the user provided the
