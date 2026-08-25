@@ -7,7 +7,7 @@
  */
 "use strict";
 
-const VERSION = "0.3.0";
+const VERSION = "0.3.1-dev";
 const CACHE = `tabforge-shell-${VERSION}`;
 const SHELL = [
   "/",
@@ -38,12 +38,21 @@ self.addEventListener("fetch", (e) => {
   // cross-origin (CDN alphaTab, fonts): let the browser handle it
   if (url.origin !== location.origin) return;
   if (e.request.method !== "GET") return;
+  // development on localhost: always hit the network — a cached shell
+  // silently hides freshly-edited frontend code
+  if (url.hostname === "localhost" || url.hostname === "127.0.0.1") return;
 
+  // stale-while-revalidate: serve the cached shell instantly, refresh it
+  // in the background — one reload after a deploy shows the new version
+  // even when the sw.js VERSION was not bumped
   e.respondWith(
     caches.match(e.request, { ignoreSearch: url.pathname === "/" })
-      .then((hit) => hit || fetch(e.request).then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copy));
-        return res;
-      })));
+      .then((hit) => {
+        const refresh = fetch(e.request).then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copy));
+          return res;
+        }).catch(() => hit);
+        return hit || refresh;
+      }));
 });
