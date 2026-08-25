@@ -82,8 +82,24 @@ at the server's address, on a phone — as a PWA. The logic is never rewritten.
 see issue #6; the ThreadPool + limits are enough for the current scale.)
 
 ### Phase 6 — mobile
-- [ ] PWA manifest + offline shell (the UI is already responsive)
-- [ ] the "everything on the server, the phone is just a client" option works right away
+- [x] PWA: manifest (standalone, dark theme, lamp icons) + a
+      version-keyed service worker — the shell starts instantly from
+      cache and old shells are purged on deploy; /api/* always live
+- [x] mobile UI pass: 44px+ touch targets, tap on the drop zone opens
+      the file picker, the ASCII tab scrolls inside its own container
+- [x] the "everything on the server, the phone is just a client" option
+      works right away (see Cloudflare Tunnel in Deployment)
+
+The mobile UI (iPhone / Android viewports):
+
+<p>
+  <img src="docs/pwa-iphone.png" width="260" alt="TabForge on iPhone">
+  <img src="docs/pwa-android.png" width="260" alt="TabForge on Android">
+</p>
+
+To install on a phone: open the (tunnel) URL — Android/Chrome offers
+"Install app", on iOS/Safari use Share → "Add to Home Screen". The app
+opens standalone with the lamp icon.
 
 ## Installation (development)
 

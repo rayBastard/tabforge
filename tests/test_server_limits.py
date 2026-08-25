@@ -123,6 +123,19 @@ class TestToken(ServerTestCase):
         self.assertEqual(self.client.get("/").status_code, 200)
 
 
+class TestPwaAssets(ServerTestCase):
+    def test_manifest_and_service_worker_are_served(self):
+        m = self.client.get("/manifest.json")
+        self.assertEqual(m.status_code, 200)
+        self.assertEqual(m.json()["display"], "standalone")
+        sw = self.client.get("/sw.js")
+        self.assertEqual(sw.status_code, 200)
+        self.assertIn("tabforge-shell-", sw.text)
+        for size in (192, 512):
+            self.assertEqual(
+                self.client.get(f"/icons/icon-{size}.png").status_code, 200)
+
+
 class TestJobLifecycle(ServerTestCase):
     def _fake_job(self, status="done", age_s=0.0):
         job = srv.Job(id=f"j{len(srv.JOBS)}")

@@ -121,11 +121,13 @@ legend {
   text-transform: uppercase;
   letter-spacing: .09em;
 }
-fieldset label { display: flex; gap: 9px; align-items: center; cursor: pointer; }
+/* min-height 44px: comfortable touch targets on phones */
+fieldset label { display: flex; gap: 10px; align-items: center;
+                 cursor: pointer; min-height: 44px; }
 
 input[type="checkbox"] {
   appearance: none;
-  width: 17px; height: 17px;
+  width: 20px; height: 20px;
   border: 1.5px solid var(--wire);
   border-radius: 4px;
   display: grid; place-content: center;
@@ -149,6 +151,7 @@ select:focus-visible, .go:focus-visible, .drop:focus-within {
 
 select {
   width: 100%;
+  min-height: 44px;
   padding: 9px 11px;
   border-radius: 7px;
   border: 1.5px solid var(--wire);
@@ -157,7 +160,8 @@ select {
   font: inherit;
 }
 
-.mixrow { display: flex; gap: 9px; align-items: center; margin-top: 16px; cursor: pointer; }
+.mixrow { display: flex; gap: 10px; align-items: center; margin-top: 8px;
+          cursor: pointer; min-height: 44px; }
 
 .go {
   width: 100%;

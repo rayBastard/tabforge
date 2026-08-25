@@ -13,6 +13,10 @@ const resultsEl = $("#results");
 
 let pickedFile = null;
 
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+
 /* ---------- API access: optional token, readable errors ---------- */
 
 function apiToken() {
