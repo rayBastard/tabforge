@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tabforge"
+version = "0.1.0"
+description = "Аудио (Suno и не только) -> табулатура и ноты"
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "MIT" }
+# Ядро без зависимостей — тесты и CI летают
+dependencies = []
+
+[project.optional-dependencies]
+ml = [
+    "basic-pitch>=0.4.0",
+    "demucs>=4.0.1",
+    "librosa>=0.10.1",
+    "numpy<2.0",
+]
+export = [
+    "PyGuitarPro>=0.9.3",
+    "pretty_midi>=0.2.10",
+    "music21>=9.1.0",
+]
+server = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "python-multipart>=0.0.9",
+]
+desktop = ["pywebview>=5.0"]
+all = ["tabforge[ml,export,server,desktop]"]
+
+[project.scripts]
+tabforge = "tabforge.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

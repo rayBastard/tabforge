@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TabForge — из записи в табулатуру</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="masthead">
+  <h1>TabForge</h1>
+  <p class="claim">Песня заходит звуком — выходит табулатурой.</p>
+</header>
+
+<main class="bench">
+
+  <!-- ЛЕВАЯ ПАНЕЛЬ: настройки -->
+  <section class="panel controls" aria-label="Настройки">
+    <label class="drop" id="drop">
+      <input type="file" id="file" accept="audio/*" hidden>
+      <span class="drop-title">Перетащите трек</span>
+      <span class="drop-sub">или нажмите, чтобы выбрать · mp3 / wav / flac</span>
+      <span class="drop-name" id="fileName"></span>
+    </label>
+
+    <fieldset>
+      <legend>Какие партии снять</legend>
+      <label><input type="checkbox" name="stem" value="guitar" checked> Гитара</label>
+      <label><input type="checkbox" name="stem" value="bass" checked> Бас</label>
+      <label><input type="checkbox" name="stem" value="vocals"> Вокал</label>
+      <label><input type="checkbox" name="stem" value="piano"> Клавиши</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Строй гитары</legend>
+      <select id="tuning">
+        <option value="standard">Стандарт (E A D G B E)</option>
+        <option value="drop_d">Drop D</option>
+        <option value="eb_standard">На полтона ниже (E♭)</option>
+        <option value="dadgad">DADGAD</option>
+        <option value="open_g">Open G</option>
+      </select>
+    </fieldset>
+
+    <label class="mixrow">
+      <input type="checkbox" id="separate" checked>
+      Сначала разделить микс на партии
+    </label>
+
+    <button id="go" class="go" disabled>Снять табулатуру</button>
+    <p class="hint">Первый запуск загрузит модель разделения (~300 МБ).
+       Трёхминутный трек на ноутбуке обрабатывается 3–6 минут.</p>
+  </section>
+
+  <!-- ПРАВАЯ ПАНЕЛЬ: гриф-прогресс + результат -->
+  <section class="panel stage" aria-label="Ход работы">
+
+    <!-- Сигнатура: шесть струн, этапы — как порожки на грифе -->
+    <div class="neck" id="neck" hidden>
+      <div class="strings">
+        <i></i><i></i><i></i><i></i><i></i><i></i>
+      </div>
+      <ol class="frets" id="frets">
+        <li data-stage="separate">Партии</li>
+        <li data-stage="transcribe">Ноты</li>
+        <li data-stage="tempo">Темп</li>
+        <li data-stage="fingering">Аппликатура</li>
+        <li data-stage="export">Файлы</li>
+      </ol>
+      <p class="neck-log" id="log" aria-live="polite"></p>
+    </div>
+
+    <div class="empty" id="empty">
+      <p>Здесь появятся ноты и табулатура.</p>
+      <p class="empty-sub">Загрузите трек и запустите обработку.</p>
+    </div>
+
+    <div id="results"></div>
+  </section>
+</main>
+
+<template id="stemCard">
+  <article class="stem">
+    <header class="stem-head">
+      <h2 class="stem-name"></h2>
+      <span class="stem-meta"></span>
+      <nav class="stem-downloads"></nav>
+    </header>
+    <div class="alphatab" hidden></div>
+    <pre class="asciitab"></pre>
+  </article>
+</template>
+
+<script src="https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.4.0/dist/alphaTab.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
