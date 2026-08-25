@@ -1,7 +1,22 @@
 # TabForge
 
 Audio (including tracks from Suno) → tablature and sheet music.
-One codebase — three platforms: laptop today, then browser, then mobile.
+One codebase — three platforms: laptop, browser, mobile.
+
+## Quick start
+
+```bash
+docker compose up -d --build      # 1. build & start
+open http://localhost:8000        # 2. open the app
+#                                   3. drop a track, press "Transcribe to tab"
+```
+
+![TabForge with a transcribed track](docs/screenshot-main.png)
+
+No Docker? Grab **TabForge.app** from the
+[latest release](https://github.com/rayBastard/tabforge/releases/latest)
+(macOS; first launch: right-click → Open), or run from source — see
+Installation below.
 
 ## How it works
 
@@ -72,16 +87,17 @@ at the server's address, on a phone — as a PWA. The logic is never rewritten.
       (see the Building section; Demucs models download on first run
       into `~/.cache`)
 
-### Phase 5 — browser
+### Phase 5 — browser ✅ (done for the current scale)
 - [x] production hardening: job TTL + cleanup, upload/duration limits,
       audio validation, optional API token, configurable workers
 - [x] Docker image + compose (model cache in a volume) — see Deployment
-- [ ] deploy the server (needs GPU hosting or patience on CPU)
+- [x] first real deployment: Cloudflare quick tunnel over the container,
+      verified from a phone on mobile data
 
-(A real job queue is deliberately deferred until multi-user load exists —
-see issue #6; the ThreadPool + limits are enough for the current scale.)
+Remaining tails live as issues: a job queue is deferred until real
+multi-user load (#6), permanent GPU hosting with a stable domain (#7).
 
-### Phase 6 — mobile
+### Phase 6 — mobile ✅ (done)
 - [x] PWA: manifest (standalone, dark theme, lamp icons) + a
       version-keyed service worker — the shell starts instantly from
       cache and old shells are purged on deploy; /api/* always live
@@ -100,6 +116,9 @@ The mobile UI (iPhone / Android viewports):
 To install on a phone: open the (tunnel) URL — Android/Chrome offers
 "Install app", on iOS/Safari use Share → "Add to Home Screen". The app
 opens standalone with the lamp icon.
+
+Remaining tail as an issue: vendoring alphaTab + the soundfont for a
+fully offline PWA (#8).
 
 ## Installation (development)
 

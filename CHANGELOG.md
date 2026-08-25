@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.3.0 — 2026-08-25
+
+Phases 5 and 6: the server grew up and moved out, and the app fits in
+a pocket.
+
+### Server, ready for the network
+- Job lifecycle: finished jobs expire (TTL) with background cleanup,
+  the store is capped with oldest-finished eviction and an honest 429.
+- Input limits and validation: streaming upload size check, duration
+  probe before the pipeline, real-audio validation, filename traversal
+  killed (only the extension survives), readable 4xx errors in the UI.
+- Optional API token (TABFORGE_TOKEN) via header or ?token= for
+  downloads; the UI asks once. Configurable workers (TABFORGE_WORKERS).
+- Non-wav input is re-encoded to wav before demucs — real-world mp3s
+  with malformed frames no longer crash the strict decoders.
+
+### Deployment
+- Dockerfile (python 3.11-slim, ffmpeg, non-root, uvicorn) and compose
+  with a model-cache volume; all knobs overridable from the host env.
+  Measured: ~1.5 min for a 3-minute track in a 4-CPU container, cold
+  start costs nothing extra on a fast connection.
+- Cloudflare quick-tunnel service under the `tunnel` compose profile:
+  free public URL, no account or public IP; token required.
+
+### Mobile (PWA)
+- manifest (standalone, dark walnut theme, generated lamp icons) and a
+  version-keyed service worker: instant shell start from cache, /api/*
+  always live, old shells purged on deploy.
+- Mobile UI pass: 44px+ touch targets, tap-to-pick on the drop zone,
+  the ASCII tab scrolls inside its container.
+
+### Fixes & maintenance
+- Frontend poll retries with backoff instead of dying on one hiccup;
+  key detection failures degrade instead of killing the job; the tempo
+  source falls back to the mix when the drums stem is silent.
+- Review issues #1–#4 closed (subdivision & time signature wired into
+  gp5, single audio decode + pruned tempo hypotheses, lazy alphaTab
+  player); #5/#6 deliberately deferred; #7/#8 track the remaining
+  hosting and offline tails.
+
 ## v0.2.0 — 2026-08-25
 
 The first release where the whole path — audio in, playable tablature
