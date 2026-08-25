@@ -19,33 +19,12 @@ from pathlib import Path
 
 
 def gp5_notes(path: Path) -> tuple[list[tuple[float, int]], int, int]:
-    """Returns ([(time_in_quarters, pitch)], beat_count, impossible_beats).
+    """Returns ([(time_in_quarters, pitch)], beat_count, impossible_beats),
+    via the shared reader in tabforge.export.gp5_read."""
+    from tabforge.export.gp5_read import read_gp5
 
-    Times come from PyGuitarPro's read-back beat starts (ticks accumulated
-    from the durations), so they reflect what notation software will show.
-    """
-    import guitarpro as gp
-
-    song = gp.parse(str(path))
-    track = song.tracks[0]
-    string_value = {s.number: s.value for s in track.strings}
-    quarter_time = gp.Duration.quarterTime
-    origin = song.measureHeaders[0].start
-
-    notes: list[tuple[float, int]] = []
-    beats = 0
-    impossible = 0
-    for measure in track.measures:
-        for voice in measure.voices:
-            for beat in voice.beats:
-                beats += 1
-                strings = [n.string for n in beat.notes]
-                if len(strings) != len(set(strings)):
-                    impossible += 1
-                for note in beat.notes:
-                    t = (beat.start - origin) / quarter_time
-                    notes.append((t, string_value[note.string] + note.value))
-    return notes, beats, impossible
+    contents = read_gp5(str(path))
+    return contents.notes, len(contents.beats), contents.impossible_beats
 
 
 def key_signatures(path: Path) -> list[str]:

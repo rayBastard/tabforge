@@ -15,20 +15,16 @@ except ImportError:
 
 
 def _roundtrip(shapes, cfg, **kwargs):
+    from tabforge.export.gp5_read import read_gp5
     from tabforge.export.writers import export_gp5
 
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "test.gp5"
         export_gp5(shapes, path, cfg, **kwargs)
-        song = gp.parse(str(path))
-    track = song.tracks[0]
-    string_value = {s.number: s.value for s in track.strings}
-    all_beats = [b for m in track.measures for v in m.voices for b in v.beats]
+        contents = read_gp5(str(path))
     # rest/empty padding beats carry no notes; the note-bearing ones are
     # what the melodic assertions care about
-    beats = [b for b in all_beats if b.notes]
-    pitches = [string_value[n.string] + n.value for b in beats for n in b.notes]
-    return track, beats, pitches
+    return contents.track, contents.note_beats, [p for _, p in contents.notes]
 
 
 @unittest.skipUnless(HAVE_GP, "PyGuitarPro is not installed")

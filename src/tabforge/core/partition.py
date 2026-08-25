@@ -13,13 +13,18 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from .fretboard import NoteEvent, group_into_events
+from .fretboard import NoteEvent, TabConfig, group_into_events
+
+# The chord-grouping window must match the fingering pass, or a "chord"
+# could be split across lead and rhythm inconsistently with the tab.
+# (TabConfig is slotted, so the default is read off an instance.)
+_DEFAULT_TOLERANCE = TabConfig().onset_tolerance
 
 
 def split_lead_rhythm(
     notes: Sequence[NoteEvent],
     *,
-    tolerance: float = 0.045,
+    tolerance: float = _DEFAULT_TOLERANCE,
     window: float = 1.0,
     min_part_fraction: float = 0.1,
 ) -> tuple[list[NoteEvent], list[NoteEvent]] | None:

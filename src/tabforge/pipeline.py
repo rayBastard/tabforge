@@ -41,6 +41,21 @@ class StemResult:
     files: dict[str, Path] = field(default_factory=dict)  # ext -> path
     warnings: list[str] = field(default_factory=list)
 
+    def to_dict(self, file_url) -> dict:
+        """Wire form of the result; the pipeline owns this schema so a new
+        field cannot be silently forgotten in the server. file_url maps
+        (stem, path) -> download URL."""
+        return {
+            "stem": self.stem,
+            "bpm": round(self.bpm, 1),
+            "key": self.key,
+            "notes": self.note_count,
+            "ascii": self.ascii_tab,
+            "warnings": list(self.warnings),
+            "files": {ext: file_url(self.stem, p)
+                      for ext, p in self.files.items()},
+        }
+
 
 def _noop(_stage: str, _msg: str) -> None:
     pass

@@ -22,8 +22,9 @@ MINOR_PROFILE = (6.33, 2.68, 3.52, 5.38, 2.60, 3.53,
 
 # Accidentals in the key signature (positive = sharps, negative = flats),
 # indexed by tonic pitch class. Enharmonic spellings pick the smaller count.
+# A minor key shares its signature with the relative major three semitones
+# up, so one table serves both.
 _MAJOR_ACCIDENTALS = (0, -5, 2, -3, 4, -1, 6, 1, -4, 3, -2, 5)
-_MINOR_ACCIDENTALS = (-3, 4, -1, 6, 1, -4, 3, -2, 5, 0, -5, 2)
 
 
 @dataclass(slots=True)
@@ -38,8 +39,8 @@ class Key:
 
     @property
     def accidentals(self) -> int:
-        table = _MINOR_ACCIDENTALS if self.minor else _MAJOR_ACCIDENTALS
-        return table[self.tonic]
+        tonic = (self.tonic + 3) % 12 if self.minor else self.tonic
+        return _MAJOR_ACCIDENTALS[tonic]
 
 
 def _pearson(a: Sequence[float], b: Sequence[float]) -> float:
