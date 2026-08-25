@@ -21,6 +21,10 @@ ml = [
     "demucs>=4.0.1",
     "librosa>=0.10.1",
     "numpy<2.0",
+    # resampy 0.4.2 (pulled in by basic-pitch) imports pkg_resources at
+    # runtime but does not declare setuptools; pip >= 26 no longer ships
+    # setuptools in fresh venvs, and setuptools >= 81 dropped pkg_resources.
+    "setuptools<81",
 ]
 export = [
     "PyGuitarPro>=0.9.3",
