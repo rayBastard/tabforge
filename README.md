@@ -151,6 +151,26 @@ fully offline PWA (#8).
 
 ![Analyze step: instrument cards](docs/screenshot-start.png)
 
+### Phase 8 — hands-on polish ✅ (done)
+- [x] musicality: real durations written as TIED notes across beats and
+      barlines, small gaps absorbed instead of chopped into rests,
+      letRing on keys — long notes are held, not truncated
+- [x] steady rhythm: the beat grid repairs tracker glitches (skipped /
+      phantom beats) and smooths jitter while still following the
+      track's real tempo drift; rhythm precision (eighths / triplets /
+      sixteenths) is the user's choice at the transcribe step
+- [x] playback you can follow: amber current-bar highlight, a beat
+      cursor, "bar N / M" in the transport, Space = play/pause
+- [x] per-instrument tabs over the score (everything still sounds;
+      mute/solo rule the mix)
+- [x] virtual instruments under the score: a 22-fret fretboard, a
+      keyboard, drum pads — current notes light up during playback,
+      and the fretboard doubles as the note editor (click a score
+      note, pick its new position right on the neck)
+- [x] a Stop button that actually kills a running separation, an
+      in-app backing-track player, a 200 MB default upload limit, and
+      a short what-this-does intro on the start screen
+
 ## Installation (development)
 
 ```bash
