@@ -217,6 +217,7 @@ async function startTranscribe() {
         stems: picked,
         tuning: tuningSel ? tuningSel.value : "standard",
         subdivision: parseInt($("#instPrecision")?.value || "2", 10),
+        tempo_scale: parseFloat($("#instTempoScale")?.value || "1"),
       }),
     });
     if (!res.ok) throw new Error(await errorDetail(res));
@@ -316,6 +317,21 @@ function showInstruments(job) {
       box.appendChild(note);
     }
   }
+  // the tempo octave is the USER's call: 152-in-eighths and
+  // 76-in-sixteenths are the same audio, but the score reads differently
+  if (job.bpm) {
+    const t = document.createElement("div");
+    t.className = "inst-tuning";
+    const bpm = job.bpm;
+    t.innerHTML =
+      `detected tempo: <select id="instTempoScale">
+         <option value="1" selected>${bpm.toFixed(0)} BPM — as detected</option>
+         <option value="0.5">${(bpm / 2).toFixed(0)} BPM — half time</option>
+         <option value="2">${(bpm * 2).toFixed(0)} BPM — double time</option>
+       </select>`;
+    box.appendChild(t);
+  }
+
   // rhythm precision: eighths are steady, sixteenths catch fast runs
   // but amplify transcription timing noise
   const prec = document.createElement("div");

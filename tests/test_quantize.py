@@ -103,3 +103,26 @@ class TestDuration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestScaleBeats(unittest.TestCase):
+    """The tempo-octave correction: user-driven, math must be exact."""
+
+    def test_half_keeps_every_second_beat(self):
+        from tabforge.pipeline import scale_beats
+        beats = [i * 0.5 for i in range(10)]
+        out = scale_beats(beats, 0.5)
+        self.assertEqual(out, [0.0, 1.0, 2.0, 3.0, 4.0])
+
+    def test_double_inserts_midpoints(self):
+        from tabforge.pipeline import scale_beats
+        beats = [0.0, 1.0, 2.0]
+        out = scale_beats(beats, 2.0)
+        self.assertEqual(out, [0.0, 0.5, 1.0, 1.5, 2.0])
+
+    def test_identity_and_guards(self):
+        from tabforge.pipeline import scale_beats
+        self.assertEqual(scale_beats([0.0, 1.0], 1.0), [0.0, 1.0])
+        self.assertEqual(scale_beats([0.0], 0.5), [0.0])
+        with self.assertRaises(ValueError):
+            scale_beats([0.0, 1.0, 2.0], 3.0)

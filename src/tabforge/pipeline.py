@@ -48,6 +48,11 @@ class PipelineOptions:
     # harmonic leak validation: drop a note when another stem holds
     # more than leak_margin times its harmonic energy (0 = off)
     leak_margin: float = 2.0
+    # tempo octave: 0.5 halves the detected grid (152 -> 76), 2.0
+    # doubles it. No audio discriminator survived measurement (dense
+    # eighth textures defeat beat-strength alternation), so the octave
+    # is the USER's call — they know the piece.
+    tempo_scale: float = 1.0
     # low-register octave double-pass for bass/guitar/vocals.
     # Default OFF: on the stand it made bass WORSE (0.15 -> 0.07 mean
     # F1) and left guitar flat — the low-register misery there is
@@ -334,6 +339,9 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
         progress("transcribe", "backing track mixed from unselected stems")
 
     bpm, beats, key = analyzed.bpm, analyzed.beats, analyzed.key
+    if opts.tempo_scale != 1.0:
+        beats = scale_beats(beats, opts.tempo_scale)
+        bpm = bpm * opts.tempo_scale
     warnings = list(analyzed.warnings)
     grid = Grid(beats, subdivision=opts.subdivision) if len(beats) > 1 else None
 
@@ -560,6 +568,23 @@ def _transcribe_drums_part(out_dir: Path, wav: Path,
 # fingering search for one instrument without touching the audio again.
 # ---------------------------------------------------------------------------
 
+def scale_beats(beats: list[float], scale: float) -> list[float]:
+    """The tempo-octave correction: scale=0.5 keeps every second beat
+    (a 152 grid becomes the 76 one), scale=2.0 inserts midpoints."""
+    if len(beats) < 2 or scale == 1.0:
+        return list(beats)
+    if scale == 0.5:
+        kept = beats[0::2]
+        return kept if len(kept) >= 2 else list(beats)
+    if scale == 2.0:
+        out: list[float] = []
+        for a, b in zip(beats, beats[1:]):
+            out += [a, (a + b) / 2]
+        out.append(beats[-1])
+        return out
+    raise ValueError(f"unsupported tempo scale: {scale}")
+
+
 def _parts_file(out_dir: Path) -> Path:
     return out_dir / "parts.json"
 
@@ -600,8 +625,10 @@ def apply_repin(out_dir: Path, part_name: str, tick: int, pitch: int,
     if part_name not in state:
         raise ValueError(f"unknown part: {part_name}")
 
-    grid = (Grid(shared.beats, subdivision=opts.subdivision)
-            if len(shared.beats) > 1 else None)
+    beats = (scale_beats(shared.beats, opts.tempo_scale)
+             if opts.tempo_scale != 1.0 else shared.beats)
+    grid = (Grid(beats, subdivision=opts.subdivision)
+            if len(beats) > 1 else None)
 
     def revive(part):
         return [NoteEvent(n["pitch"], n["start"], n["duration"],
@@ -617,7 +644,8 @@ def apply_repin(out_dir: Path, part_name: str, tick: int, pitch: int,
         if n.pitch != pitch:
             continue
         t = grid.tick_index(n.start) if grid else round(
-            n.start / (60.0 / shared.bpm / opts.subdivision))
+            n.start / (60.0 / (shared.bpm * opts.tempo_scale)
+                       / opts.subdivision))
         if abs(t - tick) <= 1:
             target = i
             break
@@ -654,7 +682,7 @@ def apply_repin(out_dir: Path, part_name: str, tick: int, pitch: int,
         if name == part_name:
             stem_dir = out_dir / name
             writers.export_gp5(shapes, stem_dir / f"{name}.gp5", cfg,
-                               bpm=shared.bpm,
+                               bpm=shared.bpm * opts.tempo_scale,
                                beats_per_measure=opts.beats_per_measure,
                                subdivision=opts.subdivision,
                                title=name, key=shared.key,
@@ -667,7 +695,7 @@ def apply_repin(out_dir: Path, part_name: str, tick: int, pitch: int,
                                      cfg, legato=p_legato)
 
     writers.export_song_gp5(song_parts, out_dir / "song" / "song.gp5",
-                            bpm=shared.bpm,
+                            bpm=shared.bpm * opts.tempo_scale,
                             beats_per_measure=opts.beats_per_measure,
                             subdivision=opts.subdivision,
                             title="TabForge project", key=shared.key,

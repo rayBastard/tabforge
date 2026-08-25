@@ -73,6 +73,7 @@ class Job:
     analysis: list[dict] = field(default_factory=list)
     results: list[dict] = field(default_factory=list)
     error: str = ""
+    bpm: float = 0.0                  # detected tempo, known после analyze
     backing: str = ""                 # download URL of the backing track
     song: str = ""                    # URL of the multi-track project gp5
     dir: Path | None = None
@@ -89,7 +90,7 @@ class Job:
             return {
                 "id": self.id, "status": self.status, "stage": self.stage,
                 "stages": list(STAGES), "log": list(self.log[-30:]),
-                "analysis": list(self.analysis),
+                "analysis": list(self.analysis), "bpm": self.bpm,
                 "results": list(self.results), "error": self.error,
                 "backing": self.backing, "song": self.song,
             }
@@ -234,6 +235,7 @@ def _run_analyze(job: Job, audio: Path,
                                cancel_token=job.id, separator=separator)
         with job.lock:
             job.analyzed = analyzed
+            job.bpm = analyzed.bpm
             job.analysis = [a.to_dict()
                             for a in analyzed.analysis.values()]
             job.status = "analyzed"
@@ -374,6 +376,9 @@ async def transcribe_job(job_id: str, selection: dict) -> dict:
     if subdivision not in (2, 3, 4):
         raise HTTPException(400, "subdivision must be 2, 3, or 4")
     # per-stem role override: what the stem should be WRITTEN as
+    tempo_scale = float(selection.get("tempo_scale", 1.0))
+    if tempo_scale not in (0.5, 1.0, 2.0):
+        raise HTTPException(400, "tempo_scale must be 0.5, 1, or 2")
     treat = selection.get("treat", {}) or {}
     if not isinstance(treat, dict):
         raise HTTPException(400, "treat must be an object")
@@ -389,6 +394,7 @@ async def transcribe_job(job_id: str, selection: dict) -> dict:
         subdivision=subdivision,
         split_guitars=bool(selection.get("split_guitars", False)),
         treat={str(k): str(v) for k, v in treat.items()},
+        tempo_scale=tempo_scale,
     )
     job.opts = opts
     POOL.submit(_run_transcribe, job, opts)
@@ -499,7 +505,8 @@ async def export_project(job_id: str):
                  "subdivision": o.subdivision,
                  "beats_per_measure": o.beats_per_measure,
                  "split_guitars": o.split_guitars,
-                 "treat": dict(o.treat)},
+                 "treat": dict(o.treat),
+                 "tempo_scale": o.tempo_scale},
         "results": results,
     }
     out = job.dir / "out"
@@ -574,7 +581,8 @@ async def import_project(file: UploadFile) -> dict:
             subdivision=int(mo["subdivision"]),
             beats_per_measure=int(mo.get("beats_per_measure", 4)),
             split_guitars=bool(mo.get("split_guitars", False)),
-            treat=dict(mo.get("treat", {})))
+            treat=dict(mo.get("treat", {})),
+            tempo_scale=float(mo.get("tempo_scale", 1.0)))
         job.results = _remap_file_urls(meta.get("results", []), job.id)
         if (out / "backing" / "backing.wav").is_file():
             job.backing = f"/api/jobs/{job.id}/files/backing/backing.wav"

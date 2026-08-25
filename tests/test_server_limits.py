@@ -540,3 +540,29 @@ class TestProjectRoundtrip(ServerTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(HAVE_AUDIO, "numpy/soundfile are not installed")
+class TestTempoScale(ServerTestCase):
+    def test_tempo_scale_validated_and_forwarded(self):
+        job_id = post_job(self.client, tiny_wav_bytes()).json()["id"]
+        for _ in range(100):
+            if self.client.get(f"/api/jobs/{job_id}").json()["status"] == "analyzed":
+                break
+            time.sleep(0.02)
+        r = self.client.post(f"/api/jobs/{job_id}/transcribe",
+                             json={"stems": ["guitar"], "tempo_scale": 3})
+        self.assertEqual(r.status_code, 400)
+        r = self.client.post(f"/api/jobs/{job_id}/transcribe",
+                             json={"stems": ["guitar"], "tempo_scale": 0.5})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(srv.JOBS[job_id].opts.tempo_scale, 0.5)
+
+    def test_bpm_is_reported_at_analyzed_stage(self):
+        job_id = post_job(self.client, tiny_wav_bytes()).json()["id"]
+        for _ in range(100):
+            data = self.client.get(f"/api/jobs/{job_id}").json()
+            if data["status"] == "analyzed":
+                break
+            time.sleep(0.02)
+        self.assertEqual(data["bpm"], 120.0)
