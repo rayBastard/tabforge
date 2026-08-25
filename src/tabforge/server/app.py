@@ -89,6 +89,7 @@ async def create_job(
     stems: str = "guitar,bass",
     tuning: str = "standard",
     separate: bool = True,
+    split_guitars: bool = False,
 ) -> dict:
     if tuning not in TUNINGS:
         raise HTTPException(400, f"Unknown tuning: {tuning}")
@@ -104,6 +105,7 @@ async def create_job(
         stems=tuple(s.strip() for s in stems.split(",") if s.strip()),
         tuning=tuning,
         separate=separate,
+        split_guitars=split_guitars,
     )
     JOBS[job.id] = job
     POOL.submit(_run, job, audio, opts)

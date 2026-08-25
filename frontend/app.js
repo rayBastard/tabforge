@@ -52,6 +52,7 @@ goBtn.addEventListener("click", async () => {
     stems,
     tuning: $("#tuning").value,
     separate: $("#separate").checked,
+    split_guitars: $("#splitGuitars").checked,
   });
 
   try {
@@ -109,7 +110,9 @@ function fail(msg) {
 /* ---------- results ---------- */
 
 const STEM_NAMES = { guitar: "Guitar", bass: "Bass", vocals: "Vocals",
-                     piano: "Keys", other: "Other", mix: "Full mix" };
+                     piano: "Keys", other: "Other", mix: "Full mix",
+                     guitar_lead: "Guitar · Lead",
+                     guitar_rhythm: "Guitar · Rhythm" };
 
 function finish(job) {
   neck.classList.remove("playing");

@@ -16,6 +16,8 @@ def main() -> None:
     ap.add_argument("--tuning", default="standard", choices=sorted(TUNINGS))
     ap.add_argument("--subdivision", type=int, default=4)
     ap.add_argument("--quantize", type=float, default=0.9)
+    ap.add_argument("--split-guitars", action="store_true",
+                    help="split the guitar stem into lead and rhythm parts")
     args = ap.parse_args()
 
     opts = PipelineOptions(
@@ -24,6 +26,7 @@ def main() -> None:
         subdivision=args.subdivision,
         quantize_strength=args.quantize,
         separate=args.stems != ["mix"],
+        split_guitars=args.split_guitars,
     )
     results = run_pipeline(args.audio, args.out, opts,
                            progress=lambda st, msg: print(f"[{st}] {msg}"))

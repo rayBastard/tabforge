@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable
 
 from .core.fretboard import TUNINGS, TabConfig, assign_tab, render_ascii
+from .core.partition import split_lead_rhythm
 from .core.quantize import Grid, quantize
 
 ProgressFn = Callable[[str, str], None]  # (stage, message)
@@ -27,6 +28,7 @@ class PipelineOptions:
     subdivision: int = 4
     quantize_strength: float = 0.9
     separate: bool = True          # False = transcribe the whole mix
+    split_guitars: bool = False    # split guitar into lead & rhythm parts
 
 
 @dataclass(slots=True)
@@ -86,38 +88,53 @@ def run_pipeline(audio: Path, out_dir: Path,
         if grid is not None:
             notes = quantize(notes, grid, strength=opts.quantize_strength)
 
-        progress("fingering", f"{name}: choosing the fingering")
-        cfg = TabConfig(tuning=TUNINGS[STEM_TUNING.get(name, opts.tuning)])
-        shapes = assign_tab(notes, cfg)
+        parts = [(name, notes)]
+        if opts.split_guitars and name == "guitar":
+            split = split_lead_rhythm(notes)
+            if split is not None:
+                lead, rhythm = split
+                parts = [("guitar_lead", lead), ("guitar_rhythm", rhythm)]
+                progress("fingering",
+                         f"guitar: split into lead ({len(lead)} notes) "
+                         f"and rhythm ({len(rhythm)} notes)")
+            else:
+                progress("fingering", "guitar: no clear second part, not split")
 
-        progress("export", f"{name}: writing files")
-        stem_dir = out_dir / name
-        stem_dir.mkdir(parents=True, exist_ok=True)
-        files: dict[str, Path] = {}
+        for part_name, part_notes in parts:
+            progress("fingering", f"{part_name}: choosing the fingering")
+            cfg = TabConfig(tuning=TUNINGS[STEM_TUNING.get(name, opts.tuning)])
+            shapes = assign_tab(part_notes, cfg)
 
-        midi = stem_dir / f"{name}.mid"
-        writers.export_midi(shapes, midi, program=STEM_PROGRAM.get(name, 25))
-        files["mid"] = midi
+            progress("export", f"{part_name}: writing files")
+            stem_dir = out_dir / part_name
+            stem_dir.mkdir(parents=True, exist_ok=True)
+            files: dict[str, Path] = {}
 
-        txt = stem_dir / f"{name}.txt"
-        writers.export_ascii(shapes, txt, cfg)
-        files["txt"] = txt
+            midi = stem_dir / f"{part_name}.mid"
+            writers.export_midi(shapes, midi, program=STEM_PROGRAM.get(name, 25))
+            files["mid"] = midi
 
-        try:
-            gp5 = stem_dir / f"{name}.gp5"
-            writers.export_gp5(shapes, gp5, cfg, bpm=bpm, title=name, key=key)
-            files["gp5"] = gp5
-        except Exception as e:
-            progress("export", f"{name}: gp5 failed to build ({e})")
-        try:
-            xml = stem_dir / f"{name}.musicxml"
-            writers.export_musicxml(shapes, xml, bpm=bpm, key=key)
-            files["musicxml"] = xml
-        except Exception as e:
-            progress("export", f"{name}: musicxml failed to build ({e})")
+            txt = stem_dir / f"{part_name}.txt"
+            writers.export_ascii(shapes, txt, cfg)
+            files["txt"] = txt
 
-        results.append(StemResult(
-            stem=name, bpm=bpm, key=key.name, note_count=len(notes),
-            ascii_tab=render_ascii(shapes, cfg), files=files,
-        ))
+            try:
+                gp5 = stem_dir / f"{part_name}.gp5"
+                writers.export_gp5(shapes, gp5, cfg, bpm=bpm,
+                                   title=part_name, key=key)
+                files["gp5"] = gp5
+            except Exception as e:
+                progress("export", f"{part_name}: gp5 failed to build ({e})")
+            try:
+                xml = stem_dir / f"{part_name}.musicxml"
+                writers.export_musicxml(shapes, xml, bpm=bpm, key=key)
+                files["musicxml"] = xml
+            except Exception as e:
+                progress("export", f"{part_name}: musicxml failed to build ({e})")
+
+            results.append(StemResult(
+                stem=part_name, bpm=bpm, key=key.name,
+                note_count=len(part_notes),
+                ascii_tab=render_ascii(shapes, cfg), files=files,
+            ))
     return results
