@@ -203,9 +203,28 @@ instrument-presence arbiter (a stronger tagger), not a note source.
 Bass F1 0.34→0.33, oct 0.44→0.38 (Hero 0.64→0.50, Loken worse),
 guitar slightly down. Default stays OFF. The octave errors evidently
 come from the transcriber picking harmonics in the separated stem, not
-from frequency resolution — the untried lever is SUB-HARMONIC
-correction (if the stem holds more energy at f0/2 than at f0 at the
-note's time, drop the note an octave), next on the list.
+from frequency resolution.
+
+### Bass octave errors: three more fixes measured dead (golden, offline)
+
+The errors are REAL (null test: ±12 matches on missed notes are 8-60×
+more frequent than ±7/±4 — mechanism, not matching noise), they go in
+BOTH directions (Hero 175 up / 191 down; Loken 21 up / 162 down), and
+every cheap cure failed on the saved golden estimates:
+
+1. **Sub-harmonic spectral correction** (f0/2 vs f0 vs 2f0 energy in
+   the stem): F1 down on Hero, flat on Loken. The stem's spectrum
+   AGREES with the "wrong" octave — synth bass patches layer a
+   sub-oscillator, both octaves genuinely sound, Suno's MIDI logs one.
+2. **Blanket ±12 (notation convention)**: worse; medians already match.
+3. **Line-continuity Viterbi** over {-12, 0, +12}: worse or flat —
+   metal bass legitimately leaps octaves, and with precision 0.25-0.34
+   the est context is too polluted to trust.
+
+The real upstream problem: the bass estimate carries 1.4-1.8× MORE
+notes than the truth. Next lever: per-instrument Basic Pitch threshold
+sweeps against the golden corpus (stems are cached — each config is
+minutes, not a full pipeline run), targeting precision first.
 
 Now with real ground truth for one track: the user provided the
 actual sheet music for FulgrimUpd.wav — it is a PIANO piece (dense
