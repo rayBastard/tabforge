@@ -12,6 +12,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import Sequence
 
 from ..core.fretboard import NoteEvent
 
@@ -162,6 +163,39 @@ def ensure_decodable_wav(audio: Path, work_dir: Path) -> Path:
     y, sr = librosa.load(str(audio), mono=False, sr=None)
     out = work_dir / (audio.stem + ".decoded.wav")
     sf.write(str(out), y.T if y.ndim > 1 else y, int(sr))
+    return out
+
+
+def mix_backing(stems: dict[str, Path], exclude: Sequence[str],
+                out: Path) -> Path | None:
+    """Sum every stem EXCEPT the excluded ones into a backing track.
+
+    The user transcribes guitar and bass — the backing is everything
+    else, to play along with. Peaks are normalized only when the sum
+    would clip. Returns None when nothing is left to mix.
+    """
+    import numpy as np
+    import soundfile as sf
+
+    keep = [p for name, p in stems.items() if name not in exclude]
+    if not keep:
+        return None
+    total = None
+    sr = None
+    for p in keep:
+        data, sr = sf.read(str(p), always_2d=True)
+        if total is None:
+            total = data.copy()
+        else:
+            if len(data) > len(total):
+                total = np.pad(total, ((0, len(data) - len(total)), (0, 0)))
+            elif len(total) > len(data):
+                data = np.pad(data, ((0, len(total) - len(data)), (0, 0)))
+            total += data
+    peak = float(np.abs(total).max())
+    if peak > 0.99:
+        total = total / peak * 0.99
+    sf.write(str(out), total, sr)
     return out
 
 

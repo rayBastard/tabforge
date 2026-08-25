@@ -71,6 +71,57 @@ class TestEnsureDecodableWav(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_AUDIO, "numpy/soundfile are not installed")
+class TestMixBacking(unittest.TestCase):
+    def _stem(self, tmp, name, amp, n=4410, sr=22050):
+        path = Path(tmp) / f"{name}.wav"
+        sf.write(str(path), np.full((n, 2), amp, dtype="float32"), sr)
+        return path
+
+    def test_excluded_stems_stay_out_and_peaks_normalize(self):
+        import tempfile
+
+        from tabforge.audio.transcribe import mix_backing
+
+        with tempfile.TemporaryDirectory() as tmp:
+            stems = {
+                "guitar": self._stem(tmp, "guitar", 0.5),
+                "drums": self._stem(tmp, "drums", 0.8),
+                "piano": self._stem(tmp, "piano", 0.8),
+            }
+            out = Path(tmp) / "backing.wav"
+            got = mix_backing(stems, exclude=("guitar",), out=out)
+            self.assertEqual(got, out)
+            data, sr = sf.read(str(out), always_2d=True)
+            peak = float(np.abs(data).max())
+            # drums+piano would sum to 1.6 — must be normalized, and the
+            # guitar (0.5) must NOT be in the mix
+            self.assertAlmostEqual(peak, 0.99, places=2)
+
+    def test_nothing_left_returns_none(self):
+        import tempfile
+
+        from tabforge.audio.transcribe import mix_backing
+
+        with tempfile.TemporaryDirectory() as tmp:
+            stems = {"guitar": self._stem(tmp, "guitar", 0.5)}
+            self.assertIsNone(mix_backing(stems, exclude=("guitar",),
+                                          out=Path(tmp) / "b.wav"))
+
+    def test_quiet_sum_is_not_boosted(self):
+        import tempfile
+
+        from tabforge.audio.transcribe import mix_backing
+
+        with tempfile.TemporaryDirectory() as tmp:
+            stems = {"drums": self._stem(tmp, "drums", 0.2),
+                     "piano": self._stem(tmp, "piano", 0.1)}
+            out = Path(tmp) / "b.wav"
+            mix_backing(stems, exclude=(), out=out)
+            data, _ = sf.read(str(out), always_2d=True)
+            self.assertAlmostEqual(float(np.abs(data).max()), 0.3, places=3)
+
+
+@unittest.skipUnless(HAVE_AUDIO, "numpy/soundfile are not installed")
 class TestStemIsAudible(unittest.TestCase):
     def _write(self, tmp, name, y, sr=22050):
         path = Path(tmp) / name

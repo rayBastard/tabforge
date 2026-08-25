@@ -303,6 +303,18 @@ select {
 
 .alphatab { background: #f6f1e7; border-radius: 8px; margin-top: 14px; }
 
+#backingRow { display: flex; gap: 12px; align-items: baseline;
+              margin: 14px 0 4px; flex-wrap: wrap; }
+.backing {
+  font: 600 13px/1 "Bricolage Grotesque", sans-serif;
+  color: var(--wood);
+  background: var(--brass);
+  border-radius: 6px;
+  padding: 9px 14px;
+  text-decoration: none;
+}
+.backing-sub { color: var(--wire); font-size: 13px; }
+
 .stem-play {
   font: 600 13px/1 "Bricolage Grotesque", sans-serif;
   color: var(--wood);

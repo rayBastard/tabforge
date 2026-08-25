@@ -89,6 +89,13 @@ def run_pipeline(audio: Path, out_dir: Path,
         demucs_input = transcribe.ensure_decodable_wav(audio, out_dir)
         all_stems = transcribe.separate_stems(demucs_input, out_dir / "stems")
         stems = {k: v for k, v in all_stems.items() if k in opts.stems}
+        # Everything the user did NOT pick becomes a play-along backing
+        # track — the stems are already on disk, mixing them is cheap.
+        backing_dir = out_dir / "backing"
+        backing_dir.mkdir(parents=True, exist_ok=True)
+        if transcribe.mix_backing(all_stems, opts.stems,
+                                  backing_dir / "backing.wav"):
+            progress("separate", "backing track mixed from unselected stems")
         # The tempo must be computed once or stems drift apart.
         tempo_source, source_name = choose_tempo_source(
             all_stems, audio, transcribe.stem_is_audible)

@@ -164,6 +164,14 @@ function finish(job) {
   setLog("Done. The files are available for download below.");
   goBtn.disabled = false;
 
+  const backingRow = $("#backingRow");
+  if (job.backing) {
+    $("#backingLink").href = withToken(job.backing);
+    backingRow.hidden = false;
+  } else {
+    backingRow.hidden = true;
+  }
+
   if (!job.results.length) {
     setLog("Processing finished, but no notes were found. Try other stems.", true);
     return;

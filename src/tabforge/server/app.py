@@ -62,6 +62,7 @@ class Job:
     log: list[str] = field(default_factory=list)
     results: list[dict] = field(default_factory=list)
     error: str = ""
+    backing: str = ""                 # download URL of the backing track
     dir: Path | None = None
     created_at: float = field(default_factory=time.time)
     finished_at: float | None = None
@@ -73,6 +74,7 @@ class Job:
                 "id": self.id, "status": self.status, "stage": self.stage,
                 "stages": list(STAGES), "log": list(self.log[-30:]),
                 "results": list(self.results), "error": self.error,
+                "backing": self.backing,
             }
 
 
@@ -206,6 +208,8 @@ def _run(job: Job, audio: Path, opts: PipelineOptions) -> None:
                           f"/api/jobs/{job.id}/files/{stem}/{p.name}")
                 for r in results
             ]
+            if (job.dir / "out" / "backing" / "backing.wav").is_file():
+                job.backing = f"/api/jobs/{job.id}/files/backing/backing.wav"
             job.status = "done"
             job.stage = "done"
     except Exception as e:  # noqa: BLE001 — shown to the user
