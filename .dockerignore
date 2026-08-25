@@ -1,0 +1,16 @@
+.git
+.venv
+dist
+build
+result
+result_split
+out
+stems
+*.wav
+*.mp3
+*.flac
+TabForge.spec
+scripts/desktop_launcher.py
+__pycache__
+*.pyc
+.DS_Store

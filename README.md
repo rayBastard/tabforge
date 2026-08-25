@@ -73,9 +73,11 @@ at the server's address, on a phone — as a PWA. The logic is never rewritten.
       into `~/.cache`)
 
 ### Phase 5 — browser
+- [x] production hardening: job TTL + cleanup, upload/duration limits,
+      audio validation, optional API token, configurable workers
+- [x] Docker image + compose (model cache in a volume) — see Deployment
 - [ ] deploy the server (needs GPU hosting or patience on CPU)
 - [ ] a job queue instead of ThreadPool (e.g. arq/Celery)
-- [ ] limits on file size and processing time
 
 ### Phase 6 — mobile
 - [ ] PWA manifest + offline shell (the UI is already responsive)
@@ -104,6 +106,35 @@ tabforge song.mp3 --stems guitar bass --out ./result
 # core tests (fast, no ML)
 python -m unittest discover -s tests
 ```
+
+## Deployment (Docker)
+
+```bash
+docker compose up -d --build     # serves http://localhost:8000
+```
+
+- The image is `python:3.11-slim` + ffmpeg with the `ml`, `export`, and
+  `server` extras (no desktop), running uvicorn as a non-root user.
+- Model weights are **not** baked in: demucs downloads ~50 MB into the
+  `model-cache` volume on the first job and reuses it across container
+  recreations.
+- Everything is configurable from the host environment:
+  `TABFORGE_TOKEN` (require an API token), `TABFORGE_WORKERS`,
+  `TABFORGE_MAX_UPLOAD_MB`, `TABFORGE_MAX_DURATION_S`,
+  `TABFORGE_JOB_TTL_S`, `TABFORGE_MAX_JOBS` — e.g.
+  `TABFORGE_TOKEN=secret docker compose up -d`.
+- Image notes: torch/torchaudio/**torchcodec** all come from the PyTorch
+  CPU wheel index (the PyPI torchcodec wheel is CUDA-linked and won't
+  load), and demucs is pinned to 4.0.x inside the image (4.1's `sphn`
+  dependency ships no linux/arm64 wheels).
+
+**Honest CPU speed warning:** there is no GPU path in this image. A
+3-minute track (guitar + bass) took **~1.5 minutes** end to end in a
+4-CPU container on an Apple M5 Max — a cloud VM with slower cores will
+take several times that, and every job holds a worker for the whole run
+(`TABFORGE_WORKERS` defaults to 1, so queued jobs wait). Budget roughly
+0.5–2× track duration per job on typical server CPUs, and put a GPU
+behind it before inviting more than a handful of users.
 
 ## Building (desktop app)
 

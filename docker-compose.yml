@@ -1,0 +1,20 @@
+services:
+  tabforge:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      # demucs/basic-pitch models download here on first use (~50 MB);
+      # the named volume keeps them across container recreation
+      - model-cache:/home/tabforge/.cache
+    environment:
+      # overridable from the host env: TABFORGE_TOKEN=... docker-compose up
+      TABFORGE_TOKEN: "${TABFORGE_TOKEN:-}"       # set to require an API token
+      TABFORGE_WORKERS: "${TABFORGE_WORKERS:-1}"
+      TABFORGE_MAX_UPLOAD_MB: "${TABFORGE_MAX_UPLOAD_MB:-30}"
+      TABFORGE_MAX_DURATION_S: "${TABFORGE_MAX_DURATION_S:-600}"
+      TABFORGE_JOB_TTL_S: "${TABFORGE_JOB_TTL_S:-7200}"
+      TABFORGE_MAX_JOBS: "${TABFORGE_MAX_JOBS:-20}"
+
+volumes:
+  model-cache:
