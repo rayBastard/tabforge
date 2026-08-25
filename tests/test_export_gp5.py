@@ -215,9 +215,11 @@ class TestGp5Roundtrip(unittest.TestCase):
             song = gp.parse(str(path))
         origin = song.measureHeaders[0].start
         slot_ticks = gp.Duration.quarterTime // 3
+        # attacks only: a tie continuation is the same note held over
         got = sorted((b.start - origin) // slot_ticks
                      for m in song.tracks[0].measures
-                     for b in m.voices[0].beats if b.notes)
+                     for b in m.voices[0].beats
+                     if any(n.type != gp.NoteType.tie for n in b.notes))
         self.assertEqual(got, slots)
         # durations still fill every measure exactly
         measure_ticks = 4 * gp.Duration.quarterTime
@@ -379,6 +381,88 @@ class TestGp5Roundtrip(unittest.TestCase):
                         for m in drums.measures for v in m.voices
                         for b in v.beats for n in b.notes)
         self.assertEqual(values, [36, 38, 42])
+
+    def _parse_single(self, notes, stem="guitar", bpm=120.0):
+        import guitarpro as gp
+        from tabforge.core.instruments import profile_for
+        from tabforge.export.writers import export_gp5
+
+        profile = profile_for(stem)
+        cfg = TabConfig(tuning=TUNINGS[profile.tuning or "standard"],
+                        max_fret=profile.max_fret)
+        shapes = assign_tab(notes, cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "x.gp5"
+            export_gp5(shapes, path, cfg, bpm=bpm, profile=profile)
+            song = gp.parse(str(path))
+        return song.tracks[0]
+
+    @staticmethod
+    def _flat_beats(track):
+        return [(m_i, b) for m_i, m in enumerate(track.measures)
+                for b in m.voices[0].beats]
+
+    def test_long_note_is_tied_not_truncated(self):
+        import guitarpro as gp
+        # 1.25 s at 120 BPM subdiv 4 = 10 sixteenth slots: one duration
+        # can't write that — expect an attack plus TIED continuations
+        track = self._parse_single([NoteEvent(64, 0.0, 1.25)])
+        played = [(m, b) for m, b in self._flat_beats(track)
+                  if b.status == gp.BeatStatus.normal and b.notes]
+        self.assertGreaterEqual(len(played), 2)
+        self.assertTrue(all(n.type == gp.NoteType.tie
+                            for _, b in played[1:] for n in b.notes),
+                        "continuation beats must be ties, not restrikes")
+        slot_ticks = gp.Duration.quarterTime // 4
+        total = sum(b.duration.time for _, b in played)
+        self.assertEqual(total, 10 * slot_ticks,
+                         "the whole sounded length must be written")
+
+    def test_note_rings_across_the_barline(self):
+        import guitarpro as gp
+        # starts on the last beat of measure 1, sounds into measure 2
+        track = self._parse_single([NoteEvent(64, 1.75, 0.5)])
+        played = [(m, b) for m, b in self._flat_beats(track)
+                  if b.status == gp.BeatStatus.normal and b.notes]
+        self.assertEqual({m for m, _ in played}, {0, 1},
+                         "the note must live in both measures")
+        second_measure = [b for m, b in played if m == 1]
+        self.assertTrue(all(n.type == gp.NoteType.tie
+                            for b in second_measure for n in b.notes))
+
+    def test_small_gap_is_absorbed_not_a_rest(self):
+        import guitarpro as gp
+        # two short notes 3 slots apart: the 2-slot gap (< one beat)
+        # must be absorbed into the first note, not chopped into rests
+        track = self._parse_single([NoteEvent(64, 0.0, 0.125),
+                                    NoteEvent(65, 0.375, 0.125)])
+        beats = self._flat_beats(track)
+        first_rest = next((i for i, (_, b) in enumerate(beats)
+                           if b.status == gp.BeatStatus.rest), None)
+        last_note = max(i for i, (_, b) in enumerate(beats)
+                        if b.status == gp.BeatStatus.normal and b.notes)
+        self.assertTrue(first_rest is None or first_rest > last_note,
+                        "no rest may interrupt a near-legato line")
+
+    def test_real_silence_stays_a_rest(self):
+        import guitarpro as gp
+        # a 7-slot gap is a genuine pause — it must NOT be absorbed
+        track = self._parse_single([NoteEvent(64, 0.0, 0.125),
+                                    NoteEvent(65, 1.0, 0.125)])
+        beats = self._flat_beats(track)
+        last_note = max(i for i, (_, b) in enumerate(beats)
+                        if b.status == gp.BeatStatus.normal and b.notes)
+        rests_between = [i for i, (_, b) in enumerate(beats)
+                         if b.status == gp.BeatStatus.rest and i < last_note]
+        self.assertTrue(rests_between, "a long gap must stay a rest")
+
+    def test_piano_notes_let_ring(self):
+        track = self._parse_single([NoteEvent(60, 0.0, 0.25)], stem="piano")
+        notes = [n for _, b in self._flat_beats(track) for n in b.notes]
+        self.assertTrue(notes and all(n.effect.letRing for n in notes))
+        g = self._parse_single([NoteEvent(60, 0.0, 0.25)], stem="guitar")
+        g_notes = [n for _, b in self._flat_beats(g) for n in b.notes]
+        self.assertFalse(any(n.effect.letRing for n in g_notes))
 
     def test_melodic_channels_never_collide_with_percussion(self):
         import guitarpro as gp

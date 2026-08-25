@@ -31,6 +31,8 @@ class InstrumentProfile:
     chord_gather_window: float = 0.0
     # GM channel 10: pitches are kit voices, not notes on strings
     percussion: bool = False
+    # sustain-pedal feel: notes ring past their written duration (keys)
+    let_ring: bool = False
 
     @property
     def wants_legato_pairs(self) -> bool:
@@ -53,7 +55,8 @@ _PIANO = InstrumentProfile(
     name="piano", midi_program=0, tablature=False,
     allow_bends=False, allow_vibrato=False, allow_slides=False,
     allow_hammer=False, legato_as_slur=True,
-    tuning="notation_wide", max_fret=24, chord_gather_window=0.08)
+    tuning="notation_wide", max_fret=24, chord_gather_window=0.08,
+    let_ring=True)
 
 # Drums: everything a string can do is meaningless here — the whole
 # track is percussion channel 10, where the "pitch" names a kit voice.

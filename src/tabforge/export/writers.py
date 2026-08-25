@@ -196,9 +196,10 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
         return value, dotted, tuplet, u
 
     def _add_beat(voice, units: int, shape: Shape | None,
-                  n_strings: int = 6, apply_fx=None) -> int:
+                  n_strings: int = 6, apply_fx=None, tie: bool = False) -> int:
         """One beat (notes or rest) of the largest duration <= units.
-        Returns the slots consumed."""
+        Returns the slots consumed. tie=True marks the notes as a tie
+        continuation — the same pitch held over, not restruck."""
         value, dotted, tuplet, used = _largest_fit(units)
         beat = gp.Beat(voice)
         # Beat.status defaults to empty; empty beats don't advance the
@@ -213,8 +214,8 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
                 note.value = p.fret
                 note.string = n_strings - p.string  # flipped numbering
                 note.velocity = p.note.velocity
-                note.type = gp.NoteType.normal
-                if apply_fx:
+                note.type = gp.NoteType.tie if tie else gp.NoteType.normal
+                if apply_fx and not tie:   # articulations live on the attack
                     apply_fx(note, p.note)
                 beat.notes.append(note)
         voice.beats.append(beat)
@@ -244,6 +245,8 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
                     and a.string == b.string))
 
         def apply(gp_note, src) -> None:
+            if profile.let_ring:               # sustain-pedal feel on keys
+                gp_note.effect.letRing = True
             if id(src) in hammer_ids:
                 gp_note.effect.hammer = True
             kind = classify_articulation(src.bends)
@@ -279,7 +282,36 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
             placed[slot] = shape
         placed_per_part.append(placed)
 
-    last_slot = max((max(p) for p in placed_per_part if p), default=None)
+    # Each event becomes a SPAN (start slot, sounded slots): the sounded
+    # length comes from the transcription (same grid as the position, so
+    # a breathing tempo cannot stretch values), is clipped at the next
+    # event of the track, and — the anti-staccato rule — a small gap to
+    # the next note (up to one beat) is absorbed into the note instead
+    # of becoming a rest: transcription offsets systematically end early
+    # and a score of sixteenths-plus-rests plays as chopped typewriter.
+    # Real silence (a gap longer than a beat) stays a rest.
+    gap_fill = subdivision                      # one beat, in slots
+    spans_per_part: list[list[tuple[int, int, Shape]]] = []
+    for part, placed in zip(parts, placed_per_part):
+        spans: list[tuple[int, int, Shape]] = []
+        order = sorted(placed)
+        for i, slot in enumerate(order):
+            shape = placed[slot]
+            nxt = order[i + 1] if i + 1 < len(order) else None
+            if part.profile.percussion:
+                dur = 1                         # a hit is a transient
+            else:
+                longest = max(p.note.duration for p in shape.placements)
+                dur = max(1, slot_of(shape.start + longest) - slot)
+                if nxt is not None:
+                    if dur < nxt - slot <= dur + gap_fill:
+                        dur = nxt - slot        # absorb the small gap
+                    dur = min(dur, nxt - slot)  # never overlap the next
+            spans.append((slot, dur, shape))
+        spans_per_part.append(spans)
+
+    last_slot = max((s + d - 1 for spans in spans_per_part
+                     for s, d, _ in spans), default=None)
     if last_slot is None:
         for header in song.measureHeaders:
             _apply_time_signature(header)
@@ -299,34 +331,41 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
         while len(tr.measures) < n_measures:
             tr.measures.append(gp.Measure(tr, song.measureHeaders[len(tr.measures)]))
 
-    # Assemble each track's measures as gapless timelines: rests up to
-    # the event, the event beat, rests to the next event — durations
-    # always sum to the full time signature.
-    for track, part, placed in zip(song.tracks, parts, placed_per_part):
+    # Assemble each track's measures as gapless timelines. A span longer
+    # than one notatable duration continues as TIED beats — across beat
+    # divisions and across barlines — so long notes are held, not
+    # truncated at the next slot boundary.
+    for track, part, spans in zip(song.tracks, parts, spans_per_part):
         apply_fx = _effects_for(part)
         n_strings = len(part.cfg.tuning)
-        for m_idx in range(n_measures):
-            base = m_idx * slots_per_measure
-            events = sorted(s for s in placed
-                            if base <= s < base + slots_per_measure)
-            if not events:
+        # split every span into menu-sized chunks per measure
+        chunks_per_measure: list[list[tuple[int, int, Shape, bool]]] = \
+            [[] for _ in range(n_measures)]
+        for slot, dur, shape in spans:
+            pos, remaining, first = slot, dur, True
+            while remaining > 0 and pos // slots_per_measure < n_measures:
+                m_idx = pos // slots_per_measure
+                local = pos % slots_per_measure
+                in_measure = min(remaining, slots_per_measure - local)
+                while in_measure > 0:
+                    _v, _d, _t, used = _largest_fit(in_measure)
+                    chunks_per_measure[m_idx].append(
+                        (local, used, shape, not first))
+                    first = False
+                    local += used
+                    pos += used
+                    in_measure -= used
+                    remaining -= used
+        for m_idx, chunks in enumerate(chunks_per_measure):
+            if not chunks:
                 continue                        # _pad_empty_voices covers it
             voice = track.measures[m_idx].voices[0]
             cursor = 0
-            for i, slot in enumerate(events):
-                local = slot - base
+            for local, units, shape, tie in chunks:
                 _fill_rests(voice, local - cursor)
-                nxt = (events[i + 1] - base) if i + 1 < len(events) \
-                    else slots_per_measure
-                shape = placed[slot]
-                longest = max(p.note.duration for p in shape.placements)
-                # sounded length in slots: measured on the same grid as
-                # the position, so a breathing tempo cannot stretch values
-                end_slot = slot_of(shape.start + longest)
-                sounded = max(1, min(nxt - local, end_slot - (base + local)))
-                used = _add_beat(voice, sounded, shape, n_strings, apply_fx)
-                _fill_rests(voice, nxt - local - used)
-                cursor = nxt
+                _add_beat(voice, units, shape, n_strings, apply_fx, tie=tie)
+                cursor = local + units
+            _fill_rests(voice, slots_per_measure - cursor)
 
     _pad_empty_voices()
     gp.write(song, str(path))
