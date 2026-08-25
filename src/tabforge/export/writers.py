@@ -92,7 +92,10 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
             header.keySignature = signature
 
     track = song.tracks[0]
-    track.name = "Guitar"
+    track.name = title or profile.name
+    # the player picks its sound from the track's MIDI program — without
+    # this every instrument came out sounding like a guitar
+    track.channel.instrument = profile.midi_program
     n_strings = len(cfg.tuning)
     track.strings = [
         gp.GuitarString(number=i + 1, value=cfg.tuning[n_strings - 1 - i])

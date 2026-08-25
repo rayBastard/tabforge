@@ -17,9 +17,17 @@ except ImportError:
 class TestProfiles(unittest.TestCase):
     def test_families(self):
         self.assertTrue(profile_for("guitar").allow_bends)
-        self.assertIs(profile_for("guitar_lead"), profile_for("guitar"))
-        self.assertIs(profile_for("guitar_rhythm"), profile_for("guitar"))
+        self.assertTrue(profile_for("guitar_lead").allow_bends)
+        self.assertTrue(profile_for("guitar_rhythm").tablature)
         self.assertEqual(profile_for("bass").tuning, "bass_4")
+
+    def test_midi_programs(self):
+        self.assertEqual(profile_for("guitar").midi_program, 25)
+        self.assertEqual(profile_for("guitar_lead").midi_program, 27)
+        self.assertEqual(profile_for("guitar_rhythm").midi_program, 25)
+        self.assertEqual(profile_for("bass").midi_program, 33)
+        self.assertEqual(profile_for("piano").midi_program, 0)
+        self.assertEqual(profile_for("vocals").midi_program, 52)
         self.assertFalse(profile_for("piano").tablature)
         self.assertTrue(profile_for("piano").legato_as_slur)
         vocals = profile_for("vocals")
@@ -68,6 +76,13 @@ class TestProfileGatingInGp5(unittest.TestCase):
             export_gp5(shapes, path, cfg, bpm=120.0, legato=legato,
                        profile=profile)
             return read_gp5(str(path))
+
+    def test_track_carries_the_profile_program(self):
+        for stem, program in (("piano", 0), ("bass", 33), ("guitar", 25),
+                              ("vocals", 52)):
+            contents = self._export(stem)
+            self.assertEqual(contents.track.channel.instrument, program,
+                             f"{stem} must play as program {program}")
 
     def test_piano_gets_slurs_but_no_string_techniques(self):
         fx = self._export("piano").effects

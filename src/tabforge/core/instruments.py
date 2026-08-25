@@ -11,7 +11,7 @@ notes, and the MIDI program for playback.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,7 +36,7 @@ class InstrumentProfile:
 
 
 _GUITAR = InstrumentProfile(
-    name="guitar", midi_program=27, tablature=True,
+    name="guitar", midi_program=25, tablature=True,   # 25 = steel guitar
     allow_bends=True, allow_vibrato=True, allow_slides=True,
     allow_hammer=True, legato_as_slur=False, tuning=None)
 
@@ -62,8 +62,9 @@ _VOCALS = InstrumentProfile(
 
 PROFILES: dict[str, InstrumentProfile] = {
     "guitar": _GUITAR,
-    "guitar_lead": _GUITAR,
-    "guitar_rhythm": _GUITAR,
+    # same family, different voices: the lead speaks as a clean electric
+    "guitar_lead": replace(_GUITAR, name="guitar_lead", midi_program=27),
+    "guitar_rhythm": replace(_GUITAR, name="guitar_rhythm"),
     "bass": _BASS,
     "piano": _PIANO,
     "vocals": _VOCALS,
