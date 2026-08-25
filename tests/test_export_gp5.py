@@ -159,6 +159,52 @@ class TestGp5Roundtrip(unittest.TestCase):
                              f"measure {header.number} lost the key")
         self.assertEqual(song.key.value[0], -4)
 
+    def test_triplet_subdivision_positions_roundtrip(self):
+        import guitarpro as gp
+        from tabforge.export.writers import export_gp5
+
+        # subdivision=3: slot = quarter/3; at 120 BPM a slot is 1/6 s.
+        slot = 0.5 / 3
+        slots = [0, 2, 7]
+        notes = [NoteEvent(60 + i, s * slot, 0.1) for i, s in enumerate(slots)]
+        shapes = assign_tab(notes, self.cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "trip.gp5"
+            export_gp5(shapes, path, self.cfg, bpm=120.0, subdivision=3)
+            song = gp.parse(str(path))
+        origin = song.measureHeaders[0].start
+        slot_ticks = gp.Duration.quarterTime // 3
+        got = sorted((b.start - origin) // slot_ticks
+                     for m in song.tracks[0].measures
+                     for b in m.voices[0].beats if b.notes)
+        self.assertEqual(got, slots)
+        # durations still fill every measure exactly
+        measure_ticks = 4 * gp.Duration.quarterTime
+        for m in song.tracks[0].measures:
+            self.assertEqual(sum(b.duration.time for b in m.voices[0].beats),
+                             measure_ticks)
+
+    def test_three_four_time_signature_roundtrip(self):
+        import guitarpro as gp
+        from tabforge.export.writers import export_gp5
+
+        # 3/4 at 120 BPM: measure = 1.5 s; a note in measures 1 and 2
+        notes = [NoteEvent(60, 0.0, 0.4), NoteEvent(64, 1.5, 0.4)]
+        shapes = assign_tab(notes, self.cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "waltz.gp5"
+            export_gp5(shapes, path, self.cfg, bpm=120.0, beats_per_measure=3)
+            song = gp.parse(str(path))
+        self.assertGreaterEqual(len(song.measureHeaders), 2)
+        for header in song.measureHeaders:
+            self.assertEqual(header.timeSignature.numerator, 3)
+            self.assertEqual(header.timeSignature.denominator.value, 4)
+        measure_ticks = 3 * gp.Duration.quarterTime
+        for m in song.tracks[0].measures:
+            self.assertEqual(sum(b.duration.time for b in m.voices[0].beats),
+                             measure_ticks,
+                             f"measure {m.number} does not fill 3/4")
+
     def test_effects_roundtrip(self):
         from tabforge.core.articulation import detect_legato_pairs
         from tabforge.export.gp5_read import read_gp5

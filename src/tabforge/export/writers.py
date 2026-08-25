@@ -40,12 +40,17 @@ def export_midi(shapes: Sequence[Shape], path: Path, program: int = 25) -> None:
 
 def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
                bpm: float = 120.0, beats_per_measure: int = 4,
+               subdivision: int = 4,
                title: str = "TabForge", artist: str = "",
                key: Key | None = None, origin: float = 0.0,
                legato: Sequence[tuple] | None = None) -> None:
     """
     Builds a .gp5. In PyGuitarPro string #1 is the THINNEST,
     while our index 0 is the thickest. Hence the flip.
+
+    subdivision: grid slots per quarter note, matching quantize.Grid
+    (4 = sixteenths, 3 = eighth triplets, 8 = thirty-seconds).
+    beats_per_measure is written as the time signature (n/4).
 
     origin: time of the first BEAT (grid.beats[0]) — measure 1 starts
     there, not at second zero of the file; anchoring at t=0 would shift
@@ -83,41 +88,69 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
 
     def _pad_empty_voices() -> None:
         # Guitar Pro never writes a voice with zero beats: unused measures
-        # carry a whole-measure rest (voice 1) or an empty beat (voice 2).
-        # alphaTab's importer/renderer crashes on truly empty voices.
+        # carry rests filling the whole time signature (voice 1) or an
+        # empty beat (voice 2). alphaTab crashes on truly empty voices.
         for tr in song.tracks:
             for measure in tr.measures:
-                for vi, voice in enumerate(measure.voices[:2]):
-                    if not voice.beats:
-                        pad = gp.Beat(voice)
-                        pad.status = (gp.BeatStatus.rest if vi == 0
-                                      else gp.BeatStatus.empty)
-                        pad.duration = gp.Duration(value=1)
-                        voice.beats.append(pad)
+                voice0, voice1 = measure.voices[0], measure.voices[1]
+                if not voice0.beats:
+                    _fill_rests(voice0, slots_per_measure)
+                if not voice1.beats:
+                    pad = gp.Beat(voice1)
+                    pad.status = gp.BeatStatus.empty
+                    pad.duration = gp.Duration(value=1)
+                    voice1.beats.append(pad)
+
+    def _apply_time_signature(header) -> None:
+        header.timeSignature = gp.TimeSignature(
+            numerator=beats_per_measure, denominator=gp.Duration(value=4))
 
     quarter = 60.0 / bpm
-    slot_len = quarter / 4.0                    # grid resolution: sixteenths
-    slots_per_measure = beats_per_measure * 4
+    slot_len = quarter / subdivision            # one grid slot, seconds
+    slots_per_measure = beats_per_measure * subdivision
 
-    # Durations expressible as one gp5 Duration, in sixteenth units.
-    DURATIONS = ((16, 1, False), (12, 2, True), (8, 2, False), (6, 4, True),
-                 (4, 4, False), (3, 8, True), (2, 8, False), (1, 16, False))
+    # Durations expressible as one gp5 Duration, in slot units, largest
+    # first. Binary values whose length is a whole number of slots, their
+    # dotted variants, and — for triplet subdivisions — the single-slot
+    # tuplet note (e.g. subdivision 3: an eighth-note triplet).
+    def _duration_menu() -> tuple[tuple[int, int, bool, bool], ...]:
+        menu: list[tuple[int, int, bool, bool]] = []
+        per_whole = 4 * subdivision
+        for value in (1, 2, 4, 8, 16, 32):
+            if per_whole % value == 0:
+                menu.append((per_whole // value, value, False, False))
+                dotted_units = 3 * per_whole
+                if dotted_units % (2 * value) == 0:
+                    u = dotted_units // (2 * value)
+                    menu.append((u, value, True, False))
+        if subdivision % 3 == 0:
+            menu.append((1, 8 * (subdivision // 3), False, True))
+        best: dict[int, tuple[int, int, bool, bool]] = {}
+        for entry in menu:
+            if entry[0] not in best or not entry[2]:   # prefer undotted
+                best.setdefault(entry[0], entry)
+        return tuple(sorted(best.values(), reverse=True))
 
-    def _largest_fit(units: int) -> tuple[int, bool, int]:
-        for u, value, dotted in DURATIONS:
+    DURATIONS = _duration_menu()
+
+    def _largest_fit(units: int) -> tuple[int, bool, bool, int]:
+        for u, value, dotted, tuplet in DURATIONS:
             if u <= units:
-                return value, dotted, u
-        return 16, False, 1
+                return value, dotted, tuplet, u
+        u, value, dotted, tuplet = DURATIONS[-1]
+        return value, dotted, tuplet, u
 
     def _add_beat(voice, units: int, shape: Shape | None) -> int:
         """One beat (notes or rest) of the largest duration <= units.
-        Returns the sixteenths consumed."""
-        value, dotted, used = _largest_fit(units)
+        Returns the slots consumed."""
+        value, dotted, tuplet, used = _largest_fit(units)
         beat = gp.Beat(voice)
         # Beat.status defaults to empty; empty beats don't advance the
         # reader's time cursor, so positions would collapse.
         beat.status = gp.BeatStatus.normal if shape else gp.BeatStatus.rest
-        beat.duration = gp.Duration(value=value, isDotted=dotted)
+        beat.duration = gp.Duration(
+            value=value, isDotted=dotted,
+            tuplet=gp.Tuplet(enters=3, times=2) if tuplet else gp.Tuplet())
         if shape:
             for p in shape.placements:
                 note = gp.Note(beat)
@@ -179,6 +212,8 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
         placed[slot] = shape
 
     if not placed:
+        for header in song.measureHeaders:
+            _apply_time_signature(header)
         _pad_empty_voices()
         gp.write(song, str(path))
         return
@@ -189,6 +224,8 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
         if signature is not None:
             header.keySignature = signature
         song.addMeasureHeader(header)
+    for header in song.measureHeaders:
+        _apply_time_signature(header)
     for tr in song.tracks:
         while len(tr.measures) < n_measures:
             tr.measures.append(gp.Measure(tr, song.measureHeaders[len(tr.measures)]))

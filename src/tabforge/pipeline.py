@@ -27,6 +27,7 @@ class PipelineOptions:
     stems: tuple[str, ...] = ("guitar", "bass")
     tuning: str = "standard"
     subdivision: int = 4
+    beats_per_measure: int = 4
     quantize_strength: float = 0.9
     separate: bool = True          # False = transcribe the whole mix
     split_guitars: bool = False    # split guitar into lead & rhythm parts
@@ -167,6 +168,8 @@ def run_pipeline(audio: Path, out_dir: Path,
             try:
                 gp5 = stem_dir / f"{part_name}.gp5"
                 writers.export_gp5(shapes, gp5, cfg, bpm=bpm,
+                                   beats_per_measure=opts.beats_per_measure,
+                                   subdivision=opts.subdivision,
                                    title=part_name, key=key,
                                    origin=beats[0] if beats else 0.0,
                                    legato=legato)
