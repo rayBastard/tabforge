@@ -543,6 +543,17 @@ function applyMixer() {
   }
 }
 
+/* ---------- space = play/pause on the project screen ----------------- */
+
+document.addEventListener("keydown", (e) => {
+  if (e.code !== "Space") return;
+  if ($("#screenProject").hidden) return;
+  // don't steal space from form fields (or let it click a focused button)
+  if (e.target.matches("input, select, textarea, [contenteditable]")) return;
+  e.preventDefault();                    // the page would scroll otherwise
+  $("#transportPlay").click();           // first press arms the synth too
+});
+
 /* ---------- backing-track player (play along without downloading) ---- */
 
 const backing = { audio: null, url: null };
