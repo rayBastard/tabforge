@@ -1,11 +1,11 @@
 """
-HTTP-сервер. Один и тот же код обслуживает:
-  - десктоп (pywebview открывает окно на localhost),
-  - браузер (просто открыть адрес),
-  - в будущем — мобильный клиент (это уже готовое API).
+HTTP server. The same code serves:
+  - the desktop app (pywebview opens a window on localhost),
+  - the browser (just open the address),
+  - in the future — a mobile client (this is already a ready-made API).
 
-Задачи долгие (минуты), поэтому: POST создаёт задачу, фронтенд опрашивает
-прогресс, по завершении скачивает файлы.
+Jobs take a long time (minutes), so: POST creates a job, the frontend polls
+the progress and downloads the files when done.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ class Job:
 
 
 JOBS: dict[str, Job] = {}
-POOL = ThreadPoolExecutor(max_workers=1)   # demucs прожорлив — по одной
+POOL = ThreadPoolExecutor(max_workers=1)   # demucs is hungry — one at a time
 
 app = FastAPI(title="TabForge")
 
@@ -77,7 +77,7 @@ def _run(job: Job, audio: Path, opts: PipelineOptions) -> None:
             ]
             job.status = "done"
             job.stage = "done"
-    except Exception as e:  # noqa: BLE001 — показываем пользователю
+    except Exception as e:  # noqa: BLE001 — shown to the user
         with job.lock:
             job.status = "error"
             job.error = str(e)
@@ -91,7 +91,7 @@ async def create_job(
     separate: bool = True,
 ) -> dict:
     if tuning not in TUNINGS:
-        raise HTTPException(400, f"Неизвестный строй: {tuning}")
+        raise HTTPException(400, f"Unknown tuning: {tuning}")
     job = Job(id=uuid.uuid4().hex[:12])
     job.dir = WORK_ROOT / job.id
     job.dir.mkdir(parents=True)
@@ -114,7 +114,7 @@ async def create_job(
 async def job_status(job_id: str) -> dict:
     job = JOBS.get(job_id)
     if not job:
-        raise HTTPException(404, "Задача не найдена")
+        raise HTTPException(404, "Job not found")
     return job.public()
 
 
@@ -122,10 +122,10 @@ async def job_status(job_id: str) -> dict:
 async def job_file(job_id: str, stem: str, name: str) -> FileResponse:
     job = JOBS.get(job_id)
     if not job or not job.dir:
-        raise HTTPException(404, "Задача не найдена")
+        raise HTTPException(404, "Job not found")
     path = (job.dir / "out" / stem / name).resolve()
     if not path.is_file() or job.dir.resolve() not in path.parents:
-        raise HTTPException(404, "Файла нет")
+        raise HTTPException(404, "File not found")
     return FileResponse(path, filename=name)
 
 
@@ -134,5 +134,5 @@ async def tunings() -> dict:
     return {"tunings": sorted(TUNINGS)}
 
 
-# фронтенд — в самом конце, чтобы не перехватывал /api/*
+# the frontend goes last so it doesn't intercept /api/*
 app.mount("/", StaticFiles(directory=str(FRONTEND), html=True), name="frontend")

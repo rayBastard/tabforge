@@ -1,11 +1,11 @@
-/* TabForge — верстак лютье: тёмный орех, латунь, кость.
-   Палитра:
-   --wood   #241F1B  фон, тёмный орех
-   --plank  #2E2823  панели
-   --bone   #EDE4D6  текст
-   --brass  #D9A441  акцент, латунь ладов
-   --wire   #8A7B68  струны, рамки
-   --moss   #9DB87C  успех
+/* TabForge — a luthier's workbench: dark walnut, brass, bone.
+   Palette:
+   --wood   #241F1B  background, dark walnut
+   --plank  #2E2823  panels
+   --bone   #EDE4D6  text
+   --brass  #D9A441  accent, fret brass
+   --wire   #8A7B68  strings, borders
+   --moss   #9DB87C  success
 */
 
 :root {
@@ -57,7 +57,7 @@ body {
   margin-left: .3em;
   border-radius: 50%;
   background: var(--brass);
-  box-shadow: 0 0 14px rgba(217,164,65,.7);   /* лампа усилителя */
+  box-shadow: 0 0 14px rgba(217,164,65,.7);   /* amp tube glow */
 }
 .claim { margin: 0; color: var(--bone-dim); }
 
@@ -80,7 +80,7 @@ body {
   padding: 20px;
 }
 
-/* ---------- левая панель ---------- */
+/* ---------- left panel ---------- */
 
 .drop {
   display: flex;
@@ -179,7 +179,7 @@ select {
 
 .hint { color: var(--bone-dim); font-size: 12.5px; margin: 12px 0 0; }
 
-/* ---------- сигнатура: гриф-прогресс ---------- */
+/* ---------- signature: fretboard progress ---------- */
 
 .neck {
   position: relative;
@@ -198,7 +198,7 @@ select {
   height: 1px;
   background: linear-gradient(90deg, var(--wire), rgba(138,123,104,.35));
 }
-.strings i:nth-child(n+4) { height: 2px; }  /* басовые струны толще */
+.strings i:nth-child(n+4) { height: 2px; }  /* bass strings are thicker */
 
 .neck.playing .strings i {
   animation: shimmer 2.2s linear infinite;
@@ -227,7 +227,7 @@ select {
   text-align: center;
   min-width: 64px;
 }
-.frets li::before {           /* сам порожек */
+.frets li::before {           /* the fret itself */
   content: "";
   position: absolute;
   top: 0; left: 50%;
@@ -257,7 +257,7 @@ select {
 }
 .neck-log.error { color: var(--danger); }
 
-/* ---------- результаты ---------- */
+/* ---------- results ---------- */
 
 .empty {
   padding: 70px 20px;

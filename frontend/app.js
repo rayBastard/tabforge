@@ -1,4 +1,4 @@
-/* TabForge frontend: загрузка -> опрос задачи -> вывод табов. */
+/* TabForge frontend: upload -> poll the job -> render the tabs. */
 "use strict";
 
 const $ = (sel) => document.querySelector(sel);
@@ -13,7 +13,7 @@ const resultsEl = $("#results");
 
 let pickedFile = null;
 
-/* ---------- выбор файла ---------- */
+/* ---------- file picking ---------- */
 
 fileInput.addEventListener("change", () => setFile(fileInput.files[0]));
 
@@ -30,7 +30,7 @@ function setFile(f) {
   goBtn.disabled = false;
 }
 
-/* ---------- запуск задачи ---------- */
+/* ---------- starting a job ---------- */
 
 goBtn.addEventListener("click", async () => {
   if (!pickedFile) return;
@@ -39,7 +39,7 @@ goBtn.addEventListener("click", async () => {
   emptyBox.hidden = true;
   neck.hidden = false;
   neck.classList.add("playing");
-  setLog("Загрузка файла на обработку…");
+  setLog("Uploading the file for processing…");
   markStage(null);
 
   const stems = [...document.querySelectorAll('input[name="stem"]:checked')]
@@ -60,16 +60,16 @@ goBtn.addEventListener("click", async () => {
     const { id } = await res.json();
     poll(id);
   } catch (err) {
-    fail(`Не удалось запустить: ${err.message}`);
+    fail(`Failed to start: ${err.message}`);
   }
 });
 
-/* ---------- опрос ---------- */
+/* ---------- polling ---------- */
 
 async function poll(id) {
   try {
     const res = await fetch(`/api/jobs/${id}`);
-    if (!res.ok) throw new Error("задача потерялась");
+    if (!res.ok) throw new Error("the job got lost");
     const job = await res.json();
 
     markStage(job.stage, job.stages);
@@ -106,28 +106,28 @@ function fail(msg) {
   goBtn.disabled = false;
 }
 
-/* ---------- результат ---------- */
+/* ---------- results ---------- */
 
-const STEM_RU = { guitar: "Гитара", bass: "Бас", vocals: "Вокал",
-                  piano: "Клавиши", other: "Прочее", mix: "Весь микс" };
+const STEM_NAMES = { guitar: "Guitar", bass: "Bass", vocals: "Vocals",
+                     piano: "Keys", other: "Other", mix: "Full mix" };
 
 function finish(job) {
   neck.classList.remove("playing");
   markStage("done");
-  setLog("Готово. Файлы можно скачать ниже.");
+  setLog("Done. The files are available for download below.");
   goBtn.disabled = false;
 
   if (!job.results.length) {
-    setLog("Обработка прошла, но нот не нашлось. Попробуйте другие партии.", true);
+    setLog("Processing finished, but no notes were found. Try other stems.", true);
     return;
   }
 
   const tpl = $("#stemCard");
   for (const r of job.results) {
     const card = tpl.content.cloneNode(true);
-    card.querySelector(".stem-name").textContent = STEM_RU[r.stem] || r.stem;
+    card.querySelector(".stem-name").textContent = STEM_NAMES[r.stem] || r.stem;
     card.querySelector(".stem-meta").textContent =
-      `${r.notes} нот · ${r.bpm} BPM`;
+      `${r.notes} notes · ${r.bpm} BPM`;
 
     const nav = card.querySelector(".stem-downloads");
     for (const [ext, url] of Object.entries(r.files)) {
@@ -143,7 +143,7 @@ function finish(job) {
     const atEl = card.querySelector(".alphatab");
     resultsEl.appendChild(card);
 
-    // Нотный стан + таб рендерит alphaTab из .gp5, если он собрался
+    // alphaTab renders staff + tab from the .gp5, if it was built
     if (r.files.gp5 && window.alphaTab) {
       atEl.hidden = false;
       try {
@@ -153,7 +153,7 @@ function finish(job) {
           player: { enablePlayer: false },
         });
       } catch (e) {
-        atEl.hidden = true;   // остаётся ASCII-таб
+        atEl.hidden = true;   // the ASCII tab remains
       }
     }
   }

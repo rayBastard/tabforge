@@ -1,7 +1,7 @@
 """
-Десктоп-режим: тот же сервер + нативное окно (pywebview).
-Запуск:  python -m tabforge.desktop
-Сборка в .exe/.app: см. README, раздел «Сборка».
+Desktop mode: the same server + a native window (pywebview).
+Run:  python -m tabforge.desktop
+Building an .exe/.app: see the README, "single-file build".
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def main() -> None:
     threading.Thread(target=server.run, daemon=True).start()
 
     url = f"http://127.0.0.1:{port}"
-    for _ in range(100):                      # ждём, пока сервер поднимется
+    for _ in range(100):                      # wait for the server to come up
         try:
             urllib.request.urlopen(url, timeout=0.2)
             break

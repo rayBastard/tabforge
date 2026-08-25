@@ -6,7 +6,7 @@ from tabforge.core.quantize import Grid, duration_symbol, quantize
 
 class TestGrid(unittest.TestCase):
     def test_snap(self):
-        grid = Grid(beats=[0.0, 0.5, 1.0], subdivision=2)  # 120 BPM, восьмые
+        grid = Grid(beats=[0.0, 0.5, 1.0], subdivision=2)  # 120 BPM, eighths
         _, t = grid.snap(0.27)
         self.assertAlmostEqual(t, 0.25)
 

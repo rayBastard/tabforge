@@ -1,4 +1,4 @@
-"""Тесты ядра. Без ML-зависимостей — гоняются в CI за секунды."""
+"""Core tests. No ML dependencies — they run in CI in seconds."""
 import unittest
 
 from tabforge.core.fretboard import (
@@ -18,7 +18,7 @@ def seq(pitches, step=0.25):
 
 class TestCandidates(unittest.TestCase):
     def test_e4_has_three_places(self):
-        # E4 (64): открытая 1-я, 5-й лад 2-й, 9-й лад 3-й, 14-й лад 4-й, 19-й лад 5-й
+        # E4 (64): open 1st, 5th fret on 2nd, 9th on 3rd, 14th on 4th, 19th on 5th
         cands = candidates_for_pitch(64, TabConfig())
         self.assertIn((5, 0), cands)
         self.assertIn((4, 5), cands)
@@ -65,10 +65,10 @@ class TestAssign(unittest.TestCase):
     def test_c_major_stays_in_first_position(self):
         shapes = assign_tab(seq([48, 50, 52, 53, 55, 57, 59, 60]))
         frets = [p.fret for s in shapes for p in s.placements]
-        self.assertLessEqual(max(frets), 4, "гамма C-dur должна лечь в 1-ю позицию")
+        self.assertLessEqual(max(frets), 4, "the C major scale should fit in first position")
 
     def test_open_chords(self):
-        # Em: должен найтись как 022000
+        # Em: should be found as 022000
         shapes = assign_tab(seq([[40, 47, 52, 55, 59, 64]], step=1.0))
         frets = sorted(p.fret for p in shapes[0].placements)
         self.assertEqual(frets, [0, 0, 0, 0, 2, 2])
@@ -77,7 +77,7 @@ class TestAssign(unittest.TestCase):
         shapes = assign_tab(seq([69, 72, 74, 76, 79, 76, 74, 72]))
         frets = [p.fret for s in shapes for p in s.placements]
         self.assertLessEqual(max(frets) - min(frets), 5,
-                             "фраза должна лежать в одной позиции")
+                             "the phrase should stay in one position")
 
     def test_bass_tuning(self):
         cfg = TabConfig(tuning=TUNINGS["bass_4"], max_fret=20)

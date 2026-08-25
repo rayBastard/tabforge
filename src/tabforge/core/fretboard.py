@@ -1,10 +1,10 @@
 """
-Ядро проекта: перевод последовательности нот (pitch + время) в аппликатуру
-на грифе — то есть в табулатуру.
+The project core: mapping a sequence of notes (pitch + time) to a fingering
+on the fretboard — that is, to tablature.
 
-Это НЕ решается жадно "взять ближайший лад": выбор для текущей ноты зависит
-от того, где рука окажется через 3 ноты. Поэтому — динамическое
-программирование по всей последовательности (алгоритм Витерби).
+This is NOT solvable greedily by "taking the nearest fret": the choice for the
+current note depends on where the hand will be 3 notes later. Hence — dynamic
+programming over the whole sequence (the Viterbi algorithm).
 """
 
 from __future__ import annotations
@@ -13,11 +13,11 @@ import itertools
 from dataclasses import dataclass, field
 from typing import Iterable, Sequence
 
-# MIDI-номера открытых струн. Индекс 0 = самая НИЗКАЯ струна (6-я).
+# MIDI numbers of the open strings. Index 0 = the LOWEST string (6th).
 TUNINGS: dict[str, tuple[int, ...]] = {
     "standard": (40, 45, 50, 55, 59, 64),      # E2 A2 D3 G3 B3 E4
     "drop_d": (38, 45, 50, 55, 59, 64),
-    "eb_standard": (39, 44, 49, 54, 58, 63),   # полтона вниз
+    "eb_standard": (39, 44, 49, 54, 58, 63),   # half step down
     "dadgad": (38, 45, 50, 55, 57, 62),
     "open_g": (38, 43, 50, 55, 59, 62),
     "bass_4": (28, 33, 38, 43),                # E1 A1 D2 G2
@@ -28,10 +28,10 @@ TUNINGS: dict[str, tuple[int, ...]] = {
 
 @dataclass(slots=True)
 class NoteEvent:
-    """Нота после транскрипции аудио."""
+    """A note after audio transcription."""
     pitch: int          # MIDI note number
-    start: float        # секунды
-    duration: float     # секунды
+    start: float        # seconds
+    duration: float     # seconds
     velocity: int = 96
 
     @property
@@ -41,21 +41,21 @@ class NoteEvent:
 
 @dataclass(slots=True)
 class Placement:
-    """Нота, привязанная к струне и ладу."""
+    """A note assigned to a string and fret."""
     note: NoteEvent
-    string: int         # индекс в tuning, 0 = самая низкая
+    string: int         # index into tuning, 0 = the lowest
     fret: int
 
 
 @dataclass(slots=True)
 class Shape:
-    """Один аккорд/событие: набор одновременных зажатий."""
+    """One chord/event: a set of simultaneous fingerings."""
     start: float
     placements: list[Placement] = field(default_factory=list)
 
     @property
     def hand_position(self) -> float:
-        """Где находится указательный палец. Открытые струны не считаем."""
+        """Where the index finger is. Open strings don't count."""
         frets = [p.fret for p in self.placements if p.fret > 0]
         return min(frets) if frets else 0.0
 
@@ -69,23 +69,23 @@ class Shape:
 class TabConfig:
     tuning: tuple[int, ...] = TUNINGS["standard"]
     max_fret: int = 22
-    reach: int = 3              # лады pos..pos+reach берутся без растяжки
-    max_stretch: int = 5        # предельная растяжка со штрафом
+    reach: int = 3              # frets pos..pos+reach are played without stretching
+    max_stretch: int = 5        # maximum stretch, with a penalty
     open_string_bonus: float = 0.35
-    high_fret_penalty: float = 0.05   # тянет играть ближе к порожку
-    stretch_penalty: float = 1.2      # за каждый лад сверх reach
-    move_penalty: float = 0.55        # за лад смещения руки
+    high_fret_penalty: float = 0.05   # pulls playing closer to the nut
+    stretch_penalty: float = 1.2      # per fret beyond reach
+    move_penalty: float = 0.55        # per fret of hand movement
     string_change_penalty: float = 0.10
     beam_width: int = 80
-    onset_tolerance: float = 0.045    # ноты ближе этого = один аккорд
+    onset_tolerance: float = 0.045    # notes closer than this = one chord
 
 
 # ---------------------------------------------------------------------------
-# 1. Группировка в события
+# 1. Grouping into events
 # ---------------------------------------------------------------------------
 
 def group_into_events(notes: Sequence[NoteEvent], tolerance: float) -> list[list[NoteEvent]]:
-    """Ноты, начинающиеся почти одновременно, — это аккорд."""
+    """Notes starting almost simultaneously form a chord."""
     if not notes:
         return []
     ordered = sorted(notes, key=lambda n: (n.start, n.pitch))
@@ -99,11 +99,11 @@ def group_into_events(notes: Sequence[NoteEvent], tolerance: float) -> list[list
 
 
 # ---------------------------------------------------------------------------
-# 2. Генерация вариантов аппликатуры для события
+# 2. Generating fingering candidates for an event
 # ---------------------------------------------------------------------------
 
 def candidates_for_pitch(pitch: int, cfg: TabConfig) -> list[tuple[int, int]]:
-    """Все (струна, лад), дающие эту высоту."""
+    """All (string, fret) pairs producing this pitch."""
     out = []
     for s, open_pitch in enumerate(cfg.tuning):
         fret = pitch - open_pitch
@@ -113,10 +113,10 @@ def candidates_for_pitch(pitch: int, cfg: TabConfig) -> list[tuple[int, int]]:
 
 
 def shapes_for_event(event: Sequence[NoteEvent], cfg: TabConfig) -> list[Shape]:
-    """Все физически возможные способы взять этот аккорд."""
+    """All physically possible ways to play this chord."""
     per_note = [candidates_for_pitch(n.pitch, cfg) for n in event]
     if any(not c for c in per_note):
-        # какая-то нота вне диапазона инструмента — выкидываем её
+        # some note is outside the instrument's range — drop it
         keep = [(n, c) for n, c in zip(event, per_note) if c]
         if not keep:
             return []
@@ -127,10 +127,10 @@ def shapes_for_event(event: Sequence[NoteEvent], cfg: TabConfig) -> list[Shape]:
     for combo in itertools.product(*per_note):
         strings = [s for s, _ in combo]
         if len(set(strings)) != len(strings):
-            continue  # две ноты на одной струне — невозможно
+            continue  # two notes on one string — impossible
         frets = [f for _, f in combo if f > 0]
         if frets and max(frets) - min(frets) > cfg.max_stretch:
-            continue  # рука так не растянется
+            continue  # the hand can't stretch that far
         shapes.append(
             Shape(
                 start=event[0].start,
@@ -141,17 +141,17 @@ def shapes_for_event(event: Sequence[NoteEvent], cfg: TabConfig) -> list[Shape]:
 
 
 # ---------------------------------------------------------------------------
-# 3. Стоимости. Ключевая идея: состояние — не только аппликатура, но и
-#    ПОЗИЦИЯ руки. Гитарист держит кисть на месте и работает пальцами,
-#    а не переползает к каждой ноте.
+# 3. Costs. The key idea: the state is not just the fingering but also the
+#    hand POSITION. A guitarist keeps the hand in place and works the fingers
+#    rather than crawling to each note.
 # ---------------------------------------------------------------------------
 
 def positions_for_shape(shape: Shape, cfg: TabConfig) -> list[int]:
-    """В каких позициях руки этот аккорд вообще берётся."""
+    """In which hand positions this chord is playable at all."""
     frets = [p.fret for p in shape.placements if p.fret > 0]
     max_pos = max(0, cfg.max_fret - cfg.reach)
     if not frets:
-        return list(range(0, max_pos + 1))       # всё открытое — рука где угодно
+        return list(range(0, max_pos + 1))       # all open — the hand can be anywhere
     lo, hi = min(frets), max(frets)
     if hi - lo > cfg.max_stretch:
         return []
@@ -168,7 +168,7 @@ def static_cost(shape: Shape, pos: int, cfg: TabConfig) -> float:
             continue
         finger = p.fret - pos
         if finger < 0:
-            cost += cfg.stretch_penalty * (-finger)          # позади позиции
+            cost += cfg.stretch_penalty * (-finger)          # behind the position
         elif finger > cfg.reach:
             cost += cfg.stretch_penalty * (finger - cfg.reach)
     return cost
@@ -177,7 +177,7 @@ def static_cost(shape: Shape, pos: int, cfg: TabConfig) -> float:
 def transition_cost(prev: Shape, prev_pos: int, cur: Shape, pos: int,
                     cfg: TabConfig) -> float:
     gap = max(cur.start - prev.start, 1e-3)
-    time_factor = 1.0 / (1.0 + 3.0 * gap)    # в быстром пассаже прыжки дороже
+    time_factor = 1.0 / (1.0 + 3.0 * gap)    # jumps cost more in a fast passage
     cost = cfg.move_penalty * abs(pos - prev_pos) * time_factor
     prev_strings = {p.string for p in prev.placements}
     cur_strings = {p.string for p in cur.placements}
@@ -186,7 +186,7 @@ def transition_cost(prev: Shape, prev_pos: int, cur: Shape, pos: int,
 
 
 # ---------------------------------------------------------------------------
-# 4. Витерби (beam search) по последовательности событий
+# 4. Viterbi (beam search) over the event sequence
 # ---------------------------------------------------------------------------
 
 def assign_tab(notes: Sequence[NoteEvent], cfg: TabConfig | None = None) -> list[Shape]:
@@ -195,7 +195,7 @@ def assign_tab(notes: Sequence[NoteEvent], cfg: TabConfig | None = None) -> list
     if not events:
         return []
 
-    # состояние: (стоимость, shape, позиция руки, индекс предка)
+    # state: (cost, shape, hand position, backpointer index)
     State = tuple[float, Shape, int, int]
     history: list[list[State]] = []
 
@@ -235,7 +235,7 @@ def assign_tab(notes: Sequence[NoteEvent], cfg: TabConfig | None = None) -> list
     return result
 
 
-# 5. ASCII-таб для быстрой проверки глазами
+# 5. ASCII tab for a quick eyeball check
 # ---------------------------------------------------------------------------
 
 STRING_NAMES = {
@@ -263,7 +263,7 @@ def render_ascii(shapes: Sequence[Shape], cfg: TabConfig | None = None,
     for i in range(0, len(columns), wrap):
         chunk = columns[i : i + wrap]
         lines = []
-        for s in reversed(range(n)):          # верхняя строка = тонкая струна
+        for s in reversed(range(n)):          # top line = the thinnest string
             body = "-".join(col[s] for col in chunk)
             lines.append(f"{names[s]}|-{body}-|")
         blocks.append("\n".join(lines))

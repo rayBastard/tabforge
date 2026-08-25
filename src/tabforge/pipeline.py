@@ -1,6 +1,6 @@
 """
-Единый конвейер: файл -> партии -> ноты -> аппликатура -> файлы результата.
-Его вызывают и CLI, и сервер, и десктоп — логика в одном месте.
+The single pipeline: file -> stems -> notes -> fingering -> output files.
+Called by the CLI, the server, and the desktop app — the logic lives in one place.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from typing import Callable
 from .core.fretboard import TUNINGS, TabConfig, assign_tab, render_ascii
 from .core.quantize import Grid, quantize
 
-ProgressFn = Callable[[str, str], None]  # (этап, сообщение)
+ProgressFn = Callable[[str, str], None]  # (stage, message)
 
 STEM_TUNING = {"bass": "bass_4"}
 STEM_PROGRAM = {"bass": 33, "guitar": 25, "vocals": 25, "piano": 0, "other": 25}
@@ -26,7 +26,7 @@ class PipelineOptions:
     tuning: str = "standard"
     subdivision: int = 4
     quantize_strength: float = 0.9
-    separate: bool = True          # False = снять микс целиком
+    separate: bool = True          # False = transcribe the whole mix
 
 
 @dataclass(slots=True)
@@ -52,7 +52,7 @@ def run_pipeline(audio: Path, out_dir: Path,
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if opts.separate:
-        progress("separate", "Разделение на партии (первый раз — загрузка модели)")
+        progress("separate", "Separating into stems (first run downloads the model)")
         stems = transcribe.separate_stems(audio, out_dir / "stems")
         stems = {k: v for k, v in stems.items() if k in opts.stems}
     else:
@@ -60,25 +60,25 @@ def run_pipeline(audio: Path, out_dir: Path,
 
     results: list[StemResult] = []
     for name, wav in stems.items():
-        progress("transcribe", f"{name}: распознавание нот")
+        progress("transcribe", f"{name}: detecting notes")
         notes = transcribe.transcribe_stem(wav, **transcribe.PRESETS.get(name, {}))
         notes = transcribe.cleanup(
             notes, max_polyphony=1 if name == "bass" else 6)
         if not notes:
-            progress("transcribe", f"{name}: нот не найдено, пропущено")
+            progress("transcribe", f"{name}: no notes found, skipped")
             continue
 
-        progress("tempo", f"{name}: темп и сетка долей")
+        progress("tempo", f"{name}: tempo and beat grid")
         bpm, beats = transcribe.detect_tempo(wav)
         if len(beats) > 1:
             grid = Grid(beats, subdivision=opts.subdivision)
             notes = quantize(notes, grid, strength=opts.quantize_strength)
 
-        progress("fingering", f"{name}: подбор аппликатуры")
+        progress("fingering", f"{name}: choosing the fingering")
         cfg = TabConfig(tuning=TUNINGS[STEM_TUNING.get(name, opts.tuning)])
         shapes = assign_tab(notes, cfg)
 
-        progress("export", f"{name}: запись файлов")
+        progress("export", f"{name}: writing files")
         stem_dir = out_dir / name
         stem_dir.mkdir(parents=True, exist_ok=True)
         files: dict[str, Path] = {}
@@ -96,13 +96,13 @@ def run_pipeline(audio: Path, out_dir: Path,
             writers.export_gp5(shapes, gp5, cfg, bpm=bpm, title=name)
             files["gp5"] = gp5
         except Exception as e:
-            progress("export", f"{name}: gp5 не собрался ({e})")
+            progress("export", f"{name}: gp5 failed to build ({e})")
         try:
             xml = stem_dir / f"{name}.musicxml"
             writers.export_musicxml(shapes, xml, bpm=bpm)
             files["musicxml"] = xml
         except Exception as e:
-            progress("export", f"{name}: musicxml не собрался ({e})")
+            progress("export", f"{name}: musicxml failed to build ({e})")
 
         results.append(StemResult(
             stem=name, bpm=bpm, note_count=len(notes),

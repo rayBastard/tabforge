@@ -1,6 +1,6 @@
 """
-Экспорт результата. Главный формат — .gp5, его открывает Guitar Pro,
-TuxGuitar и MuseScore. Плюс MIDI как страховка.
+Result export. The main format is .gp5 — opened by Guitar Pro,
+TuxGuitar, and MuseScore. Plus MIDI as a fallback.
 """
 
 from __future__ import annotations
@@ -36,8 +36,8 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
                bpm: float = 120.0, beats_per_measure: int = 4,
                title: str = "TabForge", artist: str = "") -> None:
     """
-    Собирает .gp5. В PyGuitarPro струна №1 — самая ТОНКАЯ,
-    а у нас индекс 0 — самая толстая. Отсюда переворот.
+    Builds a .gp5. In PyGuitarPro string #1 is the THINNEST,
+    while our index 0 is the thickest. Hence the flip.
     """
     import guitarpro as gp
 
@@ -85,7 +85,7 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
         for p in shape.placements:
             note = gp.Note(beat)
             note.value = p.fret
-            note.string = n_strings - p.string      # переворот нумерации
+            note.string = n_strings - p.string      # flipped numbering
             note.velocity = p.note.velocity
             note.type = gp.NoteType.normal
             beat.notes.append(note)
@@ -95,7 +95,7 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
 
 
 def export_musicxml(shapes: Sequence[Shape], path: Path, bpm: float = 120.0) -> None:
-    """Для MuseScore / Sibelius. Нотный стан без табулатуры."""
+    """For MuseScore / Sibelius. Staff notation without tablature."""
     from music21 import stream, note as m21note, tempo, chord as m21chord
 
     part = stream.Part()

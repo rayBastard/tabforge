@@ -28,9 +28,9 @@ def main() -> None:
     results = run_pipeline(args.audio, args.out, opts,
                            progress=lambda st, msg: print(f"[{st}] {msg}"))
     for r in results:
-        print(f"\n=== {r.stem}: {r.note_count} нот, {r.bpm:.0f} BPM ===")
+        print(f"\n=== {r.stem}: {r.note_count} notes, {r.bpm:.0f} BPM ===")
         print(r.ascii_tab[:800])
-    print(f"\nГотово: {args.out.resolve()}")
+    print(f"\nDone: {args.out.resolve()}")
 
 
 if __name__ == "__main__":

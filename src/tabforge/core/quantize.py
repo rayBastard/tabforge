@@ -1,7 +1,7 @@
 """
-Транскрипция даёт ноты в секундах. Для нотной записи нужны доли и
-длительности, привязанные к сетке. Иначе нотный стан превратится
-в кашу из тридцатьвторых с точками.
+Transcription yields notes in seconds. Sheet music needs beats and
+durations snapped to a grid. Otherwise the staff turns into a mess
+of dotted thirty-second notes.
 """
 
 from __future__ import annotations
@@ -10,14 +10,14 @@ from dataclasses import dataclass
 
 from .fretboard import NoteEvent
 
-# Длительность в "гитарпрошных" единицах: 1=целая, 4=четверть, 8=восьмая...
+# Duration in Guitar Pro units: 1=whole, 4=quarter, 8=eighth...
 DURATION_VALUES = (1, 2, 4, 8, 16, 32)
 
 
 @dataclass(slots=True)
 class Grid:
-    beats: list[float]        # времена долей, сек
-    subdivision: int = 4      # сколько делений в доле (4 = шестнадцатые)
+    beats: list[float]        # beat times, seconds
+    subdivision: int = 4      # divisions per beat (4 = sixteenths)
 
     @property
     def ticks(self) -> list[float]:
@@ -30,7 +30,7 @@ class Grid:
         return out
 
     def snap(self, t: float) -> tuple[int, float]:
-        """Ближайшее деление сетки: (индекс, время)."""
+        """Nearest grid tick: (index, time)."""
         ticks = self.ticks
         idx = min(range(len(ticks)), key=lambda i: abs(ticks[i] - t))
         return idx, ticks[idx]
@@ -38,7 +38,7 @@ class Grid:
 
 def quantize(notes: list[NoteEvent], grid: Grid,
              strength: float = 1.0) -> list[NoteEvent]:
-    """strength=1.0 — жёстко на сетку, 0.5 — наполовину (сохраняет грув)."""
+    """strength=1.0 — hard snap to the grid, 0.5 — halfway (keeps the groove)."""
     out = []
     for n in notes:
         _, snapped = grid.snap(n.start)
@@ -58,8 +58,8 @@ def _tick_len(grid: Grid) -> float:
 
 def duration_symbol(seconds: float, bpm: float) -> tuple[int, bool]:
     """
-    Секунды -> (значение длительности, есть ли точка).
-    Ищем ближайшую нотную длительность в логарифмической шкале.
+    Seconds -> (duration value, whether it is dotted).
+    Finds the nearest note duration on a logarithmic scale.
     """
     quarter = 60.0 / bpm
     best = (4, False)
@@ -75,7 +75,7 @@ def duration_symbol(seconds: float, bpm: float) -> tuple[int, bool]:
 
 def split_measures(notes: list[NoteEvent], grid: Grid,
                    beats_per_measure: int = 4) -> list[list[NoteEvent]]:
-    """Раскладывает ноты по тактам."""
+    """Distributes notes into measures."""
     if not grid.beats:
         return [notes]
     bounds = grid.beats[::beats_per_measure]

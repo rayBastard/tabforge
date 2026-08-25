@@ -1,10 +1,10 @@
 """
-Аудио -> ноты. Здесь мы НИЧЕГО не изобретаем: берём state-of-the-art модели.
+Audio -> notes. We invent NOTHING here: we use state-of-the-art models.
 
-Цепочка:
-  1. Demucs  — разделить микс на партии (гитара, бас, вокал, барабаны)
-  2. Basic Pitch (Spotify) — полифоническая транскрипция каждой партии в ноты
-  3. librosa — темп и сетка долей
+The chain:
+  1. Demucs  — split the mix into stems (guitar, bass, vocals, drums)
+  2. Basic Pitch (Spotify) — polyphonic transcription of each stem into notes
+  3. librosa — tempo and beat grid
 """
 
 from __future__ import annotations
@@ -15,12 +15,12 @@ from pathlib import Path
 
 from ..core.fretboard import NoteEvent
 
-# Инструменты, которые умеет выделять htdemucs_6s
+# Instruments that htdemucs_6s can extract
 SIX_STEMS = ("drums", "bass", "other", "vocals", "guitar", "piano")
 
 
 def separate_stems(audio: Path, out_dir: Path, model: str = "htdemucs_6s") -> dict[str, Path]:
-    """Разделяет микс на партии. Возвращает {имя_партии: путь_к_wav}."""
+    """Splits the mix into stems. Returns {stem_name: wav_path}."""
     out_dir.mkdir(parents=True, exist_ok=True)
     cmd = [sys.executable, "-m", "demucs", "-n", model, "-o", str(out_dir), str(audio)]
     subprocess.run(cmd, check=True)
@@ -38,7 +38,7 @@ def transcribe_stem(
     min_freq: float | None = None,
     max_freq: float | None = None,
 ) -> list[NoteEvent]:
-    """Одна партия -> список нот. Пороги подбираются под инструмент."""
+    """One stem -> a list of notes. Thresholds are tuned per instrument."""
     from basic_pitch.inference import predict
 
     _model_out, _midi, note_events = predict(
@@ -63,7 +63,7 @@ def transcribe_stem(
     return sorted(notes, key=lambda n: (n.start, n.pitch))
 
 
-# Пресеты порогов: у баса ноты длинные и низкие, у соло-гитары — короткие
+# Threshold presets: bass notes are long and low, lead guitar notes are short
 PRESETS: dict[str, dict] = {
     "bass":   dict(onset_threshold=0.45, frame_threshold=0.25,
                    min_note_length_ms=90, min_freq=30, max_freq=400),
@@ -78,7 +78,7 @@ PRESETS: dict[str, dict] = {
 
 
 def detect_tempo(audio: Path) -> tuple[float, list[float]]:
-    """Возвращает (BPM, времена долей в секундах)."""
+    """Returns (BPM, beat times in seconds)."""
     import librosa
 
     y, sr = librosa.load(str(audio), mono=True)
@@ -89,9 +89,9 @@ def detect_tempo(audio: Path) -> tuple[float, list[float]]:
 def cleanup(notes: list[NoteEvent], *, min_duration: float = 0.05,
             max_polyphony: int = 6) -> list[NoteEvent]:
     """
-    Basic Pitch любит выдавать призрачные обертоны. Убираем:
-      - слишком короткие огрызки,
-      - лишние ноты в слишком густых созвучиях (оставляем самые громкие).
+    Basic Pitch tends to emit ghost overtones. We remove:
+      - fragments that are too short,
+      - extra notes in overly dense clusters (keeping the loudest ones).
     """
     notes = [n for n in notes if n.duration >= min_duration]
     notes.sort(key=lambda n: (n.start, -n.velocity))
