@@ -48,6 +48,15 @@ def gp5_notes(path: Path) -> tuple[list[tuple[float, int]], int, int]:
     return notes, beats, impossible
 
 
+def key_signatures(path: Path) -> list[str]:
+    """Key signature name of every measure header — the pipeline writes one
+    key, so any mid-song change is an export bug."""
+    import guitarpro as gp
+
+    song = gp.parse(str(path))
+    return [h.keySignature.name for h in song.measureHeaders]
+
+
 def midi_notes(path: Path) -> list[tuple[float, int]]:
     """[(time_in_seconds, pitch)]"""
     import pretty_midi
@@ -105,6 +114,16 @@ def main() -> int:
     if impossible:
         ok = False
         print(f"FAIL: {impossible} beats have two notes on the same string")
+
+    keys = key_signatures(gp5_path)
+    if len(set(keys)) > 1:
+        ok = False
+        first = keys[0]
+        wrong = next(i for i, k in enumerate(keys) if k != first)
+        print(f"FAIL: key signature changes mid-song: measure 1 is {first}, "
+              f"measure {wrong + 1} is {keys[wrong]}")
+    else:
+        print(f"key signature: {keys[0]} in all {len(keys)} measures")
 
     if len(got) != len(want):
         ok = False

@@ -46,13 +46,17 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
     song.title = title
     song.artist = artist
     song.tempo = int(round(bpm))
+    signature = None
     if key is not None:
         # The gp5 song-level field only stores the accidental count (the
-        # reader assumes major); the mode survives via the first measure
-        # header, which stores both bytes.
+        # reader assumes major); the real signature lives on measure
+        # headers — and it is a per-header property, so EVERY header must
+        # carry it: a later header left at the default C major would be
+        # written as a key change back to naturals.
         signature = gp.KeySignature((key.accidentals, 1 if key.minor else 0))
         song.key = signature
-        song.measureHeaders[0].keySignature = signature
+        for header in song.measureHeaders:
+            header.keySignature = signature
 
     track = song.tracks[0]
     track.name = "Guitar"
@@ -132,7 +136,10 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
 
     n_measures = max(placed) // slots_per_measure + 1
     while len(song.measureHeaders) < n_measures:
-        song.addMeasureHeader(gp.MeasureHeader())
+        header = gp.MeasureHeader()
+        if signature is not None:
+            header.keySignature = signature
+        song.addMeasureHeader(header)
     for tr in song.tracks:
         while len(tr.measures) < n_measures:
             tr.measures.append(gp.Measure(tr, song.measureHeaders[len(tr.measures)]))

@@ -121,14 +121,19 @@ class TestGp5Roundtrip(unittest.TestCase):
         from tabforge.audio.keydetect import Key
         from tabforge.export.writers import export_gp5
 
-        shapes = assign_tab([NoteEvent(60, 0.0, 0.5)], self.cfg)
+        # A multi-measure song: the key must hold in EVERY measure header,
+        # otherwise gp5 encodes a key change back to C major at measure 2.
+        notes = [NoteEvent(60, t, 0.4) for t in (0.0, 3.0, 6.0, 9.0)]
+        shapes = assign_tab(notes, self.cfg)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "key.gp5"
             export_gp5(shapes, path, self.cfg, bpm=96.0,
                        key=Key(5, True, 0.8))  # F minor, 4 flats
             song = gp.parse(str(path))
-        self.assertEqual(song.measureHeaders[0].keySignature,
-                         gp.KeySignature.FMinor)
+        self.assertGreater(len(song.measureHeaders), 1)
+        for header in song.measureHeaders:
+            self.assertEqual(header.keySignature, gp.KeySignature.FMinor,
+                             f"measure {header.number} lost the key")
         self.assertEqual(song.key.value[0], -4)
 
     def test_bass_tuning(self):
