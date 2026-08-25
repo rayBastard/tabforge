@@ -80,6 +80,42 @@ class TestGp5Roundtrip(unittest.TestCase):
                 self.assertGreaterEqual(len(voice.beats), 1,
                                         f"measure {m.number} has an empty voice")
 
+    def test_measures_sum_to_time_signature(self):
+        import guitarpro as gp
+        from tabforge.export.writers import export_gp5
+
+        # sparse line with gaps at 120 BPM: sixteenth slot = 0.125 s
+        notes = [NoteEvent(60, 0.0, 0.4), NoteEvent(64, 0.75, 0.2),
+                 NoteEvent(67, 3.625, 0.5)]
+        shapes = assign_tab(notes, self.cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "gaps.gp5"
+            export_gp5(shapes, path, self.cfg, bpm=120.0)
+            song = gp.parse(str(path))
+        measure_ticks = 4 * gp.Duration.quarterTime
+        for m in song.tracks[0].measures:
+            total = sum(b.duration.time for b in m.voices[0].beats)
+            self.assertEqual(total, measure_ticks,
+                             f"measure {m.number} durations sum to {total}")
+
+    def test_note_positions_roundtrip(self):
+        import guitarpro as gp
+        from tabforge.export.writers import export_gp5
+
+        starts = [0.0, 0.75, 3.625]            # slots 0, 6, 29 at 120 BPM
+        notes = [NoteEvent(60 + i, t, 0.2) for i, t in enumerate(starts)]
+        shapes = assign_tab(notes, self.cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "pos.gp5"
+            export_gp5(shapes, path, self.cfg, bpm=120.0)
+            song = gp.parse(str(path))
+        origin = song.measureHeaders[0].start
+        sixteenth = gp.Duration.quarterTime // 4
+        got = sorted((b.start - origin) // sixteenth
+                     for m in song.tracks[0].measures
+                     for b in m.voices[0].beats if b.notes)
+        self.assertEqual(got, [0, 6, 29])
+
     def test_key_signature_roundtrip(self):
         import guitarpro as gp
         from tabforge.audio.keydetect import Key

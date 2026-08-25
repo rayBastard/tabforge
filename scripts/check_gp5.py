@@ -18,15 +18,21 @@ from collections import Counter
 from pathlib import Path
 
 
-def gp5_pitches(path: Path) -> tuple[list[int], int, int]:
-    """Returns (pitches, beat_count, impossible_beat_count)."""
+def gp5_notes(path: Path) -> tuple[list[tuple[float, int]], int, int]:
+    """Returns ([(time_in_quarters, pitch)], beat_count, impossible_beats).
+
+    Times come from PyGuitarPro's read-back beat starts (ticks accumulated
+    from the durations), so they reflect what notation software will show.
+    """
     import guitarpro as gp
 
     song = gp.parse(str(path))
     track = song.tracks[0]
     string_value = {s.number: s.value for s in track.strings}
+    quarter_time = gp.Duration.quarterTime
+    origin = song.measureHeaders[0].start
 
-    pitches: list[int] = []
+    notes: list[tuple[float, int]] = []
     beats = 0
     impossible = 0
     for measure in track.measures:
@@ -37,15 +43,47 @@ def gp5_pitches(path: Path) -> tuple[list[int], int, int]:
                 if len(strings) != len(set(strings)):
                     impossible += 1
                 for note in beat.notes:
-                    pitches.append(string_value[note.string] + note.value)
-    return pitches, beats, impossible
+                    t = (beat.start - origin) / quarter_time
+                    notes.append((t, string_value[note.string] + note.value))
+    return notes, beats, impossible
 
 
-def midi_pitches(path: Path) -> list[int]:
+def midi_notes(path: Path) -> list[tuple[float, int]]:
+    """[(time_in_seconds, pitch)]"""
     import pretty_midi
 
     pm = pretty_midi.PrettyMIDI(str(path))
-    return [note.pitch for inst in pm.instruments for note in inst.notes]
+    return [(note.start, note.pitch)
+            for inst in pm.instruments for note in inst.notes]
+
+
+def timing_deviation(gp5: list[tuple[float, int]],
+                     midi: list[tuple[float, int]]) -> float:
+    """Max timing deviation in quarter notes, per pitch.
+
+    The gp5 tempo is rounded to an integer, so absolute seconds drift;
+    instead the best linear scale seconds->quarters is fitted through the
+    origin and residuals are compared. This checks exactly what broken
+    measure assembly breaks: relative note positions.
+    """
+    by_pitch_gp5: dict[int, list[float]] = {}
+    by_pitch_midi: dict[int, list[float]] = {}
+    for t, p in gp5:
+        by_pitch_gp5.setdefault(p, []).append(t)
+    for t, p in midi:
+        by_pitch_midi.setdefault(p, []).append(t)
+
+    pairs: list[tuple[float, float]] = []      # (midi_seconds, gp5_quarters)
+    for p, times in by_pitch_gp5.items():
+        other = sorted(by_pitch_midi.get(p, []))
+        for a, b in zip(sorted(times), other):
+            pairs.append((b, a))
+    num = sum(s * q for s, q in pairs)
+    den = sum(s * s for s, _ in pairs)
+    if den == 0:
+        return 0.0
+    scale = num / den                          # quarters per second
+    return max(abs(q - s * scale) for s, q in pairs)
 
 
 def main() -> int:
@@ -57,8 +95,8 @@ def main() -> int:
             print(f"FAIL: {p} not found — run the pipeline first")
             return 1
 
-    got, beats, impossible = gp5_pitches(gp5_path)
-    want = midi_pitches(mid_path)
+    got, beats, impossible = gp5_notes(gp5_path)
+    want = midi_notes(mid_path)
 
     ok = True
     print(f"{gp5_path}: {len(got)} notes in {beats} beats")
@@ -72,8 +110,10 @@ def main() -> int:
         ok = False
         print(f"FAIL: note count mismatch (gp5 {len(got)} vs midi {len(want)})")
 
-    diff = Counter(want) - Counter(got)
-    extra = Counter(got) - Counter(want)
+    got_p = [p for _, p in got]
+    want_p = [p for _, p in want]
+    diff = Counter(want_p) - Counter(got_p)
+    extra = Counter(got_p) - Counter(want_p)
     if diff or extra:
         ok = False
         if diff:
@@ -82,6 +122,16 @@ def main() -> int:
             print(f"FAIL: unexpected pitches in gp5: {dict(extra)}")
     else:
         print("pitch multisets match")
+
+    if not diff and not extra:
+        dev = timing_deviation(got, want)
+        # half a beat: a sixteenth of slack for grid rounding plus room
+        # for collision-shifted events
+        limit = 0.5
+        print(f"max timing deviation: {dev:.3f} quarter notes (limit {limit})")
+        if dev > limit:
+            ok = False
+            print("FAIL: note positions drift between gp5 and midi")
 
     print("OK" if ok else "MISMATCH")
     return 0 if ok else 1

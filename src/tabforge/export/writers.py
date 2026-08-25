@@ -10,7 +10,6 @@ from typing import Sequence
 
 from ..audio.keydetect import Key
 from ..core.fretboard import Shape, TabConfig
-from ..core.quantize import duration_symbol
 
 
 def export_midi(shapes: Sequence[Shape], path: Path, program: int = 25) -> None:
@@ -78,45 +77,86 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
                         voice.beats.append(pad)
 
     quarter = 60.0 / bpm
-    measure_len = quarter * beats_per_measure
-    if not shapes:
+    slot_len = quarter / 4.0                    # grid resolution: sixteenths
+    slots_per_measure = beats_per_measure * 4
+
+    # Durations expressible as one gp5 Duration, in sixteenth units.
+    DURATIONS = ((16, 1, False), (12, 2, True), (8, 2, False), (6, 4, True),
+                 (4, 4, False), (3, 8, True), (2, 8, False), (1, 16, False))
+
+    def _largest_fit(units: int) -> tuple[int, bool, int]:
+        for u, value, dotted in DURATIONS:
+            if u <= units:
+                return value, dotted, u
+        return 16, False, 1
+
+    def _add_beat(voice, units: int, shape: Shape | None) -> int:
+        """One beat (notes or rest) of the largest duration <= units.
+        Returns the sixteenths consumed."""
+        value, dotted, used = _largest_fit(units)
+        beat = gp.Beat(voice)
+        # Beat.status defaults to empty; empty beats don't advance the
+        # reader's time cursor, so positions would collapse.
+        beat.status = gp.BeatStatus.normal if shape else gp.BeatStatus.rest
+        beat.duration = gp.Duration(value=value, isDotted=dotted)
+        if shape:
+            for p in shape.placements:
+                note = gp.Note(beat)
+                note.value = p.fret
+                note.string = n_strings - p.string  # flipped numbering
+                note.velocity = p.note.velocity
+                note.type = gp.NoteType.normal
+                beat.notes.append(note)
+        voice.beats.append(beat)
+        return used
+
+    def _fill_rests(voice, units: int) -> None:
+        while units > 0:
+            units -= _add_beat(voice, units, None)
+
+    # Events land on absolute sixteenth slots; a collision (two events
+    # quantized onto one slot) pushes the later one to the next free slot.
+    placed: dict[int, Shape] = {}
+    for shape in shapes:
+        if not shape.placements:
+            continue
+        slot = int(round(shape.start / slot_len))
+        while slot in placed:
+            slot += 1
+        placed[slot] = shape
+
+    if not placed:
         _pad_empty_voices()
         gp.write(song, str(path))
         return
 
-    total = max(s.placements[-1].note.end for s in shapes if s.placements)
-    n_measures = max(1, int(total / measure_len) + 1)
-
+    n_measures = max(placed) // slots_per_measure + 1
     while len(song.measureHeaders) < n_measures:
         song.addMeasureHeader(gp.MeasureHeader())
     for tr in song.tracks:
         while len(tr.measures) < n_measures:
             tr.measures.append(gp.Measure(tr, song.measureHeaders[len(tr.measures)]))
 
-    for shape in shapes:
-        if not shape.placements:
-            continue
-        m_idx = min(int(shape.start / measure_len), n_measures - 1)
-        measure = track.measures[m_idx]
-        voice = measure.voices[0]
-
-        longest = max(p.note.duration for p in shape.placements)
-        value, dotted = duration_symbol(longest, bpm)
-
-        beat = gp.Beat(voice)
-        # Beat.status defaults to empty; empty beats don't advance the read
-        # cursor, so every beat in a measure collapses into one on re-read.
-        beat.status = gp.BeatStatus.normal
-        beat.duration = gp.Duration(value=value, isDotted=dotted)
-        beat.start = None
-        for p in shape.placements:
-            note = gp.Note(beat)
-            note.value = p.fret
-            note.string = n_strings - p.string      # flipped numbering
-            note.velocity = p.note.velocity
-            note.type = gp.NoteType.normal
-            beat.notes.append(note)
-        voice.beats.append(beat)
+    # Assemble each measure as a gapless timeline: rests up to the event,
+    # the event beat, rests to the next event — so durations always sum
+    # to the full time signature and positions survive a re-read.
+    for m_idx in range(n_measures):
+        base = m_idx * slots_per_measure
+        events = sorted(s for s in placed if base <= s < base + slots_per_measure)
+        if not events:
+            continue                            # _pad_empty_voices covers it
+        voice = track.measures[m_idx].voices[0]
+        cursor = 0
+        for i, slot in enumerate(events):
+            local = slot - base
+            _fill_rests(voice, local - cursor)
+            nxt = (events[i + 1] - base) if i + 1 < len(events) else slots_per_measure
+            shape = placed[slot]
+            longest = max(p.note.duration for p in shape.placements)
+            sounded = max(1, min(nxt - local, round(longest / slot_len)))
+            used = _add_beat(voice, sounded, shape)
+            _fill_rests(voice, nxt - local - used)
+            cursor = nxt
 
     _pad_empty_voices()
     gp.write(song, str(path))
