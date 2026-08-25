@@ -9,7 +9,13 @@ from pathlib import Path
 from typing import Sequence
 
 from ..audio.keydetect import Key
+from ..core.articulation import classify_articulation
 from ..core.fretboard import Shape, TabConfig
+
+# A bend is only notated when it is at least this deep (semitones):
+# drawing every 0.3-semitone wobble of a distorted guitar as a bend
+# turns the score into noise. Better to miss one than to fake one.
+NOTATED_BEND_MIN = 0.5
 
 
 def export_midi(shapes: Sequence[Shape], path: Path, program: int = 25) -> None:
@@ -35,7 +41,8 @@ def export_midi(shapes: Sequence[Shape], path: Path, program: int = 25) -> None:
 def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
                bpm: float = 120.0, beats_per_measure: int = 4,
                title: str = "TabForge", artist: str = "",
-               key: Key | None = None, origin: float = 0.0) -> None:
+               key: Key | None = None, origin: float = 0.0,
+               legato: Sequence[tuple] | None = None) -> None:
     """
     Builds a .gp5. In PyGuitarPro string #1 is the THINNEST,
     while our index 0 is the thickest. Hence the flip.
@@ -43,6 +50,10 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
     origin: time of the first BEAT (grid.beats[0]) — measure 1 starts
     there, not at second zero of the file; anchoring at t=0 would shift
     every note by the lead-in and put downbeats off the barline.
+
+    legato: (first, second, kind) triples from detect_legato_pairs;
+    the first note of a pair gets Note.effect.hammer. Per-note bend
+    trajectories become vibrato / slide / bend effects.
     """
     import guitarpro as gp
 
@@ -114,9 +125,43 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
                 note.string = n_strings - p.string  # flipped numbering
                 note.velocity = p.note.velocity
                 note.type = gp.NoteType.normal
+                _apply_effects(note, p.note)
                 beat.notes.append(note)
         voice.beats.append(beat)
         return used
+
+    # A hammer flag is only written when the pair actually landed on one
+    # string — a legato candidate that the fingering laid out across two
+    # strings is played picked, and notating it would be a lie.
+    hammer_ids = frozenset()
+    if legato:
+        placement_of = {id(p.note): p for s in shapes for p in s.placements}
+        hammer_ids = frozenset(
+            id(pair[0]) for pair in legato
+            if (a := placement_of.get(id(pair[0]))) is not None
+            and (b := placement_of.get(id(pair[1]))) is not None
+            and a.string == b.string)
+
+    def _apply_effects(gp_note, src) -> None:
+        if id(src) in hammer_ids:
+            gp_note.effect.hammer = True
+        kind = classify_articulation(src.bends)
+        if kind == "vibrato":
+            gp_note.effect.vibrato = True
+        elif kind == "slide":
+            net = src.bends[-1] - src.bends[0]
+            gp_note.effect.slides = [gp.SlideType.outUpwards if net > 0
+                                     else gp.SlideType.outDownwards]
+        elif kind == "bend":
+            peak = max(abs(b - src.bends[0]) for b in src.bends)
+            if peak >= NOTATED_BEND_MIN:
+                # GP bend values are quarter-tones: a whole-tone bend is 4
+                # (alphaTab annotates 2 as "1/2", 4 as "full")
+                v = max(1, min(gp.BendEffect.maxValue, round(peak * 2)))
+                gp_note.effect.bend = gp.BendEffect(
+                    type=gp.BendType.bendRelease, value=v,
+                    points=[gp.BendPoint(0, 0), gp.BendPoint(4, v),
+                            gp.BendPoint(8, v), gp.BendPoint(12, 0)])
 
     def _fill_rests(voice, units: int) -> None:
         while units > 0:
@@ -196,6 +241,7 @@ def export_musicxml(shapes: Sequence[Shape], path: Path, bpm: float = 120.0,
     stream.Score([part]).write("musicxml", fp=str(path))
 
 
-def export_ascii(shapes: Sequence[Shape], path: Path, cfg: TabConfig) -> None:
+def export_ascii(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
+                 legato: Sequence[tuple] | None = None) -> None:
     from ..core.fretboard import render_ascii
-    path.write_text(render_ascii(shapes, cfg), encoding="utf-8")
+    path.write_text(render_ascii(shapes, cfg, legato=legato), encoding="utf-8")

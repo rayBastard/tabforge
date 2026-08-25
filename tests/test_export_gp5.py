@@ -159,6 +159,53 @@ class TestGp5Roundtrip(unittest.TestCase):
                              f"measure {header.number} lost the key")
         self.assertEqual(song.key.value[0], -4)
 
+    def test_effects_roundtrip(self):
+        from tabforge.core.articulation import detect_legato_pairs
+        from tabforge.export.gp5_read import read_gp5
+        from tabforge.export.writers import export_gp5
+
+        rise_fall = ([i * 0.1 for i in range(10)]
+                     + [1.0 - i * 0.1 for i in range(10)])
+        notes = [
+            NoteEvent(55, 0.0, 0.28, 100),                       # hammer from
+            NoteEvent(59, 0.3, 0.3, 70),                         # hammer to
+            NoteEvent(64, 1.0, 0.5, 90,
+                      bends=[0.3 * (i % 2) - 0.15 + 0.15 for i in range(2)]),
+            NoteEvent(67, 2.0, 0.6, 90, bends=rise_fall),        # bend 1.0 st
+            NoteEvent(60, 3.0, 0.6, 90,
+                      bends=[i * 0.05 for i in range(20)]),      # slide up 0.95
+        ]
+        import math
+        notes[2].bends = [0.3 * math.sin(2 * math.pi * i / 8)
+                          for i in range(32)]                    # vibrato
+        legato = detect_legato_pairs(notes)
+        self.assertEqual(len(legato), 1)
+        shapes = assign_tab(notes, self.cfg, legato=legato)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "fx.gp5"
+            export_gp5(shapes, path, self.cfg, bpm=120.0, legato=legato)
+            contents = read_gp5(str(path))
+        self.assertEqual(contents.effects["hammer"], 1)
+        self.assertEqual(contents.effects["vibrato"], 1)
+        self.assertEqual(contents.effects["bend"], 1)
+        self.assertEqual(contents.effects["slide"], 1)
+        self.assertEqual(contents.hammer_violations, 0)
+
+    def test_shallow_bend_is_not_notated(self):
+        from tabforge.export.gp5_read import read_gp5
+        from tabforge.export.writers import export_gp5
+
+        shallow = ([i * 0.04 for i in range(10)]
+                   + [0.36 - i * 0.04 for i in range(10)])       # peak 0.36
+        notes = [NoteEvent(60, 0.0, 0.6, 90, bends=shallow)]
+        shapes = assign_tab(notes, self.cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "shallow.gp5"
+            export_gp5(shapes, path, self.cfg, bpm=120.0)
+            contents = read_gp5(str(path))
+        self.assertEqual(contents.effects["bend"], 0,
+                         "sub-0.5st bends must not clutter the score")
+
     def test_bass_tuning(self):
         cfg = TabConfig(tuning=TUNINGS["bass_4"], max_fret=20)
         source = [28, 31, 33, 35]

@@ -100,6 +100,14 @@ def main() -> int:
         ok = False
         print(f"FAIL: {impossible} beats have two notes on the same string")
 
+    from tabforge.export.gp5_read import read_gp5
+    contents = read_gp5(str(gp5_path))
+    print("effects:", {k: v for k, v in contents.effects.items() if v} or "none")
+    if contents.hammer_violations:
+        ok = False
+        print(f"FAIL: {contents.hammer_violations} hammer flags with no "
+              "following note on that string")
+
     keys = key_signatures(gp5_path)
     if len(set(keys)) > 1:
         ok = False

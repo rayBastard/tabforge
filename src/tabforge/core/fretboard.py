@@ -269,25 +269,62 @@ STRING_NAMES = {
 
 
 def render_ascii(shapes: Sequence[Shape], cfg: TabConfig | None = None,
-                 wrap: int = 16) -> str:
+                 wrap: int = 16,
+                 legato: Sequence[tuple] | None = None) -> str:
+    """ASCII tab. With legato pairs and per-note bend trajectories the
+    articulations are drawn too: 5h7 / 7p5 for hammer-on/pull-off,
+    / and \\ for slides, ~ after a vibrato note."""
+    from .articulation import classify_articulation  # local: avoids a cycle
+
     cfg = cfg or TabConfig()
     n = len(cfg.tuning)
     names = STRING_NAMES.get(n, [str(i) for i in range(n)])
+
+    # id(first_note) -> (id(second_note), "h"/"p")
+    hammer: dict[int, tuple[int, str]] = {}
+    for pair in legato or []:
+        first, second = pair[0], pair[1]
+        kind = pair[2] if len(pair) > 2 else (
+            "hammer-on" if second.pitch > first.pitch else "pull-off")
+        hammer[id(first)] = (id(second), "h" if kind == "hammer-on" else "p")
 
     columns: list[list[str]] = []
     for shape in shapes:
         col = ["-"] * n
         for p in shape.placements:
-            col[p.string] = str(p.fret)
+            text = str(p.fret)
+            if classify_articulation(p.note.bends) == "vibrato":
+                text += "~"
+            col[p.string] = text
         width = max(len(c) for c in col)
         columns.append([c.rjust(width, "-") if c != "-" else "-" * width for c in col])
 
+    # separator between consecutive shapes, per string: h/p for a legato
+    # pair on one string, / or \ when the earlier note slides
+    seps: list[list[str]] = []
+    for a, b in zip(shapes, shapes[1:]):
+        sep = ["-"] * n
+        b_strings = {p.string: p for p in b.placements}
+        for p in a.placements:
+            if p.string not in b_strings:
+                continue
+            q = b_strings[p.string]
+            if hammer.get(id(p.note), (None,))[0] == id(q.note):
+                sep[p.string] = hammer[id(p.note)][1]
+            elif p.note.bends and classify_articulation(p.note.bends) == "slide":
+                net = p.note.bends[-1] - p.note.bends[0]
+                sep[p.string] = "/" if net > 0 else "\\"
+        seps.append(sep)
+
     blocks = []
-    for i in range(0, len(columns), wrap):
-        chunk = columns[i : i + wrap]
+    for start in range(0, len(columns), wrap):
+        chunk = columns[start:start + wrap]
         lines = []
         for s in reversed(range(n)):          # top line = the thinnest string
-            body = "-".join(col[s] for col in chunk)
-            lines.append(f"{names[s]}|-{body}-|")
+            parts = [chunk[0][s]]
+            for k in range(1, len(chunk)):
+                parts.append(seps[start + k - 1][s])
+                parts.append(chunk[k][s])
+            lines.append(f"{names[s]}|-{''.join(parts)}-|")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)

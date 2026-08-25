@@ -115,6 +115,47 @@ class TestLegatoFingering(unittest.TestCase):
         self.assertEqual(got, [62, 66])
 
 
+class TestAsciiArticulations(unittest.TestCase):
+    def test_hammer_between_frets(self):
+        from tabforge.core.articulation import detect_legato_pairs
+        from tabforge.core.fretboard import assign_tab, render_ascii
+
+        notes = [NoteEvent(55, 0.0, 0.28, 100), NoteEvent(59, 0.3, 0.3, 70)]
+        pairs = detect_legato_pairs(notes)
+        shapes = assign_tab(notes, legato=pairs)
+        text = render_ascii(shapes, legato=pairs)
+        self.assertIn("0h4", text)
+
+    def test_pull_off_between_frets(self):
+        from tabforge.core.articulation import detect_legato_pairs
+        from tabforge.core.fretboard import assign_tab, render_ascii
+
+        notes = [NoteEvent(59, 0.0, 0.28, 100), NoteEvent(55, 0.3, 0.3, 70)]
+        pairs = detect_legato_pairs(notes)
+        shapes = assign_tab(notes, legato=pairs)
+        text = render_ascii(shapes, legato=pairs)
+        self.assertIn("p", text.replace("-", " ").replace("|", " "))
+
+    def test_vibrato_suffix(self):
+        from tabforge.core.fretboard import assign_tab, render_ascii
+
+        traj = [0.3 * math.sin(2 * math.pi * i / 10) for i in range(40)]
+        notes = [NoteEvent(64, 0.0, 0.6, 90, bends=traj)]
+        text = render_ascii(assign_tab(notes))
+        self.assertIn("~", text)
+
+    def test_slide_separator(self):
+        from tabforge.core.fretboard import assign_tab, render_ascii
+
+        notes = [NoteEvent(57, 0.0, 0.28, 90,
+                           bends=[i * 0.05 for i in range(20)]),
+                 NoteEvent(60, 0.3, 0.3, 90)]
+        shapes = assign_tab(notes)
+        text = render_ascii(shapes)
+        if shapes[0].placements[0].string == shapes[1].placements[0].string:
+            self.assertIn("/", text)
+
+
 class TestBendsPlumbing(unittest.TestCase):
     def test_note_event_default_is_empty(self):
         n = NoteEvent(60, 0.0, 0.5)

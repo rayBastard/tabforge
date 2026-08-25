@@ -161,14 +161,15 @@ def run_pipeline(audio: Path, out_dir: Path,
             files["mid"] = midi
 
             txt = stem_dir / f"{part_name}.txt"
-            writers.export_ascii(shapes, txt, cfg)
+            writers.export_ascii(shapes, txt, cfg, legato=legato)
             files["txt"] = txt
 
             try:
                 gp5 = stem_dir / f"{part_name}.gp5"
                 writers.export_gp5(shapes, gp5, cfg, bpm=bpm,
                                    title=part_name, key=key,
-                                   origin=beats[0] if beats else 0.0)
+                                   origin=beats[0] if beats else 0.0,
+                                   legato=legato)
                 files["gp5"] = gp5
             except Exception as e:
                 progress("export", f"{part_name}: gp5 failed to build ({e})")
@@ -183,7 +184,7 @@ def run_pipeline(audio: Path, out_dir: Path,
                 stem=part_name, bpm=bpm,
                 key=key.name if key else "unknown key",
                 note_count=len(part_notes),
-                ascii_tab=render_ascii(shapes, cfg), files=files,
+                ascii_tab=render_ascii(shapes, cfg, legato=legato), files=files,
                 warnings=list(warnings),
             ))
     return results
