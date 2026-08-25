@@ -63,6 +63,8 @@ body {
   box-shadow: 0 0 14px rgba(217,164,65,.7);   /* amp tube glow */
 }
 .claim { margin: 0; color: var(--bone-dim); }
+.about { margin: 10px auto 0; max-width: 520px;
+         color: var(--wire); font-size: 14px; line-height: 1.5; }
 
 /* ---------- screen 1: Start — a centered funnel ---------- */
 
@@ -73,7 +75,8 @@ body {
   align-items: center;
   padding: 6vh 16px 48px;
 }
-.start-masthead { text-align: center; padding-bottom: 22px; }
+.start-masthead { display: block;    /* title, claim, about stack */
+                  text-align: center; padding-bottom: 22px; }
 .start-masthead h1 { justify-content: center; }
 
 .start-panel {
@@ -433,13 +436,15 @@ select {
 
 #backingRow { display: flex; gap: 12px; align-items: baseline;
               margin: 14px 0 4px; flex-wrap: wrap; }
-.backing {
+.backing {                 /* both the play button and the ⬇ link */
   font: 600 13px/1 "Bricolage Grotesque", sans-serif;
   color: var(--wood);
   background: var(--brass);
+  border: 0;
   border-radius: 6px;
   padding: 9px 14px;
   text-decoration: none;
+  cursor: pointer;
 }
 .backing-sub { color: var(--wire); font-size: 13px; }
 
@@ -454,15 +459,3 @@ select {
 }
 .stem-play:disabled { opacity: .45; cursor: wait; }
 
-.asciitab {
-  margin: 14px 0 0;
-  padding: 14px 16px;
-  background: var(--wood);
-  border: 1px solid rgba(138,123,104,.3);
-  border-radius: 8px;
-  overflow-x: auto;
-  font-family: var(--mono);
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--bone);
-}

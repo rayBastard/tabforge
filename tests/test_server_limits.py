@@ -85,6 +85,15 @@ class TestUploadLimits(ServerTestCase):
         self.assertEqual(res.status_code, 200)
         self.assertIn("id", res.json())
 
+    def test_limits_endpoint_reports_the_upload_cap(self):
+        # the UI pre-checks the file size against this before uploading
+        self.set("MAX_UPLOAD_BYTES", 200_000_000)
+        res = self.client.get("/api/limits")
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["max_upload_mb"], 200)
+        self.assertIn("max_duration_s", body)
+
 # tuning validation moved to POST /transcribe — see TestTwoStepFlow
 
 

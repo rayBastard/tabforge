@@ -18,7 +18,13 @@ function showScreen(name) {
   window.scrollTo(0, 0);
 }
 
-$("#backBtn").addEventListener("click", () => showScreen("start"));
+$("#backBtn").addEventListener("click", () => {
+  if (backing.audio) {                 // leaving the project stops the mix
+    backing.audio.pause();
+    $("#backingPlay").textContent = "♫ backing";
+  }
+  showScreen("start");
+});
 
 let pickedFile = null;
 
@@ -88,8 +94,27 @@ goBtn.addEventListener("click", () => {
   else startAnalyze();
 });
 
+let serverLimits = null;               // fetched once, best-effort
+
+async function fetchLimits() {
+  if (serverLimits) return serverLimits;
+  try {
+    const res = await apiFetch("/api/limits");
+    if (res.ok) serverLimits = await res.json();
+  } catch { /* the server still enforces its own limit */ }
+  return serverLimits;
+}
+
 async function startAnalyze() {
   if (!pickedFile) return;
+  // say no BEFORE uploading tens of megabytes, and say how much fits
+  const limits = await fetchLimits();
+  if (limits && pickedFile.size > limits.max_upload_mb * 1e6) {
+    setLog(`This file is ${Math.round(pickedFile.size / 1e6)} MB — ` +
+           `the server accepts up to ${limits.max_upload_mb} MB.`, true);
+    neck.hidden = false;
+    return;
+  }
   goBtn.disabled = true;
   resultsEl.innerHTML = "";
   neck.hidden = false;
@@ -269,6 +294,7 @@ function finish(job) {
   } else {
     backingLink.hidden = true;
   }
+  setupBackingPlayer(job.backing);
 
   if (!job.results.length) {
     setLog("Processing finished, but no notes were found. Try other stems.", true);
@@ -327,10 +353,6 @@ function finish(job) {
       a.setAttribute("download", "");
       nav.appendChild(a);
     }
-
-    const asciiEl = card.querySelector(".asciitab");
-    asciiEl.textContent = r.ascii;
-    asciiEl.hidden = !r.ascii;      // notation-only instruments have no tab
 
     resultsEl.appendChild(card);
   }
@@ -421,6 +443,37 @@ function applyMixer() {
     api.changeTrackMute([t], !!st.mute);
     api.changeTrackSolo([t], !!st.solo);
   }
+}
+
+/* ---------- backing-track player (play along without downloading) ---- */
+
+const backing = { audio: null, url: null };
+
+function setupBackingPlayer(url) {
+  const btn = $("#backingPlay");
+  if (!btn) return;
+  if (backing.audio && backing.url !== url) {   // re-transcribed: new mix
+    backing.audio.pause();
+    backing.audio = null;
+  }
+  backing.url = url;
+  if (!url) { btn.hidden = true; return; }
+  btn.hidden = false;
+  btn.textContent = "♫ backing";
+  btn.onclick = () => {
+    if (!backing.audio) {
+      backing.audio = new Audio(withToken(url));
+      backing.audio.addEventListener("ended",
+        () => { btn.textContent = "♫ backing"; });
+    }
+    if (backing.audio.paused) {
+      backing.audio.play();
+      btn.textContent = "⏸ backing";
+    } else {
+      backing.audio.pause();
+      btn.textContent = "♫ backing";
+    }
+  };
 }
 
 /* ---------- the note editor: click a note, choose its string --------- */

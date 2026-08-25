@@ -18,6 +18,10 @@
   <header class="masthead start-masthead">
     <h1>TabForge</h1>
     <p class="claim">A song comes in as sound — and leaves as tablature.</p>
+    <p class="about">Drop any track — TabForge splits it into instruments
+       (guitar, bass, keys, vocals, drums), transcribes the ones you pick
+       into notes and tablature, and opens the result as a playable,
+       editable score. Everything runs on your machine.</p>
   </header>
 
   <div class="start-panel">
@@ -71,7 +75,10 @@
             title="Undo the last note pin">↩</button>
     <button id="transportPlay" class="transport-btn play" disabled
             title="Play the whole project">▶</button>
-    <a id="backingLink" class="backing" download hidden>⬇ backing track</a>
+    <button id="backingPlay" class="backing" hidden
+            title="Play the backing track (the stems you didn't pick)">♫ backing</button>
+    <a id="backingLink" class="backing" download hidden
+       title="Download the backing track">⬇</a>
   </header>
 
   <div class="project-body">
@@ -90,7 +97,6 @@
       <span class="stem-meta"></span>
       <nav class="stem-downloads"></nav>
     </header>
-    <pre class="asciitab"></pre>
   </article>
 </template>
 

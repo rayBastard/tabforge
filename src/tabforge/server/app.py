@@ -11,7 +11,7 @@ Public-deployment knobs (environment variables):
   TABFORGE_TOKEN          if set, every /api/* request must carry it
                           (X-API-Token header, or ?token= for downloads)
   TABFORGE_WORKERS        parallel pipeline workers (default 1)
-  TABFORGE_MAX_UPLOAD_MB  upload size limit (default 30)
+  TABFORGE_MAX_UPLOAD_MB  upload size limit (default 200)
   TABFORGE_MAX_DURATION_S audio length limit, seconds (default 600)
   TABFORGE_JOB_TTL_S      keep finished jobs this long (default 7200)
   TABFORGE_MAX_JOBS       stored-jobs cap (default 20)
@@ -47,7 +47,9 @@ WORK_ROOT = Path(mkdtemp(prefix="tabforge_"))
 
 TOKEN = os.environ.get("TABFORGE_TOKEN", "")
 WORKERS = int(os.environ.get("TABFORGE_WORKERS", "1"))
-MAX_UPLOAD_BYTES = int(float(os.environ.get("TABFORGE_MAX_UPLOAD_MB", "30")) * 1e6)
+# a 4-minute WAV is ~45 MB — the old 30 MB default rejected normal
+# uploads; public deployments can still tighten this via the env
+MAX_UPLOAD_BYTES = int(float(os.environ.get("TABFORGE_MAX_UPLOAD_MB", "200")) * 1e6)
 MAX_DURATION_S = float(os.environ.get("TABFORGE_MAX_DURATION_S", "600"))
 JOB_TTL_S = float(os.environ.get("TABFORGE_JOB_TTL_S", "7200"))
 MAX_JOBS = int(os.environ.get("TABFORGE_MAX_JOBS", "20"))
@@ -394,6 +396,14 @@ async def job_file(job_id: str, stem: str, name: str) -> FileResponse:
 @app.get("/api/tunings")
 async def tunings() -> dict:
     return {"tunings": sorted(TUNINGS)}
+
+
+@app.get("/api/limits")
+async def limits() -> dict:
+    """The UI checks the file size BEFORE uploading — rejecting a 45 MB
+    wav after a full upload is a bad way to say no."""
+    return {"max_upload_mb": MAX_UPLOAD_BYTES // 1_000_000,
+            "max_duration_s": MAX_DURATION_S}
 
 
 # the frontend goes last so it doesn't intercept /api/*
