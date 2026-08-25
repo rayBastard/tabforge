@@ -10,3 +10,4 @@ stems/
 .DS_Store
 .idea/
 .vscode/
+*.wav
