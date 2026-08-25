@@ -46,6 +46,75 @@ class TestClassifyArticulation(unittest.TestCase):
         self.assertEqual(classify_articulation([0.0, 0.5, 1.0]), "none")
 
 
+class TestDetectLegatoPairs(unittest.TestCase):
+    @staticmethod
+    def pair(p1, p2, gap=0.02, v1=100, v2=70):
+        first = NoteEvent(p1, 0.0, 0.28, v1)
+        return [first, NoteEvent(p2, first.end + gap, 0.3, v2)]
+
+    def test_ascending_pair_is_hammer_on(self):
+        from tabforge.core.articulation import detect_legato_pairs
+        pairs = detect_legato_pairs(self.pair(55, 59))
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0][2], "hammer-on")
+
+    def test_descending_pair_is_pull_off(self):
+        from tabforge.core.articulation import detect_legato_pairs
+        pairs = detect_legato_pairs(self.pair(59, 55))
+        self.assertEqual(pairs[0][2], "pull-off")
+
+    def test_small_overlap_still_qualifies(self):
+        from tabforge.core.articulation import detect_legato_pairs
+        self.assertEqual(len(detect_legato_pairs(self.pair(55, 57, gap=-0.02))), 1)
+
+    def test_rejections(self):
+        from tabforge.core.articulation import detect_legato_pairs
+        # too far apart in time
+        self.assertEqual(detect_legato_pairs(self.pair(55, 57, gap=0.2)), [])
+        # interval too wide
+        self.assertEqual(detect_legato_pairs(self.pair(55, 60)), [])
+        # second note louder = picked, not hammered
+        self.assertEqual(detect_legato_pairs(self.pair(55, 57, v2=110)), [])
+        # chords are excluded
+        notes = self.pair(55, 57)
+        notes.append(NoteEvent(48, 0.0, 0.28, 100))
+        self.assertEqual(detect_legato_pairs(notes), [])
+
+
+class TestLegatoFingering(unittest.TestCase):
+    def _strings(self, notes, legato):
+        from tabforge.core.fretboard import assign_tab
+        shapes = assign_tab(notes, legato=legato)
+        return [(s.placements[0].string, s.placements[0].fret) for s in shapes]
+
+    def test_legato_pair_lands_on_one_string(self):
+        from tabforge.core.articulation import detect_legato_pairs
+        # G3 -> B3: without the flag the cheapest layout is two open
+        # strings; the legato flag must pull it onto one string.
+        notes = [NoteEvent(55, 0.0, 0.28, 100), NoteEvent(59, 0.3, 0.3, 70)]
+        plain = self._strings(notes, None)
+        self.assertNotEqual(plain[0][0], plain[1][0],
+                            "baseline must use two strings for the test "
+                            "to be meaningful")
+        pairs = detect_legato_pairs(notes)
+        self.assertEqual(len(pairs), 1)
+        legato = self._strings(notes, pairs)
+        self.assertEqual(legato[0][0], legato[1][0],
+                         "legato pair must land on one string")
+
+    def test_legato_is_not_forced(self):
+        from tabforge.core.articulation import detect_legato_pairs
+        from tabforge.core.fretboard import TabConfig
+        # D4 -> F#4 keeps its two-string layout even with the flag (the
+        # bonus loses to the position costs) — and that is fine: the pair
+        # simply stays ordinary notes with the right pitches.
+        notes = [NoteEvent(62, 0.0, 0.28, 100), NoteEvent(66, 0.3, 0.3, 70)]
+        layout = self._strings(notes, detect_legato_pairs(notes))
+        cfg = TabConfig()
+        got = sorted(cfg.tuning[s] + f for s, f in layout)
+        self.assertEqual(got, [62, 66])
+
+
 class TestBendsPlumbing(unittest.TestCase):
     def test_note_event_default_is_empty(self):
         n = NoteEvent(60, 0.0, 0.5)

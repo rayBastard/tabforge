@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Sequence
 
+from .fretboard import NoteEvent, group_into_events
+
 SLIDE_MIN = 0.7      # net monotonic departure, semitones
 BEND_MIN = 0.3       # minimum excursion depth for a bend
 RETURN_TOL = 0.2     # "came back": |end - start| below this
@@ -32,6 +34,44 @@ def _significant_reversals(deltas: Sequence[float]) -> int:
         if not directions or directions[-1] != sign:
             directions.append(sign)
     return max(0, len(directions) - 1)
+
+
+def detect_legato_pairs(
+    notes: Sequence[NoteEvent],
+    *,
+    max_gap: float = 0.06,
+    max_overlap: float = 0.03,
+    max_interval: int = 4,
+    tolerance: float = 0.045,
+) -> list[tuple[NoteEvent, NoteEvent, str]]:
+    """Find hammer-on / pull-off candidates.
+
+    A pair of consecutive SINGLE notes qualifies when they nearly touch
+    (gap under max_gap, or a small overlap), the interval is at most
+    max_interval semitones, and the second note is quieter than the first
+    (a hammered/pulled note has no pick attack). Ascending pairs are
+    "hammer-on", descending "pull-off".
+
+    Returns (first, second, kind) triples referencing the original
+    NoteEvent objects, so callers can match them by identity.
+    """
+    pairs: list[tuple[NoteEvent, NoteEvent, str]] = []
+    events = group_into_events(notes, tolerance)
+    for a, b in zip(events, events[1:]):
+        if len(a) != 1 or len(b) != 1:
+            continue                      # chords are picked, not hammered
+        first, second = a[0], b[0]
+        gap = second.start - first.end
+        if not (-max_overlap <= gap < max_gap):
+            continue
+        interval = second.pitch - first.pitch
+        if not (1 <= abs(interval) <= max_interval):
+            continue
+        if second.velocity >= first.velocity:
+            continue
+        kind = "hammer-on" if interval > 0 else "pull-off"
+        pairs.append((first, second, kind))
+    return pairs
 
 
 def classify_articulation(bends: Sequence[float]) -> str:

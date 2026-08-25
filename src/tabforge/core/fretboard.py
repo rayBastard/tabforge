@@ -79,6 +79,7 @@ class TabConfig:
     stretch_penalty: float = 1.2      # per fret beyond reach
     move_penalty: float = 0.55        # per fret of hand movement
     string_change_penalty: float = 0.10
+    legato_bonus: float = 0.8         # legato pair on one string, one position
     beam_width: int = 80
     onset_tolerance: float = 0.045    # notes closer than this = one chord
 
@@ -178,13 +179,24 @@ def static_cost(shape: Shape, pos: int, cfg: TabConfig) -> float:
 
 
 def transition_cost(prev: Shape, prev_pos: int, cur: Shape, pos: int,
-                    cfg: TabConfig) -> float:
+                    cfg: TabConfig,
+                    legato_ids: frozenset | None = None) -> float:
     gap = max(cur.start - prev.start, 1e-3)
     time_factor = 1.0 / (1.0 + 3.0 * gap)    # jumps cost more in a fast passage
     cost = cfg.move_penalty * abs(pos - prev_pos) * time_factor
     prev_strings = {p.string for p in prev.placements}
     cur_strings = {p.string for p in cur.placements}
     cost += cfg.string_change_penalty * len(cur_strings ^ prev_strings) * time_factor
+    # A hammer-on/pull-off is only playable on one string without moving
+    # the hand — reward exactly that layout. A pair that doesn't land on
+    # one string is simply not rewarded, never forced.
+    if (legato_ids
+            and len(prev.placements) == 1 and len(cur.placements) == 1
+            and (id(prev.placements[0].note), id(cur.placements[0].note))
+            in legato_ids
+            and prev.placements[0].string == cur.placements[0].string
+            and pos == prev_pos):
+        cost -= cfg.legato_bonus
     return cost
 
 
@@ -192,8 +204,14 @@ def transition_cost(prev: Shape, prev_pos: int, cur: Shape, pos: int,
 # 4. Viterbi (beam search) over the event sequence
 # ---------------------------------------------------------------------------
 
-def assign_tab(notes: Sequence[NoteEvent], cfg: TabConfig | None = None) -> list[Shape]:
+def assign_tab(notes: Sequence[NoteEvent], cfg: TabConfig | None = None,
+               legato: Sequence[tuple] | None = None) -> list[Shape]:
+    """legato: (first_note, second_note, ...) tuples from
+    articulation.detect_legato_pairs — pairs are matched by object
+    identity and rewarded when they land on one string in one position."""
     cfg = cfg or TabConfig()
+    legato_ids = frozenset(
+        (id(pair[0]), id(pair[1])) for pair in legato) if legato else None
     events = group_into_events(notes, cfg.onset_tolerance)
     if not events:
         return []
@@ -222,7 +240,8 @@ def assign_tab(notes: Sequence[NoteEvent], cfg: TabConfig | None = None) -> list
             base = static_cost(shape, pos, cfg)
             best_cost, best_idx = float("inf"), 0
             for idx, (acc, prev_shape, prev_pos, _) in enumerate(beam):
-                c = acc + base + transition_cost(prev_shape, prev_pos, shape, pos, cfg)
+                c = acc + base + transition_cost(prev_shape, prev_pos,
+                                                shape, pos, cfg, legato_ids)
                 if c < best_cost:
                     best_cost, best_idx = c, idx
             new_beam.append((best_cost, shape, pos, best_idx))

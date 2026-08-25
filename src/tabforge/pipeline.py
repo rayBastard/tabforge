@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from .core.articulation import detect_legato_pairs
 from .core.fretboard import TUNINGS, TabConfig, assign_tab, render_ascii
 from .core.partition import split_lead_rhythm
 from .core.quantize import Grid, quantize
@@ -144,7 +145,11 @@ def run_pipeline(audio: Path, out_dir: Path,
         for part_name, part_notes in parts:
             progress("fingering", f"{part_name}: choosing the fingering")
             cfg = TabConfig(tuning=TUNINGS[STEM_TUNING.get(name, opts.tuning)])
-            shapes = assign_tab(part_notes, cfg)
+            legato = detect_legato_pairs(part_notes)
+            if legato:
+                progress("fingering",
+                         f"{part_name}: {len(legato)} legato pair(s) detected")
+            shapes = assign_tab(part_notes, cfg, legato=legato)
 
             progress("export", f"{part_name}: writing files")
             stem_dir = out_dir / part_name
