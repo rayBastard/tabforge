@@ -172,6 +172,11 @@ function finish(job) {
         });
         playBtn.hidden = false;                  // enabled once the synth is ready
         api.playerReady.on(() => { playBtn.disabled = false; });
+        // async load failures (offline, blocked CDN soundfont) would leave
+        // the button disabled with cursor:wait forever
+        api.error.on(() => {
+          if (playBtn.disabled) playBtn.hidden = true;
+        });
         api.playerStateChanged.on((e) => {
           playBtn.textContent =
             e.state === alphaTab.synth.PlayerState.Playing ? "⏸ Pause" : "▶ Play";
