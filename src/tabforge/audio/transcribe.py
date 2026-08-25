@@ -249,6 +249,36 @@ def stem_is_audible(wav: Path, rms_threshold: float = 0.005) -> bool:
 FALLBACK_BPM = 120.0
 
 
+def smooth_beats(beats: list[float], window: int = 13) -> list[float]:
+    """Beat times with the tracker's jitter removed.
+
+    librosa's beat tracker wobbles ±30-50 ms around the true pulse.
+    The score grid is built FROM those beats while playback runs at a
+    rigid BPM, so every wobble turns a steady performance into notes
+    randomly shifted by a slot — 'the rhythm keeps jumping'. Each beat
+    time is replaced by a local LINEAR fit over its neighbors: zero-mean
+    jitter is averaged away (~3x for the default window) while genuine
+    gradual tempo drift — the reason the grid follows the audio at all —
+    passes through a linear fit untouched."""
+    if len(beats) < 4:
+        return beats
+    import numpy as np
+
+    b = np.asarray(beats, dtype=float)
+    n = len(b)
+    half = min(window, n) // 2
+    idx = np.arange(n, dtype=float)
+    out = np.empty(n)
+    for i in range(n):
+        lo, hi = max(0, i - half), min(n, i + half + 1)
+        x, y = idx[lo:hi], b[lo:hi]
+        xm, ym = x.mean(), y.mean()
+        denom = float(((x - xm) ** 2).sum())
+        slope = float(((x - xm) * (y - ym)).sum()) / denom if denom else 0.0
+        out[i] = ym + slope * (i - xm)
+    return [float(t) for t in out]
+
+
 def guard_tempo(bpm: float, beats: list[float],
                 min_beats: int = 8,
                 lo: float = 40.0, hi: float = 260.0,
@@ -300,8 +330,9 @@ def detect_tempo(audio: Path,
     if not hypotheses:
         tempo, beats = librosa.beat.beat_track(onset_envelope=oenv, sr=sr,
                                                units="time", trim=False)
-        return guard_tempo(float(np.atleast_1d(tempo)[0]),
-                           [float(b) for b in beats])
+        bpm, grid, ok = guard_tempo(float(np.atleast_1d(tempo)[0]),
+                                    [float(b) for b in beats])
+        return bpm, smooth_beats(grid), ok
 
     best_bpm, best_beats, best_score = 0.0, [], -1.0
     for bpm, weight in sorted(hypotheses.items()):
@@ -314,7 +345,8 @@ def detect_tempo(audio: Path,
             best_score = score
             best_bpm = bpm
             best_beats = [float(t) for t in librosa.frames_to_time(frames, sr=sr)]
-    return guard_tempo(best_bpm, best_beats)
+    bpm, grid, ok = guard_tempo(best_bpm, best_beats)
+    return bpm, smooth_beats(grid), ok
 
 
 def cleanup(notes: list[NoteEvent], *, min_duration: float = 0.05,

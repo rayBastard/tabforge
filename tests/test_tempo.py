@@ -1,9 +1,15 @@
-"""Tests for tempo-multiple folding and the tempo sanity guard.
-Pure math, no audio or ML deps."""
+"""Tests for tempo-multiple folding, the tempo sanity guard, and beat
+smoothing. Mostly pure math; the smoothing tests need numpy."""
 import unittest
 
 from tabforge.audio.transcribe import (FALLBACK_BPM, collapse_tempo_candidates,
-                                       fold_tempo, guard_tempo)
+                                       fold_tempo, guard_tempo, smooth_beats)
+
+try:
+    import numpy as np
+    HAVE_NUMPY = True
+except ImportError:
+    HAVE_NUMPY = False
 
 
 class TestFoldTempo(unittest.TestCase):
@@ -91,6 +97,38 @@ class TestCollapseTempoCandidates(unittest.TestCase):
     def test_empty_and_junk(self):
         self.assertEqual(collapse_tempo_candidates([]), [])
         self.assertEqual(collapse_tempo_candidates([0.0, -5.0]), [])
+
+
+@unittest.skipUnless(HAVE_NUMPY, "numpy is not installed")
+class TestSmoothBeats(unittest.TestCase):
+    """The tracker wobbles around the true pulse; the score plays at a
+    rigid BPM — un-smoothed jitter becomes 'the rhythm keeps jumping'."""
+
+    def test_jitter_is_removed(self):
+        rng = np.random.default_rng(3)
+        true = np.arange(80) * 0.5
+        jittered = true + rng.uniform(-0.04, 0.04, size=80)
+        smoothed = np.asarray(smooth_beats(jittered.tolist()))
+        raw_err = np.sqrt(np.mean((jittered - true) ** 2))
+        new_err = np.sqrt(np.mean((smoothed - true) ** 2))
+        self.assertLess(new_err, raw_err / 3,
+                        "smoothing must cut the tracker jitter hard")
+        self.assertLess(new_err, 0.012)
+
+    def test_gradual_drift_survives(self):
+        # tempo breathing 120 -> 100 BPM over a minute is REAL and must
+        # stay in the grid — only the wobble around it goes
+        intervals = np.linspace(0.5, 0.6, 80)
+        true = np.concatenate([[0.0], np.cumsum(intervals)])
+        smoothed = np.asarray(smooth_beats(true.tolist()))
+        out_iv = np.diff(smoothed)
+        self.assertGreater(out_iv[-1] - out_iv[0], 0.08,
+                           "the drift must survive smoothing")
+        self.assertLess(float(np.abs(smoothed - true).max()), 0.02)
+
+    def test_short_grids_pass_through(self):
+        self.assertEqual(smooth_beats([]), [])
+        self.assertEqual(smooth_beats([0.0, 0.5, 1.0]), [0.0, 0.5, 1.0])
 
 
 if __name__ == "__main__":
