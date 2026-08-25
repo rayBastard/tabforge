@@ -5,7 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tabforge.audio.drums import (CRASH, HIHAT, KICK, SNARE, TOM,
+from tabforge.audio.drums import (CRASH, HIHAT, HIHAT_OPEN, KICK, RIDE,
+                                  SNARE, TOM, TOM_FLOOR, TOM_HIGH,
                                   classify_hit, drum_shapes,
                                   render_drum_ascii, transcribe_drums)
 from tabforge.core.fretboard import NoteEvent
@@ -52,7 +53,7 @@ class TestDrumAscii(unittest.TestCase):
                               NoteEvent(HIHAT, 0.01, 0.1),
                               NoteEvent(SNARE, 0.5, 0.1)])
         lines = render_drum_ascii(shapes).splitlines()
-        self.assertEqual([ln[0] for ln in lines], list("CHTSK"))
+        self.assertEqual([ln[0] for ln in lines], list("CRHTSK"))
         grid = {ln[0]: ln for ln in lines}
         self.assertEqual(grid["K"], "K|x-|")
         self.assertEqual(grid["H"], "H|x-|")
@@ -63,9 +64,10 @@ class TestDrumAscii(unittest.TestCase):
         self.assertEqual(render_drum_ascii([]), "")
 
 
-def _tone(freq: float, dur: float, tau: float):
+def _tone(freq: float, dur: float, tau: float, partials=((1, 1.0),)):
     t = np.arange(int(dur * SR)) / SR
-    return np.sin(2 * np.pi * freq * t) * np.exp(-t / tau)
+    y = sum(a * np.sin(2 * np.pi * freq * k * t) for k, a in partials)
+    return y * np.exp(-t / tau)
 
 
 def _band_noise(rng, dur: float, lo: float, hi: float, tau: float):
@@ -89,20 +91,30 @@ class TestClassify(unittest.TestCase):
     def test_kick_is_low(self):
         self.assertEqual(classify_hit(_tone(55, 0.3, 0.1), SR), KICK)
 
-    def test_tom_is_tonal_mid(self):
-        self.assertEqual(classify_hit(_tone(200, 0.3, 0.2), SR), TOM)
+    def test_toms_split_by_pitch(self):
+        harm = ((1, 1.0), (2, 0.4))
+        self.assertEqual(
+            classify_hit(_tone(95, 0.3, 0.25, harm), SR), TOM_FLOOR)
+        self.assertEqual(
+            classify_hit(_tone(140, 0.3, 0.2, harm), SR), TOM)
+        self.assertEqual(
+            classify_hit(_tone(210, 0.3, 0.18, harm), SR), TOM_HIGH)
 
     def test_snare_is_noisy_mid(self):
         seg = _band_noise(self.rng, 0.3, 150, 2000, tau=0.08)
         self.assertEqual(classify_hit(seg, SR), SNARE)
 
-    def test_hihat_is_short_treble(self):
-        seg = _band_noise(self.rng, 0.3, 5000, 9000, tau=0.02)
-        self.assertEqual(classify_hit(seg, SR), HIHAT)
+    def test_hihat_open_and_closed_split_by_decay(self):
+        closed = _band_noise(self.rng, 0.3, 5000, 9000, tau=0.02)
+        self.assertEqual(classify_hit(closed, SR), HIHAT)
+        opened = _band_noise(self.rng, 0.3, 5000, 9000, tau=0.15)
+        self.assertEqual(classify_hit(opened, SR), HIHAT_OPEN)
 
-    def test_crash_is_ringing_treble(self):
-        seg = _band_noise(self.rng, 0.3, 5000, 9000, tau=0.4)
-        self.assertEqual(classify_hit(seg, SR), CRASH)
+    def test_crash_is_ringing_noise_ride_is_ringing_ping(self):
+        crash = _band_noise(self.rng, 0.3, 4000, 10000, tau=0.4)
+        self.assertEqual(classify_hit(crash, SR), CRASH)
+        ride = _tone(5200, 0.3, 0.5, ((1, 1.0), (1.48, 0.6), (2.1, 0.3)))
+        self.assertEqual(classify_hit(ride, SR), RIDE)
 
 
 @unittest.skipUnless(HAVE_AUDIO, "numpy/librosa/soundfile are not installed")

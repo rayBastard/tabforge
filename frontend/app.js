@@ -215,7 +215,6 @@ async function startTranscribe() {
         stems: picked,
         tuning: tuningSel ? tuningSel.value : "standard",
         subdivision: parseInt($("#instPrecision")?.value || "2", 10),
-        split_guitars: $("#splitGuitars").checked,
         treat: Object.fromEntries(
           [...document.querySelectorAll(".inst-treat")]
             .filter((s) => s.value !== s.dataset.def)
@@ -358,7 +357,6 @@ function showInstruments(job) {
   box.appendChild(prec);
 
   box.hidden = false;
-  $("#splitRow").hidden = !hasGuitar;
   neck.classList.remove("playing");
   showStop(false);
   setLog("Analyzed. Pick the instruments and press Transcribe.");
@@ -740,8 +738,9 @@ const virtual = {
 
 const DRUM_PADS = [
   ["Kick", [35, 36]], ["Snare", [37, 38, 40]],
-  ["Hi-hat", [42, 44, 46]], ["Toms", [41, 43, 45, 47, 48, 50]],
-  ["Cymbal", [49, 51, 52, 53, 55, 57, 59]],
+  ["Hi-hat", [42, 44]], ["Open hat", [46]],
+  ["Toms", [41, 43, 45, 47, 48, 50]],
+  ["Ride", [51, 53, 59]], ["Crash", [49, 52, 55, 57]],
 ];
 
 function svgEl(name, attrs) {

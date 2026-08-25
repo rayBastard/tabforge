@@ -21,7 +21,11 @@ from ..core.fretboard import NoteEvent, Placement, Shape, group_into_events
 KICK = 36
 SNARE = 38
 HIHAT = 42          # closed
+HIHAT_OPEN = 46
 TOM = 47            # mid tom
+TOM_FLOOR = 41
+TOM_HIGH = 50
+RIDE = 51
 CRASH = 49
 
 # how much of the stem after each onset the classifier listens to
@@ -48,21 +52,54 @@ def classify_hit(segment, sr: int) -> int:
 
     low, mid, high = band(20, 150), band(150, 2000), band(4000, sr / 2)
 
-    if low >= mid and low >= high:
-        return KICK
-    if high >= mid:
-        # cymbal: closed hi-hat dies instantly, a crash keeps ringing
+    def flatness_of(lo: float, hi: float) -> float:
+        sel = (freqs >= lo) & (freqs < hi)
+        m = mag[sel]
+        if not len(m):
+            return 1.0
+        return float(np.exp(np.mean(np.log(m + 1e-9))) / (np.mean(m) + 1e-9))
+
+    if high >= mid and high >= low:
+        # cymbal family, told apart by DECAY and by NOISINESS:
+        # a closed hat dies instantly, an open hat breathes for a couple
+        # hundred ms, a crash washes on and on; a ride is the
+        # long-ringing TONAL ping (a few spectral lines, not noise)
         def rms(x) -> float:
             return float(np.sqrt(np.mean(x ** 2))) if len(x) else 0.0
         early = rms(segment[: int(0.05 * sr)])
         late = rms(segment[int(0.15 * sr): int(_SEGMENT_S * sr)])
-        return CRASH if early > 0 and late / early > 0.35 else HIHAT
-    # mid-dominant: a snare is noise, a tom is a pitch — spectral
-    # flatness (geometric/arithmetic mean) tells them apart
-    sel = (freqs >= 150) & (freqs < 2000)
-    m = mag[sel]
-    flatness = float(np.exp(np.mean(np.log(m + 1e-9))) / (np.mean(m) + 1e-9))
-    return SNARE if flatness > 0.2 else TOM
+        ratio = late / early if early > 0 else 0.0
+        if ratio > 0.35:
+            # a ride is a few strong spectral LINES, a crash is spread
+            # noise: energy concentration in the top bins tells them
+            # apart regardless of how wide the wash is
+            sel = (freqs >= 4000)
+            e = mag[sel] ** 2
+            top = float(np.sort(e)[-8:].sum())
+            concentration = top / (float(e.sum()) + 1e-12)
+            return RIDE if concentration > 0.4 else CRASH
+        if ratio > 0.15:
+            return HIHAT_OPEN
+        return HIHAT
+    # low/mid territory. A TONAL hit is a drum with a pitch: place it by
+    # its dominant frequency — kicks thump below ~80 Hz, floor toms ring
+    # around 90-110, rack toms above. Noise in the mids is the snare.
+    # (Tonality is judged over the WIDE 40-2000 band: a pitched hit
+    # leaves most of it empty; a narrow band has too few bins to tell.)
+    if flatness_of(40, 2000) < 0.4:
+        sel = (freqs >= 40) & (freqs < 400)
+        if sel.any():
+            peak = float(freqs[sel][int(np.argmax(mag[sel]))])
+            if peak < 80:
+                return KICK
+            if peak < 115:
+                return TOM_FLOOR
+            if peak < 175:
+                return TOM
+            return TOM_HIGH
+    if flatness_of(150, 2000) > 0.2 and mid >= low:
+        return SNARE
+    return KICK if low >= mid else SNARE
 
 
 def transcribe_drums(wav: Path) -> list[NoteEvent]:
@@ -114,7 +151,8 @@ def drum_shapes(hits: list[NoteEvent],
 
 # ASCII drum grid: which staff line carries which GM notes
 _GRID_LINES = (
-    ("C", frozenset({49, 52, 55, 57})),       # crash / ride family
+    ("C", frozenset({49, 52, 55, 57})),       # crashes
+    ("R", frozenset({51, 53, 59})),           # rides
     ("H", frozenset({42, 44, 46})),           # hi-hats
     ("T", frozenset({41, 43, 45, 47, 48, 50})),
     ("S", frozenset({37, 38, 40})),

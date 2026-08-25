@@ -174,7 +174,8 @@ def _quick_note_stats(wav: Path, stem: str, work_dir: Path,
     notes = transcribe.transcribe_stem(
         target, **transcribe.PRESETS.get(stem, {}))
     notes = transcribe.cleanup(
-        notes, max_polyphony=1 if stem == "bass" else 6)
+        notes, max_polyphony=1 if stem == "bass"
+        else 10 if stem == "piano" else 6)
     if not notes:
         return 0, None, None
     # ROBUST range: a single ghost note an octave below the riff must
@@ -324,8 +325,11 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
             continue
         progress("transcribe", f"{name}: detecting notes")
         notes = transcribe.transcribe_stem(wav, **transcribe.PRESETS.get(name, {}))
+        # ten fingers: a cap of 6 voices silently dropped the QUIETEST
+        # notes of dense piano writing — the high melody first
         notes = transcribe.cleanup(
-            notes, max_polyphony=1 if name == "bass" else 6)
+            notes, max_polyphony=1 if name == "bass"
+            else 10 if name == "piano" else 6)
         if not notes:
             progress("transcribe", f"{name}: no notes found, skipped")
             continue
@@ -353,17 +357,18 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
                 progress("fingering",
                          f"piano: grand staff — {len(right)} right-hand "
                          f"and {len(left)} left-hand notes")
-        if opts.split_guitars and name == "guitar" \
-                and role_of(name) == "guitar":
+        if name == "guitar" and role_of(name) == "guitar":
+            # ALWAYS look for a second guitar part: the detector itself
+            # says whether the material really carries two (its "no
+            # clear second part" answer keeps single guitars whole)
             split = split_lead_rhythm(notes)
             if split is not None:
                 lead, rhythm = split
                 parts = [("guitar_lead", lead), ("guitar_rhythm", rhythm)]
                 progress("fingering",
-                         f"guitar: split into lead ({len(lead)} notes) "
-                         f"and rhythm ({len(rhythm)} notes)")
-            else:
-                progress("fingering", "guitar: no clear second part, not split")
+                         f"guitar: two parts detected — lead "
+                         f"({len(lead)} notes) and rhythm "
+                         f"({len(rhythm)} notes)")
 
         for part_name, part_notes in parts:
             progress("fingering", f"{part_name}: choosing the fingering")

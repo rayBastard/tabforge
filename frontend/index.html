@@ -38,10 +38,9 @@
       <legend>Instruments in this track</legend>
     </fieldset>
 
-    <label class="mixrow" id="splitRow" hidden>
-      <input type="checkbox" id="splitGuitars">
-      Split guitar into lead &amp; rhythm
-    </label>
+    <!-- lead/rhythm guitar detection is automatic now: the pipeline
+         splits only when the material really carries two parts -->
+    <span id="splitRow" hidden></span>
 
     <button id="go" class="go" disabled>Analyze track</button>
     <p class="hint" id="hint">First the track is separated and analyzed —
