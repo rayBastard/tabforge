@@ -15,6 +15,7 @@ const resultsEl = $("#results");
 function showScreen(name) {
   $("#screenStart").hidden = name !== "start";
   $("#screenProject").hidden = name !== "project";
+  closePopover();                      // it must never outlive its screen
   window.scrollTo(0, 0);
 }
 
@@ -513,28 +514,28 @@ function initUnifiedScore(job) {
 
   atEl.hidden = false;
   try {
-    unified.api = makeApi(false);
+    // the player arms right away (soundfont loads in the background):
+    // clicking the score then seeks and shows the bar cursor BEFORE
+    // the first play — no need to start the track to see where you are
+    unified.api = makeApi(true);
     unified.armed = false;
-    playBtn.disabled = false;
-    playBtn.onclick = () => {
-      if (unified.armed) { unified.api.playPause(); return; }
+    playBtn.disabled = true;
+    playBtn.textContent = "…";
+    unified.api.playerReady.on(() => {
       unified.armed = true;
-      playBtn.disabled = true;
-      playBtn.textContent = "…";
-      unified.api.destroy();
-      unified.api = makeApi(true);
-      unified.api.playerReady.on(() => {
-        playBtn.disabled = false;
-        applyMixer();
-        unified.api.playPause();
-      });
-      unified.api.playerStateChanged.on((e) => {
-        playBtn.textContent =
-          e.state === alphaTab.synth.PlayerState.Playing ? "⏸" : "▶";
-      });
-      unified.api.error.on(() => {
-        if (playBtn.disabled) { playBtn.disabled = true; playBtn.textContent = "✕"; }
-      });
+      playBtn.disabled = false;
+      playBtn.textContent = "▶";
+      applyMixer();
+    });
+    unified.api.playerStateChanged.on((e) => {
+      playBtn.textContent =
+        e.state === alphaTab.synth.PlayerState.Playing ? "⏸" : "▶";
+    });
+    unified.api.error.on(() => {
+      if (!unified.armed) { playBtn.disabled = true; playBtn.textContent = "✕"; }
+    });
+    playBtn.onclick = () => {
+      if (unified.armed) unified.api.playPause();
     };
   } catch (e) {
     atEl.hidden = true;
@@ -901,15 +902,34 @@ function showNotePopover(note) {
     p.textContent = "the only playable position in this tuning";
     pop.appendChild(p);
   }
-  const close = document.createElement("button");
-  close.textContent = "✕ close";
-  close.addEventListener("click", closePopover);
-  pop.appendChild(close);
+  const x = document.createElement("button");
+  x.className = "popover-x";
+  x.textContent = "✕";
+  x.title = "Close (Esc)";
+  x.addEventListener("click", closePopover);
+  pop.appendChild(x);
 
-  pop.style.left = Math.min(lastPointer.x, window.innerWidth - 240) + "px";
-  pop.style.top = (lastPointer.y + 12) + "px";
+  // docked at the right edge below the virtual bar: it must never
+  // cover the clicked note or the fretboard alternatives
+  const barBox = $("#virtualBar")?.getBoundingClientRect();
+  pop.style.right = "20px";
+  pop.style.left = "auto";
+  pop.style.top = ((barBox ? barBox.bottom : 70) + 12) + "px";
   document.body.appendChild(pop);
 }
+
+// the popover must never outlive its context
+document.addEventListener("keydown", (e) => {
+  if (e.code === "Escape") closePopover();
+});
+document.addEventListener("mousedown", (e) => {
+  if (!document.querySelector(".note-popover")) return;
+  // clicks inside the popover or on the fretboard (picking an
+  // alternative) keep it; anything else dismisses. Capture phase, so a
+  // click on ANOTHER note closes this popover before opening its own.
+  if (e.target.closest(".note-popover") || e.target.closest("#virtualBar")) return;
+  closePopover();
+}, true);
 
 async function repin(part, qticks, pitch, string, btn) {
   if (btn) { btn.disabled = true; btn.textContent += " …"; }

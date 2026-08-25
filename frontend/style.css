@@ -139,6 +139,7 @@ body {
 .tabbar {
   position: sticky; bottom: 0; z-index: 6;
   display: flex; gap: 10px; flex-wrap: wrap;
+  justify-content: center;
   padding: 10px 18px;
   background: var(--plank);
   border-top: 1px solid rgba(138,123,104,.35);
@@ -254,11 +255,18 @@ body {
   background: var(--plank);
   border: 1px solid var(--brass);
   border-radius: 10px;
-  padding: 10px;
+  padding: 12px 12px 10px;
   display: flex;
   flex-direction: column;
   gap: 6px;
   box-shadow: 0 8px 30px rgba(0,0,0,.5);
+}
+.popover-x {
+  position: absolute; top: 4px; right: 6px;
+  background: none; border: 0; color: var(--bone-dim);
+  font-size: 15px; cursor: pointer; padding: 4px;
+}
+.popover-x:hover { color: var(--bone);
   max-width: 230px;
 }
 .note-popover p { margin: 0 0 4px; font-size: 13px; color: var(--bone-dim); }
