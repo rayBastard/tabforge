@@ -18,6 +18,9 @@ def _free_port() -> int:
 
 
 def main() -> None:
+    import multiprocessing
+    multiprocessing.freeze_support()   # required in a PyInstaller bundle
+
     import uvicorn
     import webview
 

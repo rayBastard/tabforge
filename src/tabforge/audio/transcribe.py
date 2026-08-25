@@ -9,8 +9,6 @@ The chain:
 
 from __future__ import annotations
 
-import subprocess
-import sys
 from pathlib import Path
 
 from ..core.fretboard import NoteEvent
@@ -20,10 +18,16 @@ SIX_STEMS = ("drums", "bass", "other", "vocals", "guitar", "piano")
 
 
 def separate_stems(audio: Path, out_dir: Path, model: str = "htdemucs_6s") -> dict[str, Path]:
-    """Splits the mix into stems. Returns {stem_name: wav_path}."""
+    """Splits the mix into stems. Returns {stem_name: wav_path}.
+
+    Runs demucs in-process rather than via `sys.executable -m demucs`:
+    inside a PyInstaller bundle sys.executable is the app itself and
+    cannot run modules.
+    """
+    from demucs.separate import main as demucs_main
+
     out_dir.mkdir(parents=True, exist_ok=True)
-    cmd = [sys.executable, "-m", "demucs", "-n", model, "-o", str(out_dir), str(audio)]
-    subprocess.run(cmd, check=True)
+    demucs_main(["-n", model, "-o", str(out_dir), str(audio)])
 
     stem_dir = out_dir / model / audio.stem
     return {p.stem: p for p in stem_dir.glob("*.wav")}

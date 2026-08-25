@@ -11,6 +11,7 @@ the progress and downloads the files when done.
 from __future__ import annotations
 
 import shutil
+import sys
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -25,7 +26,11 @@ from fastapi.staticfiles import StaticFiles
 from ..core.fretboard import TUNINGS
 from ..pipeline import STAGES, PipelineOptions, run_pipeline
 
-FRONTEND = Path(__file__).resolve().parent.parent.parent.parent / "frontend"
+if getattr(sys, "frozen", False):
+    # PyInstaller bundle: data files are unpacked next to the binary
+    FRONTEND = Path(getattr(sys, "_MEIPASS")) / "frontend"
+else:
+    FRONTEND = Path(__file__).resolve().parent.parent.parent.parent / "frontend"
 WORK_ROOT = Path(mkdtemp(prefix="tabforge_"))
 
 

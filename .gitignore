@@ -12,3 +12,4 @@ stems/
 .vscode/
 *.wav
 result/
+result_split/

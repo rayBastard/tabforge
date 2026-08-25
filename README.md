@@ -58,8 +58,9 @@ at the server's address, on a phone — as a PWA. The logic is never rewritten.
       notes+tabs rendering via alphaTab from .gp5
 - [x] `desktop.py`: native window (pywebview)
 - [ ] verify end-to-end
-- [ ] single-file build: `pyinstaller --onefile -n TabForge src/tabforge/desktop.py`
-      (Demucs models are downloaded on first run into `~/.cache`)
+- [x] app bundle build: `pyinstaller TabForge.spec` → `dist/TabForge.app`
+      (see the Building section; Demucs models download on first run
+      into `~/.cache`)
 
 ### Phase 5 — browser
 - [ ] deploy the server (needs GPU hosting or patience on CPU)
@@ -93,6 +94,27 @@ tabforge song.mp3 --stems guitar bass --out ./result
 # core tests (fast, no ML)
 python -m unittest discover -s tests
 ```
+
+## Building (desktop app)
+
+```bash
+pip install pyinstaller
+pyinstaller TabForge.spec        # -> dist/TabForge.app (macOS)
+```
+
+Notes:
+
+- The entry point is `scripts/desktop_launcher.py` (an entry script runs
+  outside the package, so it wraps `tabforge.desktop` with an absolute
+  import); `frontend/` ships inside the bundle and the server resolves it
+  via `sys._MEIPASS` when frozen.
+- The Demucs model weights are **not** bundled: on the first run the app
+  downloads them into `~/.cache/huggingface` (~50 MB), exactly like the
+  dev setup. Everything else (Basic Pitch's CoreML model, librosa/resampy
+  data) is inside the bundle.
+- The bundle is large (~700 MB) — that's PyTorch.
+- `dist/` and `build/` are git-ignored; `TabForge.spec` is the build
+  definition and lives in git.
 
 ## Publishing to GitHub
 
