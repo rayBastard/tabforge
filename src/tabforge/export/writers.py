@@ -80,6 +80,9 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
         value, dotted = duration_symbol(longest, bpm)
 
         beat = gp.Beat(voice)
+        # Beat.status defaults to empty; empty beats don't advance the read
+        # cursor, so every beat in a measure collapses into one on re-read.
+        beat.status = gp.BeatStatus.normal
         beat.duration = gp.Duration(value=value, isDotted=dotted)
         beat.start = None
         for p in shape.placements:
