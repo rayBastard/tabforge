@@ -7,9 +7,18 @@ const fileInput = $("#file");
 const drop = $("#drop");
 const goBtn = $("#go");
 const neck = $("#neck");
-const emptyBox = $("#empty");
 const logEl = $("#log");
 const resultsEl = $("#results");
+
+/* ---------- two screens: Start (funnel) and Project (score) ---------- */
+
+function showScreen(name) {
+  $("#screenStart").hidden = name !== "start";
+  $("#screenProject").hidden = name !== "project";
+  window.scrollTo(0, 0);
+}
+
+$("#backBtn").addEventListener("click", () => showScreen("start"));
 
 let pickedFile = null;
 
@@ -83,7 +92,6 @@ async function startAnalyze() {
   if (!pickedFile) return;
   goBtn.disabled = true;
   resultsEl.innerHTML = "";
-  emptyBox.hidden = true;
   neck.hidden = false;
   neck.classList.add("playing");
   setLog("Uploading the file for processing…");
@@ -251,12 +259,12 @@ function finish(job) {
   setLog("Done. Change the selection and transcribe again if you like.");
   goBtn.disabled = false;              // re-transcribe with a new selection
 
-  const backingRow = $("#backingRow");
+  const backingLink = $("#backingLink");
   if (job.backing) {
-    $("#backingLink").href = withToken(job.backing);
-    backingRow.hidden = false;
+    backingLink.href = withToken(job.backing);
+    backingLink.hidden = false;
   } else {
-    backingRow.hidden = true;
+    backingLink.hidden = true;
   }
 
   if (!job.results.length) {
@@ -264,9 +272,45 @@ function finish(job) {
     return;
   }
 
+  // the Project screen header
+  $("#projectName").textContent = pickedFile ? pickedFile.name : "project";
+  const first = job.results[0];
+  $("#projectMeta").textContent = `${first.bpm} BPM · ${first.key}`;
+
+  // instrument list on the left: click scrolls to that part's score;
+  // mute/solo arrive with the unified player (task 28)
+  const tracklist = $("#tracklist");
+  tracklist.innerHTML = "";
+  for (const r of job.results) {
+    const row = document.createElement("div");
+    row.className = "track-row";
+    row.setAttribute("role", "button");
+    row.tabIndex = 0;
+    row.innerHTML =
+      `<span class="track-name">${STEM_NAMES[r.stem] || r.stem}</span>
+       <span class="track-notes">${r.notes}</span>
+       <button class="track-toggle" data-what="mute" title="mute">M</button>
+       <button class="track-toggle" data-what="solo" title="solo">S</button>`;
+    row.addEventListener("click", (e) => {
+      const toggle = e.target.closest(".track-toggle");
+      if (toggle) {
+        toggleTrack(r.stem, toggle.dataset.what, toggle);
+        return;
+      }
+      const card = document.getElementById(`card-${r.stem}`);
+      if (card) card.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    tracklist.appendChild(row);
+  }
+
+  // switch BEFORE rendering: alphaTab measures its container, and a
+  // hidden one has zero width
+  showScreen("project");
+
   const tpl = $("#stemCard");
   for (const r of job.results) {
     const card = tpl.content.cloneNode(true);
+    card.querySelector(".stem").id = `card-${r.stem}`;
     card.querySelector(".stem-name").textContent = STEM_NAMES[r.stem] || r.stem;
     const warn = (r.warnings || []).length ? ` · ⚠ ${r.warnings.join("; ")}` : "";
     card.querySelector(".stem-meta").textContent =
@@ -285,53 +329,99 @@ function finish(job) {
     asciiEl.textContent = r.ascii;
     asciiEl.hidden = !r.ascii;      // notation-only instruments have no tab
 
-    const atEl = card.querySelector(".alphatab");
-    // grab the button before appendChild empties the template fragment
-    const playBtn = card.querySelector(".stem-play");
     resultsEl.appendChild(card);
-
-    // alphaTab renders staff + tab from the .gp5, if it was built.
-    // The synth + ~2 MB soundfont load lazily on the first Play click:
-    // booting one per card upfront froze the results panel.
-    if (r.files.gp5 && window.alphaTab) {
-      atEl.hidden = false;
-      const makeApi = (withPlayer) => new alphaTab.AlphaTabApi(atEl, {
-        file: withToken(r.files.gp5),
-        // notation-only instruments (piano, vocals) get no tab staff
-        display: { staveProfile: r.tablature === false ? "Score" : "ScoreTab" },
-        player: withPlayer ? {
-          enablePlayer: true,
-          soundFont: "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.4.0/dist/soundfont/sonivox.sf2",
-          scrollElement: atEl,
-        } : { enablePlayer: false },
-      });
-      try {
-        let api = makeApi(false);
-        let playerArmed = false;
-        playBtn.hidden = false;
-        playBtn.disabled = false;
-        playBtn.addEventListener("click", () => {
-          if (playerArmed) { api.playPause(); return; }
-          playerArmed = true;
-          playBtn.disabled = true;
-          playBtn.textContent = "… loading";
-          api.destroy();
-          api = makeApi(true);
-          api.playerReady.on(() => { playBtn.disabled = false; api.playPause(); });
-          api.playerStateChanged.on((e) => {
-            playBtn.textContent =
-              e.state === alphaTab.synth.PlayerState.Playing ? "⏸ Pause" : "▶ Play";
-          });
-          // async load failures (offline, blocked CDN soundfont) would
-          // leave the button disabled with cursor:wait forever
-          api.error.on(() => {
-            if (playBtn.disabled) playBtn.hidden = true;
-          });
-        });
-      } catch (e) {
-        atEl.hidden = true;   // the ASCII tab remains
-        playBtn.hidden = true;
-      }
-    }
   }
+
+  initUnifiedScore(job);
+}
+
+/* ---------- the unified project player (one alphaTab, all tracks) ---- */
+
+const unified = { api: null, armed: false, mixer: new Map() };
+window._tf = unified;                 // exposed for tests
+
+function initUnifiedScore(job) {
+  const atEl = $("#unifiedScore");
+  const playBtn = $("#transportPlay");
+  if (!job.song || !window.alphaTab) {
+    atEl.hidden = true;
+    playBtn.disabled = true;
+    return;
+  }
+  // instrument name -> tablature? (piano/vocals are notation-only)
+  const tabByName = Object.fromEntries(
+    job.results.map((r) => [r.stem, r.tablature !== false]));
+  unified.mixer.clear();
+
+  const makeApi = (withPlayer) => {
+    const api = new alphaTab.AlphaTabApi(atEl, {
+      file: withToken(job.song),
+      player: withPlayer ? {
+        enablePlayer: true,
+        soundFont: "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.4.0/dist/soundfont/sonivox.sf2",
+        scrollElement: $("#scoreMain"),
+      } : { enablePlayer: false },
+    });
+    api.scoreLoaded.on((score) => {
+      // notation-only tracks lose their tab staff
+      for (const t of score.tracks) {
+        if (tabByName[t.name] === false) {
+          for (const stave of t.staves) {
+            stave.showTablature = false;
+            stave.showStandardNotation = true;
+          }
+        }
+      }
+      api.renderTracks(score.tracks);   // render ALL tracks together
+    });
+    return api;
+  };
+
+  atEl.hidden = false;
+  try {
+    unified.api = makeApi(false);
+    unified.armed = false;
+    playBtn.disabled = false;
+    playBtn.onclick = () => {
+      if (unified.armed) { unified.api.playPause(); return; }
+      unified.armed = true;
+      playBtn.disabled = true;
+      playBtn.textContent = "…";
+      unified.api.destroy();
+      unified.api = makeApi(true);
+      unified.api.playerReady.on(() => {
+        playBtn.disabled = false;
+        applyMixer();
+        unified.api.playPause();
+      });
+      unified.api.playerStateChanged.on((e) => {
+        playBtn.textContent =
+          e.state === alphaTab.synth.PlayerState.Playing ? "⏸" : "▶";
+      });
+      unified.api.error.on(() => {
+        if (playBtn.disabled) { playBtn.disabled = true; playBtn.textContent = "✕"; }
+      });
+    };
+  } catch (e) {
+    atEl.hidden = true;
+    playBtn.disabled = true;
+  }
+}
+
+function applyMixer() {
+  const api = unified.api;
+  if (!api || !api.score) return;
+  for (const t of api.score.tracks) {
+    const st = unified.mixer.get(t.name) || {};
+    api.changeTrackMute([t], !!st.mute);
+    api.changeTrackSolo([t], !!st.solo);
+  }
+}
+
+function toggleTrack(name, what, btn) {
+  const st = unified.mixer.get(name) || { mute: false, solo: false };
+  st[what] = !st[what];
+  unified.mixer.set(name, st);
+  btn.classList.toggle("active", st[what]);
+  applyMixer();
 }

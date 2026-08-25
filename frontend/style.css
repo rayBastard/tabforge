@@ -25,6 +25,9 @@
 }
 
 * { box-sizing: border-box; }
+/* the hidden attribute must always win, even over display:flex/grid
+   rules — this bit us twice */
+[hidden] { display: none !important; }
 
 body {
   margin: 0;
@@ -61,24 +64,107 @@ body {
 }
 .claim { margin: 0; color: var(--bone-dim); }
 
-.bench {
-  display: grid;
-  grid-template-columns: minmax(280px, 360px) 1fr;
-  gap: 22px;
-  padding: 18px 40px 48px;
-  align-items: start;
-}
-@media (max-width: 860px) {
-  .bench { grid-template-columns: 1fr; padding: 14px 16px 40px; }
-  .masthead { padding: 24px 16px 6px; }
-}
+/* ---------- screen 1: Start — a centered funnel ---------- */
 
-.panel {
+#screenStart {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6vh 16px 48px;
+}
+.start-masthead { text-align: center; padding-bottom: 22px; }
+.start-masthead h1 { justify-content: center; }
+
+.start-panel {
+  width: min(560px, 100%);
   background: var(--plank);
   border: 1px solid rgba(138,123,104,.28);
   border-radius: var(--radius);
-  padding: 20px;
+  padding: 26px;
 }
+.start-panel .drop { padding: 42px 18px; }
+.start-panel .drop-title { font-size: 22px; }
+
+/* ---------- screen 2: Project ---------- */
+
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 20px;
+  background: var(--plank);
+  border-bottom: 1px solid rgba(138,123,104,.28);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.transport-btn {
+  min-width: 44px; min-height: 44px;
+  border: 1px solid var(--wire);
+  border-radius: 8px;
+  background: var(--plank-2, var(--wood));
+  color: var(--bone);
+  font-size: 17px;
+  cursor: pointer;
+}
+.transport-btn:disabled { opacity: .4; cursor: default; }
+.transport-btn.play { background: var(--brass); color: var(--wood);
+                      border-color: var(--brass); }
+.project-name { font-weight: 800; font-size: 17px; }
+.project-meta { color: var(--wire); font-size: 13px;
+                font-family: "JetBrains Mono", monospace; }
+.transport-spacer { flex: 1; }
+
+.project-body {
+  display: grid;
+  grid-template-columns: 230px 1fr;
+  gap: 0;
+  min-height: calc(100vh - 70px);
+}
+@media (max-width: 760px) {
+  .project-body { grid-template-columns: 1fr; }
+  .tracklist { border-right: 0; border-bottom: 1px solid rgba(138,123,104,.28); }
+}
+
+.tracklist {
+  padding: 16px 12px;
+  border-right: 1px solid rgba(138,123,104,.28);
+  background: var(--plank);
+}
+.track-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 46px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--bone);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+.track-row:hover { background: rgba(217,164,65,.09); }
+.track-row .track-name { font-weight: 600; flex: 1; }
+.track-row .track-notes { color: var(--wire); font-size: 12px;
+                          font-family: "JetBrains Mono", monospace; }
+.track-toggle {
+  min-width: 30px; min-height: 30px;
+  border: 1px solid var(--wire);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--wire);
+  font-size: 12px;
+  cursor: pointer;
+}
+.track-toggle:disabled { opacity: .35; cursor: default; }
+.track-toggle.active { background: var(--brass); color: var(--wood);
+                       border-color: var(--brass); }
+
+.score { padding: 18px 22px 60px; min-width: 0; }
 
 /* ---------- left panel ---------- */
 
@@ -318,7 +404,6 @@ select {
 
 #backingRow { display: flex; gap: 12px; align-items: baseline;
               margin: 14px 0 4px; flex-wrap: wrap; }
-#backingRow[hidden] { display: none; }   /* display:flex beats the UA hidden */
 .backing {
   font: 600 13px/1 "Bricolage Grotesque", sans-serif;
   color: var(--wood);

@@ -293,6 +293,51 @@ class TestGp5Roundtrip(unittest.TestCase):
         self.assertEqual(contents.effects["bend"], 0,
                          "sub-0.5st bends must not clutter the score")
 
+    def test_multitrack_song(self):
+        import guitarpro as gp
+        from tabforge.core.instruments import profile_for
+        from tabforge.export.writers import SongPart, export_song_gp5
+
+        g_cfg = TabConfig()
+        b_cfg = TabConfig(tuning=TUNINGS["bass_4"], max_fret=20)
+        g_notes = [NoteEvent(60 + i, i * 0.5, 0.4) for i in range(4)]
+        b_notes = [NoteEvent(28 + i, i * 1.0, 0.8) for i in range(3)]
+        parts = [
+            SongPart("guitar", assign_tab(g_notes, g_cfg), g_cfg,
+                     profile_for("guitar")),
+            SongPart("bass", assign_tab(b_notes, b_cfg), b_cfg,
+                     profile_for("bass")),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "song.gp5"
+            export_song_gp5(parts, path, bpm=120.0)
+            song = gp.parse(str(path))
+
+        self.assertEqual(len(song.tracks), 2)
+        names = [t.name for t in song.tracks]
+        self.assertEqual(names, ["guitar", "bass"])
+        self.assertEqual([t.channel.instrument for t in song.tracks],
+                         [25, 33])
+        # channels must differ or the synth blends the sounds
+        self.assertNotEqual(song.tracks[0].channel.channel,
+                            song.tracks[1].channel.channel)
+        # both tracks share the same measure count, every measure full
+        measure_ticks = 4 * gp.Duration.quarterTime
+        for t in song.tracks:
+            self.assertEqual(len(t.measures), len(song.tracks[0].measures))
+            for m in t.measures:
+                self.assertEqual(
+                    sum(b.duration.time for b in m.voices[0].beats),
+                    measure_ticks)
+        # each part's pitches live on its own track
+        def pitches(track):
+            sv = {s.number: s.value for s in track.strings}
+            return sorted(sv[n.string] + n.value
+                          for m in track.measures for v in m.voices
+                          for b in v.beats for n in b.notes)
+        self.assertEqual(pitches(song.tracks[0]), [60, 61, 62, 63])
+        self.assertEqual(pitches(song.tracks[1]), [28, 29, 30])
+
     def test_bass_tuning(self):
         cfg = TabConfig(tuning=TUNINGS["bass_4"], max_fret=20)
         source = [28, 31, 33, 35]

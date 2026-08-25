@@ -64,6 +64,7 @@ class Job:
     results: list[dict] = field(default_factory=list)
     error: str = ""
     backing: str = ""                 # download URL of the backing track
+    song: str = ""                    # URL of the multi-track project gp5
     dir: Path | None = None
     audio: Path | None = None         # the uploaded file
     analyzed: object | None = None    # pipeline.AnalyzeResult (server-side)
@@ -78,7 +79,7 @@ class Job:
                 "stages": list(STAGES), "log": list(self.log[-30:]),
                 "analysis": list(self.analysis),
                 "results": list(self.results), "error": self.error,
-                "backing": self.backing,
+                "backing": self.backing, "song": self.song,
             }
 
 
@@ -244,6 +245,8 @@ def _run_transcribe(job: Job, opts: PipelineOptions) -> None:
             ]
             if (job.dir / "out" / "backing" / "backing.wav").is_file():
                 job.backing = f"/api/jobs/{job.id}/files/backing/backing.wav"
+            if (job.dir / "out" / "song" / "song.gp5").is_file():
+                job.song = f"/api/jobs/{job.id}/files/song/song.gp5"
             job.status = "done"
             job.stage = "done"
     except Exception as e:  # noqa: BLE001 — shown to the user

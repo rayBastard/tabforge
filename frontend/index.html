@@ -13,15 +13,14 @@
 </head>
 <body>
 
-<header class="masthead">
-  <h1>TabForge</h1>
-  <p class="claim">A song comes in as sound — and leaves as tablature.</p>
-</header>
+<!-- ============ SCREEN 1: START — centered, nothing but the funnel ==== -->
+<section id="screenStart" class="screen">
+  <header class="masthead start-masthead">
+    <h1>TabForge</h1>
+    <p class="claim">A song comes in as sound — and leaves as tablature.</p>
+  </header>
 
-<main class="bench">
-
-  <!-- LEFT PANEL: settings -->
-  <section class="panel controls" aria-label="Settings">
+  <div class="start-panel">
     <label class="drop" id="drop">
       <input type="file" id="file" accept="audio/*" hidden>
       <span class="drop-title">Drop a track here</span>
@@ -43,12 +42,8 @@
     <p class="hint" id="hint">First the track is separated and analyzed —
        then you choose what to transcribe. The first run downloads the
        separation model (~300 MB).</p>
-  </section>
 
-  <!-- RIGHT PANEL: fretboard progress + results -->
-  <section class="panel stage" aria-label="Progress">
-
-    <!-- Signature: six strings, stages laid out like frets on a neck -->
+    <!-- progress: six strings, stages laid out like frets on a neck -->
     <div class="neck" id="neck" hidden>
       <div class="strings">
         <i></i><i></i><i></i><i></i><i></i><i></i>
@@ -62,30 +57,37 @@
       </ol>
       <p class="neck-log" id="log" aria-live="polite"></p>
     </div>
+  </div>
+</section>
 
-    <div class="empty" id="empty">
-      <p>Notes and tablature will appear here.</p>
-      <p class="empty-sub">Upload a track and start processing.</p>
-    </div>
+<!-- ============ SCREEN 2: PROJECT — transport, tracks, score ========= -->
+<section id="screenProject" class="screen" hidden>
+  <header class="transport">
+    <button id="backBtn" class="transport-btn" title="Back to the track">←</button>
+    <span class="project-name" id="projectName">—</span>
+    <span class="project-meta" id="projectMeta"></span>
+    <span class="transport-spacer"></span>
+    <button id="transportPlay" class="transport-btn play" disabled
+            title="Whole-project playback arrives with the unified player">▶</button>
+    <a id="backingLink" class="backing" download hidden>⬇ backing track</a>
+  </header>
 
-    <p id="backingRow" hidden>
-      <a id="backingLink" class="backing" download>⬇ Download backing track</a>
-      <span class="backing-sub">everything you didn't transcribe, mixed to
-        one wav — play along with the tab</span>
-    </p>
-    <div id="results"></div>
-  </section>
-</main>
+  <div class="project-body">
+    <aside class="tracklist" id="tracklist" aria-label="Instruments"></aside>
+    <main class="score" id="scoreMain">
+      <div id="unifiedScore" class="alphatab" hidden></div>
+      <div id="results"></div>
+    </main>
+  </div>
+</section>
 
 <template id="stemCard">
   <article class="stem">
     <header class="stem-head">
       <h2 class="stem-name"></h2>
       <span class="stem-meta"></span>
-      <button class="stem-play" hidden disabled>▶ Play</button>
       <nav class="stem-downloads"></nav>
     </header>
-    <div class="alphatab" hidden></div>
     <pre class="asciitab"></pre>
   </article>
 </template>

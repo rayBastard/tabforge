@@ -5,6 +5,7 @@ TuxGuitar, and MuseScore. Plus MIDI as a fallback.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
@@ -39,6 +40,16 @@ def export_midi(shapes: Sequence[Shape], path: Path, program: int = 25) -> None:
     pm.write(str(path))
 
 
+@dataclass(slots=True)
+class SongPart:
+    """One instrument of a multi-track score."""
+    name: str
+    shapes: Sequence[Shape]
+    cfg: TabConfig
+    profile: InstrumentProfile
+    legato: Sequence[tuple] | None = None
+
+
 def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
                bpm: float = 120.0, beats_per_measure: int = 4,
                subdivision: int = 4,
@@ -47,33 +58,39 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
                legato: Sequence[tuple] | None = None,
                grid=None,
                profile: InstrumentProfile | None = None) -> None:
+    """Single-track .gp5 — a thin wrapper over export_song_gp5."""
+    part = SongPart(name=title, shapes=shapes, cfg=cfg,
+                    profile=profile or profile_for("guitar"), legato=legato)
+    export_song_gp5([part], path, bpm=bpm,
+                    beats_per_measure=beats_per_measure,
+                    subdivision=subdivision, title=title, artist=artist,
+                    key=key, origin=origin, grid=grid)
+
+
+def export_song_gp5(parts: Sequence[SongPart], path: Path,
+                    bpm: float = 120.0, beats_per_measure: int = 4,
+                    subdivision: int = 4,
+                    title: str = "TabForge", artist: str = "",
+                    key: Key | None = None, origin: float = 0.0,
+                    grid=None) -> None:
     """
-    Builds a .gp5. In PyGuitarPro string #1 is the THINNEST,
-    while our index 0 is the thickest. Hence the flip.
+    Builds a .gp5 where every part is a track of ONE score — the project
+    player plays them together, mutes and solos per track.
+
+    In PyGuitarPro string #1 is the THINNEST, while our index 0 is the
+    thickest. Hence the flip.
 
     grid: the quantize.Grid the notes were snapped to. When given, a
     note's position is its TICK INDEX in that grid — the beats follow
     the audio, so a track whose tempo breathes never drifts into wrong
-    measures (a fixed seconds->BPM conversion would accumulate error).
-    Tick 0 is the first beat, which also anchors measure 1; subdivision
-    is taken from the grid.
+    measures. Tick 0 is the first beat, which also anchors measure 1;
+    subdivision is taken from the grid. Without a grid positions fall
+    back to a uniform 60/bpm grid anchored at `origin`.
 
-    Without a grid (standalone use, unreliable tempo) positions fall
-    back to a uniform 60/bpm grid anchored at `origin`, with the given
-    `subdivision` slots per quarter.
-
-    beats_per_measure is written as the time signature (n/4).
-
-    legato: (first, second, kind) triples from detect_legato_pairs;
-    the first note of a pair gets Note.effect.hammer. Per-note bend
-    trajectories become vibrato / slide / bend effects.
-
-    profile: which articulations this instrument may carry (a piano has
-    no bends; its legato is a plain slur). Default: guitar.
+    beats_per_measure is written as the time signature (n/4). Each
+    track gets its profile's MIDI program on its own channel pair.
     """
     import guitarpro as gp
-
-    profile = profile or profile_for("guitar")
 
     song = gp.Song()
     song.title = title
@@ -91,16 +108,21 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
         for header in song.measureHeaders:
             header.keySignature = signature
 
-    track = song.tracks[0]
-    track.name = title or profile.name
-    # the player picks its sound from the track's MIDI program — without
-    # this every instrument came out sounding like a guitar
-    track.channel.instrument = profile.midi_program
-    n_strings = len(cfg.tuning)
-    track.strings = [
-        gp.GuitarString(number=i + 1, value=cfg.tuning[n_strings - 1 - i])
-        for i in range(n_strings)
-    ]
+    # one gp5 track per part, each on its own MIDI channel pair so the
+    # player gives every instrument its own sound
+    while len(song.tracks) < len(parts):
+        song.tracks.append(gp.Track(song))
+    for i, (track, part) in enumerate(zip(song.tracks, parts)):
+        track.number = i + 1
+        track.name = part.name or part.profile.name
+        track.channel.channel = i * 2
+        track.channel.effectChannel = i * 2 + 1
+        track.channel.instrument = part.profile.midi_program
+        n = len(part.cfg.tuning)
+        track.strings = [
+            gp.GuitarString(number=s + 1, value=part.cfg.tuning[n - 1 - s])
+            for s in range(n)
+        ]
 
     def _pad_empty_voices() -> None:
         # Guitar Pro never writes a voice with zero beats: unused measures
@@ -163,7 +185,8 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
         u, value, dotted, tuplet = DURATIONS[-1]
         return value, dotted, tuplet, u
 
-    def _add_beat(voice, units: int, shape: Shape | None) -> int:
+    def _add_beat(voice, units: int, shape: Shape | None,
+                  n_strings: int = 6, apply_fx=None) -> int:
         """One beat (notes or rest) of the largest duration <= units.
         Returns the slots consumed."""
         value, dotted, tuplet, used = _largest_fit(units)
@@ -181,70 +204,80 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
                 note.string = n_strings - p.string  # flipped numbering
                 note.velocity = p.note.velocity
                 note.type = gp.NoteType.normal
-                _apply_effects(note, p.note)
+                if apply_fx:
+                    apply_fx(note, p.note)
                 beat.notes.append(note)
         voice.beats.append(beat)
         return used
-
-    # String technique (hammer-on/pull-off): only when the pair actually
-    # landed on one string — a candidate laid out across two strings is
-    # played picked, and notating it would be a lie. A slur (piano/vocal
-    # legato) is just an arc: no string constraint, gp5 encodes both via
-    # the hammer flag and notation-only staves render it as a slur.
-    hammer_ids = frozenset()
-    if legato and (profile.allow_hammer or profile.legato_as_slur):
-        placement_of = {id(p.note): p for s in shapes for p in s.placements}
-        hammer_ids = frozenset(
-            id(pair[0]) for pair in legato
-            if profile.legato_as_slur
-            or ((a := placement_of.get(id(pair[0]))) is not None
-                and (b := placement_of.get(id(pair[1]))) is not None
-                and a.string == b.string))
-
-    def _apply_effects(gp_note, src) -> None:
-        if id(src) in hammer_ids:
-            gp_note.effect.hammer = True
-        kind = classify_articulation(src.bends)
-        if kind == "vibrato" and profile.allow_vibrato:
-            gp_note.effect.vibrato = True
-        elif kind == "slide" and profile.allow_slides:
-            net = src.bends[-1] - src.bends[0]
-            gp_note.effect.slides = [gp.SlideType.outUpwards if net > 0
-                                     else gp.SlideType.outDownwards]
-        elif kind == "bend" and profile.allow_bends:
-            peak = max(abs(b - src.bends[0]) for b in src.bends)
-            if peak >= NOTATED_BEND_MIN:
-                # GP bend values are quarter-tones: a whole-tone bend is 4
-                # (alphaTab annotates 2 as "1/2", 4 as "full")
-                v = max(1, min(gp.BendEffect.maxValue, round(peak * 2)))
-                gp_note.effect.bend = gp.BendEffect(
-                    type=gp.BendType.bendRelease, value=v,
-                    points=[gp.BendPoint(0, 0), gp.BendPoint(4, v),
-                            gp.BendPoint(8, v), gp.BendPoint(12, 0)])
 
     def _fill_rests(voice, units: int) -> None:
         while units > 0:
             units -= _add_beat(voice, units, None)
 
-    # Events land on absolute sixteenth slots; a collision (two events
-    # quantized onto one slot) pushes the later one to the next free slot.
-    placed: dict[int, Shape] = {}
-    for shape in shapes:
-        if not shape.placements:
-            continue
-        slot = slot_of(shape.start)
-        while slot in placed:
-            slot += 1
-        placed[slot] = shape
+    def _effects_for(part: SongPart):
+        """Per-part articulation writer.
 
-    if not placed:
+        String technique (hammer-on/pull-off): only when the pair landed
+        on one string — laid out across two strings it is played picked.
+        A slur (piano/vocal legato) is just an arc: no string constraint;
+        gp5 encodes both via the hammer flag."""
+        profile, legato = part.profile, part.legato
+        hammer_ids = frozenset()
+        if legato and (profile.allow_hammer or profile.legato_as_slur):
+            placement_of = {id(p.note): p
+                            for s in part.shapes for p in s.placements}
+            hammer_ids = frozenset(
+                id(pair[0]) for pair in legato
+                if profile.legato_as_slur
+                or ((a := placement_of.get(id(pair[0]))) is not None
+                    and (b := placement_of.get(id(pair[1]))) is not None
+                    and a.string == b.string))
+
+        def apply(gp_note, src) -> None:
+            if id(src) in hammer_ids:
+                gp_note.effect.hammer = True
+            kind = classify_articulation(src.bends)
+            if kind == "vibrato" and profile.allow_vibrato:
+                gp_note.effect.vibrato = True
+            elif kind == "slide" and profile.allow_slides:
+                net = src.bends[-1] - src.bends[0]
+                gp_note.effect.slides = [gp.SlideType.outUpwards if net > 0
+                                         else gp.SlideType.outDownwards]
+            elif kind == "bend" and profile.allow_bends:
+                peak = max(abs(b - src.bends[0]) for b in src.bends)
+                if peak >= NOTATED_BEND_MIN:
+                    # GP bend values are quarter-tones: a whole-tone bend
+                    # is 4 (alphaTab annotates 2 as "1/2", 4 as "full")
+                    v = max(1, min(gp.BendEffect.maxValue, round(peak * 2)))
+                    gp_note.effect.bend = gp.BendEffect(
+                        type=gp.BendType.bendRelease, value=v,
+                        points=[gp.BendPoint(0, 0), gp.BendPoint(4, v),
+                                gp.BendPoint(8, v), gp.BendPoint(12, 0)])
+        return apply
+
+    # Events land on absolute slots; a collision (two events quantized
+    # onto one slot) pushes the later one to the next free slot.
+    placed_per_part: list[dict[int, Shape]] = []
+    for part in parts:
+        placed: dict[int, Shape] = {}
+        for shape in part.shapes:
+            if not shape.placements:
+                continue
+            slot = slot_of(shape.start)
+            while slot in placed:
+                slot += 1
+            placed[slot] = shape
+        placed_per_part.append(placed)
+
+    last_slot = max((max(p) for p in placed_per_part if p), default=None)
+    if last_slot is None:
         for header in song.measureHeaders:
             _apply_time_signature(header)
         _pad_empty_voices()
         gp.write(song, str(path))
         return
 
-    n_measures = max(placed) // slots_per_measure + 1
+    n_measures = last_slot // slots_per_measure + 1
     while len(song.measureHeaders) < n_measures:
         header = gp.MeasureHeader()
         if signature is not None:
@@ -256,29 +289,34 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
         while len(tr.measures) < n_measures:
             tr.measures.append(gp.Measure(tr, song.measureHeaders[len(tr.measures)]))
 
-    # Assemble each measure as a gapless timeline: rests up to the event,
-    # the event beat, rests to the next event — so durations always sum
-    # to the full time signature and positions survive a re-read.
-    for m_idx in range(n_measures):
-        base = m_idx * slots_per_measure
-        events = sorted(s for s in placed if base <= s < base + slots_per_measure)
-        if not events:
-            continue                            # _pad_empty_voices covers it
-        voice = track.measures[m_idx].voices[0]
-        cursor = 0
-        for i, slot in enumerate(events):
-            local = slot - base
-            _fill_rests(voice, local - cursor)
-            nxt = (events[i + 1] - base) if i + 1 < len(events) else slots_per_measure
-            shape = placed[slot]
-            longest = max(p.note.duration for p in shape.placements)
-            # sounded length in slots: measured on the same grid as the
-            # position, so a breathing tempo cannot stretch note values
-            end_slot = slot_of(shape.start + longest)
-            sounded = max(1, min(nxt - local, end_slot - (base + local)))
-            used = _add_beat(voice, sounded, shape)
-            _fill_rests(voice, nxt - local - used)
-            cursor = nxt
+    # Assemble each track's measures as gapless timelines: rests up to
+    # the event, the event beat, rests to the next event — durations
+    # always sum to the full time signature.
+    for track, part, placed in zip(song.tracks, parts, placed_per_part):
+        apply_fx = _effects_for(part)
+        n_strings = len(part.cfg.tuning)
+        for m_idx in range(n_measures):
+            base = m_idx * slots_per_measure
+            events = sorted(s for s in placed
+                            if base <= s < base + slots_per_measure)
+            if not events:
+                continue                        # _pad_empty_voices covers it
+            voice = track.measures[m_idx].voices[0]
+            cursor = 0
+            for i, slot in enumerate(events):
+                local = slot - base
+                _fill_rests(voice, local - cursor)
+                nxt = (events[i + 1] - base) if i + 1 < len(events) \
+                    else slots_per_measure
+                shape = placed[slot]
+                longest = max(p.note.duration for p in shape.placements)
+                # sounded length in slots: measured on the same grid as
+                # the position, so a breathing tempo cannot stretch values
+                end_slot = slot_of(shape.start + longest)
+                sounded = max(1, min(nxt - local, end_slot - (base + local)))
+                used = _add_beat(voice, sounded, shape, n_strings, apply_fx)
+                _fill_rests(voice, nxt - local - used)
+                cursor = nxt
 
     _pad_empty_voices()
     gp.write(song, str(path))

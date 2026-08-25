@@ -255,6 +255,7 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
     grid = Grid(beats, subdivision=opts.subdivision) if len(beats) > 1 else None
 
     results: list[StemResult] = []
+    song_parts: list = []          # writers.SongPart, one per produced part
     for name, wav in stems.items():
         progress("transcribe", f"{name}: detecting notes")
         notes = transcribe.transcribe_stem(wav, **transcribe.PRESETS.get(name, {}))
@@ -329,6 +330,9 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
             except Exception as e:
                 progress("export", f"{part_name}: musicxml failed to build ({e})")
 
+            song_parts.append(writers.SongPart(
+                name=part_name, shapes=shapes, cfg=cfg,
+                profile=profile, legato=legato))
             results.append(StemResult(
                 stem=part_name, bpm=bpm,
                 key=key.name if key else "unknown key",
@@ -339,6 +343,21 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
                 warnings=warnings,
                 tablature=profile.tablature,
             ))
+
+    # the whole project as ONE multi-track score: the unified player
+    # plays it together, with per-track mute/solo
+    if song_parts:
+        progress("export", "assembling the multi-track project score")
+        song_dir = out_dir / "song"
+        song_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            writers.export_song_gp5(
+                song_parts, song_dir / "song.gp5",
+                bpm=bpm, beats_per_measure=opts.beats_per_measure,
+                subdivision=opts.subdivision, title="TabForge project",
+                key=key, grid=grid)
+        except Exception as e:
+            progress("export", f"project score failed to build ({e})")
     return results
 
 
