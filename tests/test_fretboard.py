@@ -88,6 +88,26 @@ class TestAssign(unittest.TestCase):
     def test_empty(self):
         self.assertEqual(assign_tab([]), [])
 
+    def test_unplayable_first_event_is_skipped(self):
+        # A note below the instrument's range must not wipe out the tab.
+        notes = [NoteEvent(10, 0.0, 0.25)] + seq([48, 50, 52], step=0.25)
+        for n in notes[1:]:
+            n.start += 0.25
+        shapes = assign_tab(notes)
+        got = [p.note.pitch for s in shapes for p in s.placements]
+        self.assertEqual(sorted(got), [48, 50, 52])
+
+    def test_unvoiceable_first_chord_is_skipped(self):
+        # Real-world case: a transcription-noise cluster at t=0 that no hand
+        # can voice on a 4-string bass, followed by a normal line.
+        cfg = TabConfig(tuning=TUNINGS["bass_4"], max_fret=20)
+        cluster = [NoteEvent(p, 0.0, 0.2) for p in (34, 57, 41, 37)]
+        line = [NoteEvent(p, 1.0 + i * 0.5, 0.4)
+                for i, p in enumerate((28, 31, 33, 35))]
+        shapes = assign_tab(cluster + line, cfg)
+        got = sorted(p.note.pitch for s in shapes for p in s.placements)
+        self.assertEqual(got, [28, 31, 33, 35])
+
 
 class TestAscii(unittest.TestCase):
     def test_render_has_six_lines(self):

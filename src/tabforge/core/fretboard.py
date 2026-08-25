@@ -200,18 +200,19 @@ def assign_tab(notes: Sequence[NoteEvent], cfg: TabConfig | None = None) -> list
     history: list[list[State]] = []
 
     beam: list[State] = []
-    for shape in shapes_for_event(events[0], cfg):
-        for pos in positions_for_shape(shape, cfg):
-            beam.append((static_cost(shape, pos, cfg), shape, pos, -1))
-    if not beam:
-        return []
-    beam = sorted(beam, key=lambda x: x[0])[: cfg.beam_width]
-    history.append(beam)
-
-    for event in events[1:]:
+    for event in events:
         options = [(sh, p) for sh in shapes_for_event(event, cfg)
                    for p in positions_for_shape(sh, cfg)]
         if not options:
+            continue
+        # An unplayable event (transcription noise, out-of-range cluster)
+        # is skipped wherever it occurs — including before the beam is
+        # seeded, otherwise one bad first event empties the whole tab.
+        if not beam:
+            beam = sorted(((static_cost(sh, p, cfg), sh, p, -1)
+                           for sh, p in options),
+                          key=lambda x: x[0])[: cfg.beam_width]
+            history.append(beam)
             continue
         new_beam: list[State] = []
         for shape, pos in options:
