@@ -235,7 +235,9 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
                 note.value = p.fret
                 note.string = n_strings - p.string  # flipped numbering
                 note.velocity = p.note.velocity
-                note.type = gp.NoteType.tie if tie else gp.NoteType.normal
+                note.type = (gp.NoteType.tie if tie
+                             else gp.NoteType.dead if p.note.dead
+                             else gp.NoteType.normal)
                 if apply_fx and not tie:   # articulations live on the attack
                     apply_fx(note, p.note)
                 beat.notes.append(note)

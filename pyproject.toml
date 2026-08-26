@@ -17,6 +17,9 @@ eval = ["mir_eval>=0.7"]
 # High-quality separation backend (BS-Roformer-SW): measurably cleaner
 # stems on the eval stand, ~30x slower than demucs on CPU
 roformer = ["bs-roformer-infer>=0.1.5"]
+# Optional f0 tracker for the monophonic path (MIT code AND weights,
+# bundled in the wheel — no runtime downloads); pyin is the free base
+crepe = ["torchcrepe>=0.0.24"]
 # The ml extra needs Python <= 3.11: basic-pitch 0.4.0 requires
 # tensorflow(-macos) < 2.15.1 on Python 3.12+, which was never released.
 # On macOS use Python 3.11 (basic-pitch runs on the CoreML backend there).

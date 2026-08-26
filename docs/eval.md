@@ -367,3 +367,89 @@ Loken vocals 0.28 vs our 0.19. Still blind to Suno metal guitar/bass
 0.55). New verdict for task 54: MT3 is an instrument-presence arbiter
 AND a candidate note source for clean piano/vocal stems — not for
 guitar/bass/drums.
+
+## SPECIALIZED TRANSCRIBERS — 2026-08-26 (task 53: the mono path)
+
+`InstrumentProfile.transcriber` now selects the note source per stem:
+`basic_pitch` (default) or `mono` (`src/tabforge/audio/mono.py`).
+The mono path: pyin f0 track (librosa, free; torchcrepe is the
+optional `tabforge[crepe]` extra — MIT code AND weights bundled in
+the wheel; RMVPE rejected as default: official repo publishes no
+weights, the community checkpoint's provenance is an unattributed HF
+MIT tag) → onset segmentation → per-syllable decision → one note per
+held pitch. Monophony kills octave twins BY CONSTRUCTION.
+
+### Bass: mono wins clean stems, chooser guards dirty ones
+
+```
+                 strict F1   pF1    vs Basic Pitch
+Loken  (clean)     0.44      0.66    0.31 / 0.48   ← mono, +0.13
+Hero   (dirty)     0.11      0.29    0.34 / 0.45   ← BP kept it
+```
+
+Two mechanisms made the Loken number possible:
+
+1. **Octave convention, not octave error**: pyin locks the acoustic
+   fundamental (A1 = 55 Hz); Suno's truth logs the SAME line at A2.
+   The stand now tries a global ±12 per part (like the time shift)
+   and reports the chosen k. A per-note spectral octave chooser (odd
+   vs even harmonic stacks) was measured and rejected — both octaves
+   genuinely sound in the stem (sub-oscillator synth patches), the
+   odd-harmonic test fires on <55% of notes at any threshold.
+2. **The density chooser**: a stem with heavy bleed defeats pyin (it
+   locks onto 401 events where BP hears 1949 — Hero). The pipeline
+   runs both and keeps mono only when it caught >= 0.4× of BP's
+   note count (Hero 0.21 → BP; Loken 0.65 → mono). Provisional
+   threshold, n=2 tracks; revisit with more references.
+
+### Vocals: tie on F1, recitative honesty on top
+
+Mono vocals with the recitative rule: Loken 0.18 vs BP 0.19, Hero
+0.11 vs 0.12 — a tie on strict F1, and the mono path additionally
+marks 25–50 unpitched-but-energetic syllables per track as DEAD notes
+(x in gp5) instead of inventing pitches. Kept as the default: equal
+accuracy, honest rhythm marks (the user's explicit ask). Dead notes
+are excluded from est in the scorer — rhythm marks, not pitch claims.
+
+Implementation notes: pyin window scales with fmin (4096 for bass's
+26 Hz floor, 2048 for vocals — a wider window smooths speech into
+false 'held' pitches); the recitative gate demands a 100 ms hold
+BECAUSE pyin's own 93 ms window manufactures ~60 ms quasi-plateaus
+out of anything; unstable short slivers (pyin gliding between notes)
+are dropped, long unstable stretches keep their median (slides/deep
+vibrato).
+
+### The ruler, refined again: per-INSTRUMENT alignment
+
+Wiring the mono path exposed two more ruler defects, both fixed:
+
+1. A pooled onset cross-correlation is quasi-periodic on
+   grid-quantized material — when the mono path changed the est mix,
+   Fulgrim's "global shift" jumped to a spurious −0.49 s (a beat-comb
+   peak) and piano strict F1 collapsed 0.27→0.09 with NO change in
+   the piano est.
+2. There is no single per-track offset to find: Suno exports each
+   instrument's MIDI separately, and the offsets genuinely differ per
+   FILE (Hero: drums −50 ms, guitar −65 ms, bass −20 ms, synth
+   −260 ms). Any global shift trades one instrument against another.
+
+The stand now aligns each instrument by argmax of strict F1 over
+(time offset × octave convention) searched JOINTLY — a wrong octave
+zeroes F1 at every shift, hiding the true offset (the mono-bass
+chicken-and-egg). Instruments with <50 notes on either side fall back
+to a weighted-median global (weight = pitch-class match-histogram
+peak, immune to both the beat comb and the octave gap). Every system
+scored on the stand gets the same single-parameter favor.
+
+### The ceiling after task 53 (per-instrument ruler, end-to-end)
+
+```
+inst    F1    pF1   oct   note
+bass    0.37  0.56  0.34  Hero 0.34 (BP kept by chooser) / Loken 0.41
+                          (mono, octave-error rate 0.16 -> 0.02)
+guitar  0.28  0.41  0.21  softer preset: Hero 0.19 / Loken 0.36
+drums   0.55  0.59  0.08  unchanged
+piano   0.27  0.48  0.05  unchanged (MT3 offers 0.57 — task 54)
+vocals  0.17  0.31  0.04  mono+recitative, ties BP + honest crosses
+synth   0.05  0.12  0.07  still needs a real note source
+```

@@ -362,7 +362,30 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
             continue
         progress("transcribe", f"{name}: detecting notes")
         preset = transcribe.PRESETS.get(name, {})
-        if opts.low_pass and name in ("bass", "guitar", "vocals"):
+        if profile_for(opts.treat.get(name, name)).transcriber == "mono":
+            # monophonic stems (bass, recitative vocals): a mono f0
+            # tracker cannot produce octave twins — task 53. But a
+            # dirty stem (heavy bleed) defeats the tracker: when it
+            # locks onto far fewer events than Basic Pitch hears, the
+            # stem is not mono-clean and BP keeps the job. Threshold
+            # 0.4 set on the golden corpus (Hero 0.21 / Loken 0.65) —
+            # provisional until more references arrive.
+            from .audio.mono import MONO_PRESETS, transcribe_mono
+            mono_notes = transcribe_mono(wav, **MONO_PRESETS.get(name, {}))
+            bp_notes = transcribe.cleanup(
+                transcribe.transcribe_stem(wav, **preset),
+                max_polyphony=1 if name == "bass" else 6)
+            if len(mono_notes) >= 0.4 * max(len(bp_notes), 1):
+                progress("transcribe", f"{name}: monophonic f0 path "
+                                       f"({len(mono_notes)} notes)")
+                notes = mono_notes
+            else:
+                progress("transcribe",
+                         f"{name}: stem too dense for the mono tracker "
+                         f"({len(mono_notes)} vs {len(bp_notes)}), "
+                         f"Basic Pitch keeps it")
+                notes = bp_notes
+        elif opts.low_pass and name in ("bass", "guitar", "vocals"):
             # the low register reads badly at native pitch — a second,
             # octave-shifted pass owns everything below ~A2
             from .audio.lowregister import transcribe_with_low_pass
@@ -380,13 +403,17 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
         # so their true notes' energy often sits elsewhere and the
         # filter would slaughter real lines (measured on the stand).
         if spectra is not None and name in ("piano", "vocals", "other"):
-            kept = filter_leaked_notes(notes, name, analyzed.stems,
+            # dead notes are exempt: a spoken syllable is not harmonic
+            # at its (placeholder) pitch, but it IS a real vocal event
+            pitched = [n for n in notes if not n.dead]
+            kept = filter_leaked_notes(pitched, name, analyzed.stems,
                                        spectra, margin=opts.leak_margin)
-            if len(kept) < len(notes):
+            if len(kept) < len(pitched):
                 progress("transcribe",
-                         f"{name}: {len(notes) - len(kept)} leaked "
+                         f"{name}: {len(pitched) - len(kept)} leaked "
                          f"note(s) filtered out")
-            notes = kept
+            notes = sorted(kept + [n for n in notes if n.dead],
+                           key=lambda n: n.start)
         if not notes:
             progress("transcribe", f"{name}: no notes found, skipped")
             continue
@@ -599,7 +626,7 @@ def _save_part_state(out_dir: Path, part_name: str, notes, legato,
     state[part_name] = {
         "notes": [{"pitch": n.pitch, "start": n.start,
                    "duration": n.duration, "velocity": n.velocity,
-                   "bends": list(n.bends)} for n in notes],
+                   "bends": list(n.bends), "dead": n.dead} for n in notes],
         "legato": [[index_of[id(a)], index_of[id(b)], kind]
                    for a, b, kind in (legato or [])
                    if id(a) in index_of and id(b) in index_of],
@@ -632,7 +659,8 @@ def apply_repin(out_dir: Path, part_name: str, tick: int, pitch: int,
 
     def revive(part):
         return [NoteEvent(n["pitch"], n["start"], n["duration"],
-                          n["velocity"], list(n["bends"]))
+                          n["velocity"], list(n["bends"]),
+                          n.get("dead", False))
                 for n in part["notes"]]
 
     # locate the clicked note: same tick (the collision shift allows ±1)

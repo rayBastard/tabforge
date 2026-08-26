@@ -62,29 +62,31 @@ def _prf(ref: list, est: list, tol: float) -> tuple[float, float, float]:
     return p, r, f
 
 
-def _global_shift(truth: dict, est: dict,
-                  span: float = 0.5, bin_s: float = 0.01) -> float:
-    """Best global est->truth time shift by onset cross-correlation,
-    pooled over all instruments. Returns 0 when |shift| <= 20 ms."""
-    ref_on = [s for notes in truth.values() for _, s, _ in notes]
-    est_on = [s for notes in est.values() for _, s, _ in notes]
-    if not ref_on or not est_on:
-        return 0.0
-    n = int((max(max(ref_on), max(est_on)) + 1) / bin_s) + 1
-    a = np.zeros(n)
-    b = np.zeros(n)
-    for s in ref_on:
-        a[int(s / bin_s)] += 1
-    for s in est_on:
-        b[int(s / bin_s)] += 1
+def _match_shift(ref: list, est: list, span: float = 0.5,
+                 bin_s: float = 0.01, tol: float = 0.05) -> float:
+    """Best est->truth time shift: the delta that lets the most
+    SAME-PITCH (ref, est) onset pairs match within tol. A plain onset
+    cross-correlation is quasi-periodic on grid-quantized material
+    (peaks a beat apart — Fulgrim picked −0.49 s instead of −0.13);
+    conditioning the deltas on pitch pins the true offset. Pitch CLASS
+    (mod 12), so an octave-convention gap (mono bass) can't starve the
+    histogram."""
+    by_pitch: dict[int, list[float]] = {}
+    for p, s, _ in est:
+        by_pitch.setdefault(p % 12, []).append(s)
     k = int(span / bin_s)
-    best_v, best_d = -1.0, 0
-    for d in range(-k, k + 1):
-        v = np.dot(a[d:], b[:n - d]) if d >= 0 else np.dot(a[:n + d], b[-d:])
-        if v > best_v:
-            best_v, best_d = v, d
-    shift = best_d * bin_s
-    return shift if abs(shift) > 0.02 else 0.0
+    hist = np.zeros(2 * k + 1)
+    for p, s, _ in ref:
+        for es in by_pitch.get(p % 12, ()):
+            d = round((es - s) / bin_s)
+            if -k <= d <= k:
+                hist[d + k] += 1
+    if not hist.any():
+        return 0.0, 0.0
+    w = int(tol / bin_s)
+    win = np.convolve(hist, np.ones(2 * w + 1), mode="same")
+    shift = -(int(np.argmax(win)) - k) * bin_s
+    return (shift if abs(shift) > 0.02 else 0.0), float(win.max())
 
 HOME = {"guitar": ("guitar", "guitar_lead", "guitar_rhythm"),
         "bass": ("bass",),
@@ -172,8 +174,10 @@ def pipeline_estimates(mp3: Path, work: Path, separator: str,
     if parts_file.exists():
         state = json.loads(parts_file.read_text())
         for part, p in state.items():
+            # dead notes are rhythm marks, not pitch claims (recitative
+            # vocals) — they must not count against precision
             est[part] = [(n["pitch"], n["start"], n["duration"])
-                         for n in p["notes"]]
+                         for n in p["notes"] if not n.get("dead")]
     drums_wav = next((work / "stems").rglob("drums.wav"), None)
     if drums_wav:
         from tabforge.audio.drums import transcribe_drums
@@ -195,21 +199,92 @@ def mt3_estimates(midi: Path) -> dict:
     return est
 
 
-def score(name: str, truth: dict, est: dict, home_map: dict,
-          align: bool = True, tol: float = ONSET_TOL) -> list[dict]:
-    shift = _global_shift(truth, est) if align else 0.0
-    if shift:
-        print(f"  [align] global est shift {shift:+.3f}s", flush=True)
-        # shift the TRUTH the other way: keeps every time positive
-        # (mir_eval refuses negative interval starts)
-        truth = {k: [(p, s - shift, d) for p, s, d in v]
-                 for k, v in truth.items()}
-    rows = []
+def _global_shift(truth: dict, est: dict, home_map: dict) -> float:
+    """Global est->truth shift: WEIGHTED median of per-instrument
+    shifts, weight = the instrument's peak match count. A pooled
+    histogram is fragile — junk est on a quiet stem drags the peak to
+    a spurious offset (Fulgrim: −0.49 s); an unweighted median lets
+    noise instruments (synth F1 0.04) outvote the band."""
+    pairs = []
     for inst, ref in truth.items():
         home = home_map.get(inst, (inst,))
         est_home = [n for h in home for n in est.get(h, [])]
-        foreign = [n for k, notes in est.items()
-                   if k not in home for n in notes]
+        if len(ref) >= 50 and len(est_home) >= 50:
+            pairs.append(_match_shift(ref, est_home))
+    if not pairs:   # tiny corpus: fall back to whatever exists
+        pairs = [_match_shift(
+            [n for notes in truth.values() for n in notes],
+            [n for notes in est.values() for n in notes])]
+    pairs.sort()
+    total = sum(w for _, w in pairs)
+    if total <= 0:
+        return 0.0
+    acc = 0.0
+    shift = pairs[-1][0]
+    for s, w in pairs:
+        acc += w
+        if acc >= total / 2:
+            shift = s
+            break
+    return shift if abs(shift) > 0.02 else 0.0
+
+
+def _best_alignment(ref: list, est: list, tol: float,
+                    span: float = 0.3) -> tuple[float, int]:
+    """Per-instrument alignment = argmax of strict F1 over (time
+    offset, octave convention). Both are REAL per-file artifacts: Suno
+    exports every instrument MIDI separately (Hero drums ~0, guitar
+    −65 ms, vocals −235 ms), and logs synth bass an octave above the
+    acoustic fundamental. Searched JOINTLY (a wrong octave zeroes F1
+    at every shift, hiding the true offset). Coarse 20 ms grid, then a
+    5 ms refine; every system on the stand gets the same favor."""
+    pad = span + 0.02   # keep every interval positive at any offset
+    est_pad = [(p, s + pad, dur) for p, s, dur in est]
+
+    def f_at(d: float, est_k: list) -> float:
+        ref_d = [(p, s + d + pad, dur) for p, s, dur in ref]
+        return _prf(ref_d, est_k, tol)[2]
+
+    best_f, best_d, best_k = -1.0, 0.0, 0
+    for k in (0, -12, 12):
+        est_k = ([(p + k, s, dur) for p, s, dur in est_pad]
+                 if k else est_pad)
+        for d in np.arange(-span, span + 0.01, 0.02):
+            f = f_at(float(d), est_k)
+            if f > best_f:
+                best_f, best_d, best_k = f, float(d), k
+    est_k = ([(p + best_k, s, dur) for p, s, dur in est_pad]
+             if best_k else est_pad)
+    for d in np.arange(best_d - 0.015, best_d + 0.016, 0.005):
+        f = f_at(float(d), est_k)
+        if f > best_f:
+            best_f, best_d = f, float(d)
+    return (-best_d if abs(best_d) > 0.02 else 0.0), best_k
+
+
+def score(name: str, truth: dict, est: dict, home_map: dict,
+          align: bool = True, tol: float = ONSET_TOL) -> list[dict]:
+    glob = _global_shift(truth, est, home_map) if align else 0.0
+    rows = []
+    for inst, ref_raw in truth.items():
+        home = home_map.get(inst, (inst,))
+        est_home = [n for h in home for n in est.get(h, [])]
+        shift, k_best = glob, 0
+        if align and len(ref_raw) >= 50 and len(est_home) >= 50:
+            shift, k_best = _best_alignment(ref_raw, est_home, tol)
+        if shift or k_best:
+            print(f"  [align] {inst}: est shift {shift:+.3f}s, "
+                  f"octave {k_best:+d}", flush=True)
+        # shift the TRUTH the other way; pad BOTH sides into positive
+        # territory (mir_eval refuses negative interval starts)
+        pad = max(0.0, -min((s - shift for _, s, _ in ref_raw),
+                            default=0.0))
+        ref = [(p, s - shift + pad, d) for p, s, d in ref_raw]
+        est_home = [(p, s + pad, d) for p, s, d in est_home]
+        foreign = [(p, s + pad, d) for k, notes in est.items()
+                   if k not in home for p, s, d in notes]
+        if k_best:
+            est_home = [(pp + k_best, ss, dd) for pp, ss, dd in est_home]
         p, r, f = _prf(ref, est_home, tol)
         _, _, pf = _prf(ref, est_home, PITCH_ONLY_TOL)
         leaked = sum(

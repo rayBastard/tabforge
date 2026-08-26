@@ -55,6 +55,9 @@ class NoteEvent:
     # semitone deviations from the nominal pitch, one per analysis frame
     # (empty when the transcriber provides no pitch-bend data)
     bends: list[float] = field(default_factory=list)
+    # rhythmic event with no reliable pitch (recitative vocals): written
+    # as a dead note (x) — the pitch only picks the staff position
+    dead: bool = False
 
     @property
     def end(self) -> float:
