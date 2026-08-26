@@ -144,7 +144,8 @@ class TestVerdictsFlow(unittest.TestCase):
                      "guitar": 12 / 4.9, "bass": 14 / 4.9}
         statuses = {"guitar": "found", "bass": "found", "piano": "absent",
                     "vocals": "found", "other": "quiet", "drums": "found"}
-        probs = {"guitar": {"Guitar": 0.802},
+        probs = {"guitar": {"Electric guitar": 0.260,
+                            "Distortion": 0.217, "Heavy metal": 0.094},
                  "vocals": {"Singing": 0.135, "Speech": 0.268,
                             "Rapping": 0.127},
                  "drums": {"Drum kit": 0.349},

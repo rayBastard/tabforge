@@ -41,8 +41,14 @@ FOUND_DENSITY = {"drums": 60.0}
 FOUND_DENSITY_DEFAULT = 20.0
 
 # thresholds tuned on the golden corpus (docs/eval.md, task 54):
-# healthy margins on all 18 card decisions across the three tracks
-GUITAR_MIN = 0.4        # Loken 0.80 / Hero 0.58 vs Fulgrim phantom 0.21
+# healthy margins on all 18 card decisions across the three tracks.
+# The guitar guard asks for DISTORTION-family evidence, not "guitar"
+# in general: the plain Guitar tag is unstable on phantom stems
+# (Fulgrim bleed tagged 0.21 on one separation, 0.45 on the next —
+# demucs shapes the bleed like a guitar), while the blindness domain
+# this guard exists for IS distorted metal guitar. Clean guitar that
+# really plays is heard by MT3 itself (density -> found).
+GUITAR_MIN = 0.30       # Loken 0.57 / Hero 0.49 vs Fulgrim 0.11-0.21
 VOICE_MIN = 0.25        # Hero 0.69 / Loken 0.53 vs Fulgrim 0.13
 DRUMS_MIN = 0.15        # Loken 0.38 / Hero 0.55 vs Fulgrim 0.03
 PIANO_MIN = 0.10
@@ -53,7 +59,7 @@ BASS_MAX_LEAK = 0.10
 MT3_TIMEOUT_S = 3600    # ~1x realtime on CPU; a 6-min track takes ~6 min
 
 _SELF_TAGS = {
-    "guitar": ("Guitar", "Electric guitar", "Acoustic guitar"),
+    "guitar": ("Electric guitar", "Distortion", "Heavy metal"),
     "vocals": ("Singing", "Speech", "Rapping"),
     "drums": ("Drum kit", "Drum", "Snare drum"),
     "piano": ("Piano", "Electric piano"),
@@ -110,10 +116,16 @@ def run_mt3(mix: Path, work_dir: Path,
     runner = Path(__file__).with_name("_mt3_run.py")
     progress("analyze", "MT3 arbiter: listening to the whole mix "
                         "(~1x realtime, first run loads the model)")
+    # a PyInstaller-launched parent leaks loader variables that would
+    # poison the OUTSIDE venv python (wrong dylibs, wrong stdlib)
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH",
+                        "PYTHONPATH", "PYTHONHOME", "_MEIPASS2")}
     try:
         subprocess.run(
             [str(python), str(runner), str(space), str(mix), str(out)],
-            check=True, capture_output=True, timeout=MT3_TIMEOUT_S)
+            check=True, capture_output=True, timeout=MT3_TIMEOUT_S,
+            env=env)
     except (subprocess.SubprocessError, OSError):
         progress("analyze", "MT3 arbiter unavailable — cards keep "
                             "their RMS-based statuses")
@@ -208,8 +220,9 @@ def verdicts(mix: Path, stems: dict[str, Path],
                 return True     # tagger off/unavailable: benefit of doubt
             if stem == "vocals":
                 return sum(probs.values()) >= VOICE_MIN
-            floor = {"guitar": GUITAR_MIN, "drums": DRUMS_MIN,
-                     "piano": PIANO_MIN}[stem]
+            if stem == "guitar":     # distortion-family evidence adds up
+                return sum(probs.values()) >= GUITAR_MIN
+            floor = {"drums": DRUMS_MIN, "piano": PIANO_MIN}[stem]
             return max(probs.values()) >= floor
         return check
 

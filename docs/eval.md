@@ -469,12 +469,19 @@ verdict rests on three signals, each measured on the golden corpus:
 1. **Density**: MT3 notes/min per card. ≥20/min (≥60 for drums) =
    found. Fulgrim piano 222/min; Loken guitar 2.5/min.
 2. **Self-tags** (PANNs probabilities that a stem sounds like
-   itself): Loken's metal guitar stem scores Guitar 0.80 vs Fulgrim's
-   phantom guitar stem (orchestra bleed shaped like a guitar) 0.21 —
-   threshold 0.4. Vocals: Singing+Speech+Rapping ≥ 0.25 (Hero 0.69 /
-   Loken 0.53 vs Fulgrim 0.13). Drums: kit-family ≥ 0.15 (0.35-0.55
-   vs 0.03). Dead end documented: top-2 tags alone could NOT separate
-   them — both stems tag "Guitar"; only the raw probabilities do.
+   itself). For guitar the guard asks for the DISTORTION family
+   (Electric guitar + Distortion + Heavy metal ≥ 0.30: Loken 0.57 /
+   Hero 0.49 vs Fulgrim 0.11-0.21), NOT "Guitar" in general — the
+   plain Guitar tag proved unstable on phantom stems across
+   separations (Fulgrim bleed: 0.21 on one demucs run, 0.45 on the
+   next; demucs shapes the bleed like a guitar), while the blindness
+   domain the guard exists for IS distorted metal; clean guitar that
+   really plays is heard by MT3 itself. Vocals:
+   Singing+Speech+Rapping ≥ 0.25 (Hero 0.69 / Loken 0.53 vs Fulgrim
+   0.13). Drums: kit-family ≥ 0.15 (0.35-0.55 vs 0.03). Dead ends
+   documented: top-2 tags alone (both stems tag "Guitar"), and the
+   leak-share test for guitar (0.56-0.92 EVERYWHERE — guitar stems
+   leak by construction, which is why the leak filter exempts them).
 3. **Leak share** for bass, where PANNs fails outright (synth bass
    scores Bass guitar 0.02 on REAL Hero bass): share of the stem's
    sampled notes whose harmonics live in another stem — Fulgrim's
@@ -483,7 +490,9 @@ verdict rests on three signals, each measured on the golden corpus:
    fraction (demucs bass stems are all ~0.85 <120 Hz by construction)
    and RMS share (phantom 0.101 vs real 0.113 — inseparable).
 
-**Acceptance (real MT3 MIDIs + real tagger + real leak, 12/12)**:
+**Acceptance (real MT3 MIDIs + real tagger + real leak, 17/17 —
+including a SECOND, fresh Fulgrim separation that fooled the original
+Guitar-tag guard)**:
 Fulgrim = piano found, strings found (other), guitar/bass/drums
 absent — matches the user's sheet music exactly; Loken = guitar
 uncertain (CHECKED — the blindness guard holds), bass/vocals kept,

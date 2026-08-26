@@ -15,8 +15,12 @@ hiddenimports = []
 # static analysis misses: demucs (remote model registry yamls), basic_pitch
 # (the bundled CoreML model), librosa (registry data), resampy (precomputed
 # filters), torchaudio backends, sklearn internals used by librosa.
+# panns_inference (+ its torchlibrosa dep) is the instrument tagger:
+# without it the desktop app loses "sounds like" AND the MT3 arbiter's
+# self-tag guard silently degrades to benefit-of-doubt
 for pkg in ("demucs", "basic_pitch", "librosa", "resampy",
-            "torchaudio", "coremltools"):
+            "torchaudio", "coremltools", "panns_inference",
+            "torchlibrosa"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b
