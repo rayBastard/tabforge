@@ -101,6 +101,9 @@ PROFILES: dict[str, InstrumentProfile] = {
     "bass": _BASS,
     "piano": _PIANO,
     "piano_left": replace(_PIANO, name="piano_left"),
+    # "other" written as keys gets the same grand staff: its left hand
+    # reads in bass clef via the shared *_left convention
+    "other_left": replace(_PIANO, name="other_left"),
     "vocals": _VOCALS,
     "drums": _DRUMS,
 }

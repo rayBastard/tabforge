@@ -39,7 +39,7 @@ from ..audio.transcribe import abort_separation
 from ..core.fretboard import TUNINGS
 from ..pipeline import (STAGES, AnalyzeResult, PipelineOptions,
                         apply_bulk_edit, apply_repin, export_reference,
-                        run_analyze, run_transcribe)
+                        run_analyze, run_analyze_midi, run_transcribe)
 
 if getattr(sys, "frozen", False):
     # PyInstaller bundle: data files are unpacked next to the binary
@@ -262,6 +262,37 @@ def _run_analyze(job: Job, audio: Path,
                 job.finished_at = time.time()
 
 
+def _run_analyze_midi_job(job: Job, midi: Path) -> None:
+    """The MIDI drop path: instant analyze, same job lifecycle."""
+    with job.lock:
+        if job.cancel.is_set():
+            job.status = "canceled"
+            job.finished_at = time.time()
+            return
+        job.status = "running"
+    try:
+        analyzed = run_analyze_midi(midi, job.dir / "out",
+                                    _progress_fn(job))
+        with job.lock:
+            job.analyzed = analyzed
+            job.bpm = analyzed.bpm
+            job.analysis = [a.to_dict()
+                            for a in analyzed.analysis.values()]
+            job.status = "analyzed"
+            job.stage = "analyze"
+    except Exception as e:  # noqa: BLE001 — shown to the user
+        with job.lock:
+            job.status = "error"
+            job.error = str(e)
+    finally:
+        with job.lock:
+            if job.status == "running":
+                job.status = "error"
+                job.error = job.error or "MIDI analysis crashed"
+            if job.status in ("error", "canceled"):
+                job.finished_at = time.time()
+
+
 def _run_transcribe(job: Job, opts: PipelineOptions) -> None:
     with job.lock:
         job.status = "running"
@@ -330,15 +361,24 @@ async def create_job(file: UploadFile,
     job.dir.mkdir(parents=True)
 
     audio = job.dir / _sanitized_upload_name(file.filename)
+    from ..audio.midi_in import is_midi, midi_project_facts
     try:
         await _save_upload(file, audio)
-        try:
-            duration = probe_duration(audio)
-        except HTTPException:
-            raise
-        except Exception:
-            raise HTTPException(
-                422, "This does not look like a decodable audio file")
+        if is_midi(audio):
+            # a dropped MIDI: notes at face value, no audio checks
+            try:
+                _bpm, _beats, duration = midi_project_facts(audio)
+            except Exception:
+                raise HTTPException(
+                    422, "This does not look like a readable MIDI file")
+        else:
+            try:
+                duration = probe_duration(audio)
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(
+                    422, "This does not look like a decodable audio file")
         if duration > MAX_DURATION_S:
             raise HTTPException(
                 413, f"Audio is too long ({duration:.0f}s; limit "
@@ -355,8 +395,11 @@ async def create_job(file: UploadFile,
                    if c.isalnum() or c in " ._-")[:60].strip()
     job.title = safe or "Track"
     JOBS[job.id] = job
-    POOL.submit(_run_analyze, job, audio, separator,
-                use_mt3 not in ("0", "false", "off", ""))
+    if is_midi(audio):
+        POOL.submit(_run_analyze_midi_job, job, audio)
+    else:
+        POOL.submit(_run_analyze, job, audio, separator,
+                    use_mt3 not in ("0", "false", "off", ""))
     return {"id": job.id}
 
 
@@ -376,7 +419,12 @@ async def transcribe_job(job_id: str, selection: dict) -> dict:
     stems = tuple(s for s in selection.get("stems", []) if isinstance(s, str))
     if not stems:
         raise HTTPException(400, "Pick at least one instrument")
-    unknown = [s for s in stems if s not in job.analyzed.stems]
+    # a MIDI project has no wav stems — its cards are the truth
+    known = (set(job.analyzed.stems)
+             if job.analyzed.stems else
+             {s for s, a in job.analyzed.analysis.items()
+              if a.status != "absent"})
+    unknown = [s for s in stems if s not in known]
     if unknown:
         raise HTTPException(400, f"Unknown stems: {', '.join(unknown)}")
     tuning = selection.get("tuning", "standard")
@@ -395,7 +443,7 @@ async def transcribe_job(job_id: str, selection: dict) -> dict:
     if not isinstance(treat, dict):
         raise HTTPException(400, "treat must be an object")
     for k, v in treat.items():
-        if k not in job.analyzed.stems:
+        if k not in known:
             raise HTTPException(400, f"Unknown stem in treat: {k}")
         if v not in ("guitar", "piano", "vocals"):
             raise HTTPException(400, f"Unknown role in treat: {v}")

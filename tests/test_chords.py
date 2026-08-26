@@ -99,18 +99,27 @@ class TestGp5ChordLabels(unittest.TestCase):
         from tabforge.core.instruments import profile_for
         from tabforge.export.writers import SongPart, export_song_gp5
 
+        from tabforge.core import TUNINGS as _T
         cfg = TabConfig()
+        keys_cfg = TabConfig(tuning=_T["notation_wide"], max_fret=24)
         notes = [NoteEvent(52 + i, i * 0.5, 0.4) for i in range(8)]
-        part = SongPart("guitar", assign_tab(notes, cfg), cfg,
-                        profile_for("guitar"))
+        # keys FIRST: the chords must still land on the guitar track —
+        # diagram headers belong over a tab, not over the keys
+        piano = SongPart("piano", assign_tab(notes, keys_cfg), keys_cfg,
+                         profile_for("piano"))
+        guitar = SongPart("guitar", assign_tab(notes, cfg), cfg,
+                          profile_for("guitar"))
         chords = [(0, "Em", [0, 2, 2, 0, 0, 0]),
                   (960 * 2, "C", [-1, 3, 2, 0, 1, 0])]
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "song.gp5"
-            export_song_gp5([part], path, bpm=120.0, chords=chords)
+            export_song_gp5([piano, guitar], path, bpm=120.0,
+                            chords=chords)
             song = gp.parse(str(path))
-        names = [b.effect.chord.name
-                 for m in song.tracks[0].measures
-                 for v in m.voices for b in v.beats
-                 if b.effect.chord is not None]
-        self.assertEqual(names, ["Em", "C"])
+
+        def names_of(track):
+            return [b.effect.chord.name for m in track.measures
+                    for v in m.voices for b in v.beats
+                    if b.effect.chord is not None]
+        self.assertEqual(names_of(song.tracks[0]), [])       # keys clean
+        self.assertEqual(names_of(song.tracks[1]), ["Em", "C"])

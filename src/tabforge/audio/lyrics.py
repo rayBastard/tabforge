@@ -39,8 +39,7 @@ def transcribe_lyrics(vocals: Path, language: str | None = None,
     from faster_whisper import WhisperModel
 
     progress("transcribe",
-             f"lyrics: listening to the vocal stem (whisper-{MODEL}, "
-             f"first run downloads the model)")
+             f"lyrics: transcribing the vocals (whisper-{MODEL})")
     model = WhisperModel(MODEL, device="cpu", compute_type="int8")
     segments, info = model.transcribe(
         str(vocals), language=language, word_timestamps=True,

@@ -109,6 +109,9 @@ class AnalyzeResult:
     tempo_reliable: bool
     key: object | None                     # keydetect.Key
     warnings: list[str] = field(default_factory=list)
+    # set when the project came from a dropped MIDI file: notes are
+    # taken from it at face value, no separation/transcription runs
+    midi_source: Path | None = None
 
 
 @dataclass(slots=True)
@@ -428,6 +431,54 @@ def run_analyze(audio: Path, out_dir: Path,
                          warnings=warnings)
 
 
+def run_analyze_midi(midi: Path, out_dir: Path,
+                     progress: ProgressFn = _noop) -> AnalyzeResult:
+    """The MIDI drop path: instrument cards, tempo grid and key from
+    the file itself — ready for the same picker and run_transcribe."""
+    from collections import Counter
+
+    from .audio.keydetect import detect_key_from_chroma
+    from .audio.midi_in import load_midi_classes, midi_project_facts
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    progress("analyze", "reading the MIDI file")
+    classes = load_midi_classes(midi)
+    bpm, beats, _dur = midi_project_facts(midi)
+    progress("analyze", f"tempo: {bpm:.1f} BPM (from the MIDI tempo map)")
+
+    key = None
+    pitched = [n for card, notes in classes.items() if card != "drums"
+               for n in notes]
+    if pitched:
+        chroma = [0.0] * 12
+        for n in pitched:
+            chroma[n.pitch % 12] += n.duration
+        try:
+            key = detect_key_from_chroma(chroma)
+            progress("analyze", f"key: {key.name}")
+        except Exception:  # noqa: BLE001
+            key = None
+
+    analysis: dict[str, StemAnalysis] = {}
+    for card in (*PITCHED_STEMS, "drums"):
+        notes = classes.get(card, [])
+        if not notes:
+            analysis[card] = StemAnalysis(card, "absent", 0.0)
+            continue
+        hist = Counter(n.pitch for n in notes)
+        pitches = sorted(hist)
+        analysis[card] = StemAnalysis(
+            card, "found", 1.0, note_count=len(notes),
+            min_pitch=None if card == "drums" else pitches[0],
+            max_pitch=None if card == "drums" else pitches[-1],
+            suggested_tuning=suggest_tuning(card, pitches[0]))
+        progress("analyze", f"{card}: {len(notes)} notes in the file")
+
+    return AnalyzeResult(stems={}, analysis=analysis, bpm=bpm,
+                         beats=beats, tempo_reliable=len(beats) > 3,
+                         key=key, midi_source=midi)
+
+
 def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
                    opts: PipelineOptions,
                    progress: ProgressFn = _noop) -> list[StemResult]:
@@ -436,18 +487,28 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
     from .audio import transcribe
     from .export import writers
 
+    # a dropped MIDI file: the classes ARE the notes — no wavs anywhere
+    midi_classes = None
+    if analyzed.midi_source is not None:
+        from .audio.midi_in import load_midi_classes
+        midi_classes = load_midi_classes(analyzed.midi_source)
+
     # demucs emits drums first; a score reads melodic-top, drums-bottom
     part_order = {name: i for i, name in enumerate((*PITCHED_STEMS, "drums"))}
+    source_map = (analyzed.stems if midi_classes is None
+                  else {k: analyzed.midi_source for k in midi_classes})
     stems = dict(sorted(
-        ((k, v) for k, v in analyzed.stems.items() if k in opts.stems),
+        ((k, v) for k, v in source_map.items() if k in opts.stems),
         key=lambda kv: part_order.get(kv[0], len(part_order))))
 
     # Everything the user did NOT pick becomes a play-along backing track.
-    backing_dir = out_dir / "backing"
-    backing_dir.mkdir(parents=True, exist_ok=True)
-    if transcribe.mix_backing(analyzed.stems, opts.stems,
-                              backing_dir / "backing.wav"):
-        progress("transcribe", "backing track mixed from unselected stems")
+    if midi_classes is None:
+        backing_dir = out_dir / "backing"
+        backing_dir.mkdir(parents=True, exist_ok=True)
+        if transcribe.mix_backing(analyzed.stems, opts.stems,
+                                  backing_dir / "backing.wav"):
+            progress("transcribe",
+                     "backing track mixed from unselected stems")
 
     bpm, beats, key = analyzed.bpm, analyzed.beats, analyzed.key
     if opts.tempo_scale != 1.0:
@@ -459,15 +520,16 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
     # shared spectrogram cache for the leak filter (one STFT per stem)
     from .audio.validate import _StemSpectra, filter_leaked_notes
     spectra = (_StemSpectra(analyzed.stems)
-               if opts.leak_margin > 0 else None)
+               if opts.leak_margin > 0 and analyzed.stems else None)
 
     results: list[StemResult] = []
     song_parts: list = []          # writers.SongPart, one per produced part
     for name, wav in stems.items():
         if name == "drums":
-            result = _transcribe_drums_part(out_dir, wav, analyzed, opts,
-                                            grid, warnings, song_parts,
-                                            progress)
+            result = _transcribe_drums_part(
+                out_dir, wav, analyzed, opts, grid, warnings, song_parts,
+                progress,
+                hits=(midi_classes or {}).get("drums"))
             if result is not None:
                 results.append(result)
             continue
@@ -482,7 +544,13 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
         from_mt3 = False
         src_profile = profile_for(opts.treat.get(name, name))
         source = src_profile.note_source
-        if (source in ("mt3", "muscriptor")
+        if midi_classes is not None:
+            notes = list(midi_classes.get(name, []))
+            progress("transcribe",
+                     f"{name}: {len(notes)} notes from the MIDI file")
+            from_mt3 = True          # face-value notes: no leak filter,
+                                     # no stem-spectrum confidence
+        elif (source in ("mt3", "muscriptor")
                 and opts.treat.get(name, name) == name):
             from .audio.arbiter import mt3_card_notes
             cache = out_dir / f"{source}.mid"
@@ -571,15 +639,17 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
             notes = quantize(notes, grid, strength=opts.quantize_strength)
 
         parts = [(name, notes)]
-        if name == "piano" and role_of(name) == "piano":
+        if role_of(name) == "piano":
             # a grand staff is two tracks: right hand (treble) and left
-            # hand (bass); the frontend renders them as one Keys view
+            # hand (bass); the frontend renders them as one Keys view.
+            # ANY keys-role part qualifies — "other" (strings, synths)
+            # reaches down below the treble staff just as often
             hands = split_hands(notes)
             if hands is not None:
                 right, left = hands
-                parts = [("piano", right), ("piano_left", left)]
+                parts = [(name, right), (f"{name}_left", left)]
                 progress("fingering",
-                         f"piano: grand staff — {len(right)} right-hand "
+                         f"{name}: grand staff — {len(right)} right-hand "
                          f"and {len(left)} left-hand notes")
         if name == "guitar" and role_of(name) == "guitar":
             # ALWAYS look for a second guitar part: the detector itself
@@ -598,6 +668,14 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
             progress("fingering", f"{part_name}: choosing the fingering")
             profile = profile_for(role_of(part_name))
             tuning_key = profile.tuning or opts.tuning
+            if profile.name == "bass":
+                # the card only SUGGESTED a 5-string before; the part
+                # itself must actually switch when the material dives
+                # below E1, or the low notes have no string to live on
+                pitched = [n.pitch for n in part_notes if not n.dead]
+                if pitched:
+                    tuning_key = suggest_tuning("bass", min(pitched)) \
+                        or tuning_key
             cfg = TabConfig(tuning=TUNINGS[tuning_key],
                             max_fret=profile.max_fret)
             legato = (detect_legato_pairs(part_notes)
@@ -665,7 +743,8 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
 
     # synced lyrics (task 60): whisper over the vocal stem — optional,
     # attaches the .lrc to the vocals card and feeds the gp5 channel
-    if "vocals" in stems and opts.with_lyrics:
+    if ("vocals" in stems and opts.with_lyrics
+            and analyzed.midi_source is None):
         try:
             _run_lyrics(out_dir, stems["vocals"], grid, opts, progress)
             lrc = out_dir / "vocals" / "lyrics.lrc"
@@ -730,15 +809,21 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
 def _transcribe_drums_part(out_dir: Path, wav: Path,
                            analyzed: AnalyzeResult, opts: PipelineOptions,
                            grid, warnings: list[str], song_parts: list,
-                           progress: ProgressFn) -> StemResult | None:
+                           progress: ProgressFn,
+                           hits: list | None = None) -> StemResult | None:
     """The percussion branch of run_transcribe: onsets instead of
     Basic Pitch, kit voices instead of a fretboard — so no fingering
-    search, no pins, and no parts.json entry (nothing to re-pin)."""
+    search, no pins, and no parts.json entry (nothing to re-pin).
+    `hits` (GM-pitched NoteEvents from a dropped MIDI) skips the
+    audio classifier entirely."""
     from .audio import drums as drum_mod
     from .export import writers
 
-    progress("transcribe", "drums: detecting hits")
-    hits = drum_mod.transcribe_drums(wav)
+    if hits is None:
+        progress("transcribe", "drums: detecting hits")
+        hits = drum_mod.transcribe_drums(wav)
+    else:
+        progress("transcribe", f"drums: {len(hits)} hits from the MIDI file")
     if not hits:
         progress("transcribe", "drums: no hits found, skipped")
         return None
@@ -998,15 +1083,17 @@ def _compute_chords(out_dir: Path, state: dict, beats: list[float],
             return grid.tick_index(start)
         return round(start * opts.subdivision / (60.0 / max(opts.tempo_scale, 1e-6)))
 
-    def frets_for(span) -> list[int] | None:
+    def frets_for(span) -> tuple[list[int] | None, list[int]]:
         # the shape the tab actually plays in this span (>=2 strings)
         for s in guitar_shapes:
             if span.start - 0.05 <= s.start < span.end:
                 if len(s.placements) >= 2:
                     frets = [-1] * n_strings
-                    for pl in s.placements:
+                    pitches = []
+                    for pl in sorted(s.placements, key=lambda x: x.string):
                         frets[pl.string] = pl.fret   # low string first
-                    return frets
+                        pitches.append(pl.note.pitch)
+                    return frets, pitches
         # keys-only harmony: a standard voicing via the same engine
         from .core import TabConfig
         root = 40 + ((span.guess.root - 4) % 12)
@@ -1020,19 +1107,23 @@ def _compute_chords(out_dir: Path, state: dict, beats: list[float],
         cfg = TabConfig()
         shapes = assign_tab(chord_notes, cfg)
         if not shapes or not shapes[0].placements:
-            return None
+            return None, [n.pitch for n in chord_notes]
         frets = [-1] * 6
-        for pl in shapes[0].placements:
+        pitches = []
+        for pl in sorted(shapes[0].placements, key=lambda x: x.string):
             frets[pl.string] = pl.fret               # low string first
-        return frets
+            pitches.append(pl.note.pitch)
+        return frets, pitches
 
     out = []
     for span in spans:
+        frets, pitches = frets_for(span)
         out.append({
             "start": span.start, "end": span.end,
             "qticks": int(tick_of(span.start) * 960 / opts.subdivision),
             "name": span.guess.name(flats),
-            "frets": frets_for(span),
+            "frets": frets,
+            "pitches": pitches,
         })
     (out_dir / "chords.json").write_text(json.dumps(out))
     return out

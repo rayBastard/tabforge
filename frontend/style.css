@@ -258,7 +258,9 @@ body {
   background: var(--plank);
   border: 1px solid var(--brass);
   border-radius: 10px;
-  padding: 12px 12px 10px;
+  /* the right padding keeps the text clear of the ✕ button */
+  padding: 12px 30px 10px 12px;
+  max-width: 250px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -269,9 +271,7 @@ body {
   background: none; border: 0; color: var(--bone-dim);
   font-size: 15px; cursor: pointer; padding: 4px;
 }
-.popover-x:hover { color: var(--bone);
-  max-width: 230px;
-}
+.popover-x:hover { color: var(--bone); }
 .note-popover p { margin: 0 0 4px; font-size: 13px; color: var(--bone-dim); }
 .note-popover button {
   min-height: 36px;
@@ -465,9 +465,10 @@ select {
   font-size: 12.5px;
   color: var(--bone-dim);
   min-height: 1.4em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* progress messages must be readable in full — wrap, never clip
+     ("MT3 arbiter: listening to the whole mix (~1x realtime, first…") */
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 .neck-log.error { color: var(--danger); }
 
@@ -513,6 +514,16 @@ select {
 
 .alphatab { background: #f6f1e7; border-radius: 8px; margin-top: 14px;
             position: relative; }
+
+/* keyboard note/octave labels */
+.v-key-label {
+  font-size: 7px; fill: #8d7c66; text-anchor: middle;
+  pointer-events: none; font-family: var(--mono);
+}
+.v-key-octave {
+  font-size: 8px; fill: #b58a2e; text-anchor: middle; font-weight: 700;
+  pointer-events: none; font-family: var(--mono);
+}
 
 /* synced lyrics (task 60) */
 .lyricsbar {
@@ -578,6 +589,14 @@ select {
   background: rgba(224, 122, 27, 0.28);
   outline: 2px solid rgba(224, 122, 27, 0.75);
 }
+.review-mark.current {
+  background: rgba(224, 122, 27, 0.45);
+  outline: 3px solid #e07a1b;
+  animation: review-pulse 1.1s ease-in-out infinite;
+}
+@keyframes review-pulse {
+  50% { outline-color: rgba(224, 122, 27, 0.25); }
+}
 
 .inst { display: flex; gap: 10px; align-items: center; min-height: 44px; }
 .inst.absent { opacity: .45; }
@@ -600,8 +619,12 @@ select {
   color: var(--wood);
   background: var(--brass);
   border: 0;
-  border-radius: 6px;
-  padding: 9px 14px;
+  border-radius: 8px;
+  /* one height with .transport-btn — the row must not look ragged */
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 14px;
   text-decoration: none;
   cursor: pointer;
 }

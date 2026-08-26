@@ -436,6 +436,7 @@ function fail(msg) {
 
 const STEM_NAMES = { guitar: "Guitar", bass: "Bass", vocals: "Vocals",
                      piano: "Keys", piano_left: "Keys · left hand",
+                     other_left: "Other · left hand",
                      drums: "Drums", other: "Other",
                      mix: "Full mix",
                      guitar_lead: "Guitar · Lead",
@@ -515,7 +516,8 @@ window._tf = unified;                 // exposed for tests
 
 // a grand staff is two TRACKS but one instrument: group them everywhere
 function groupOf(stem) {
-  return stem === "piano_left" ? "piano" : stem;
+  // any *_left is the bass-clef half of its instrument's grand staff
+  return stem.endsWith("_left") ? stem.slice(0, -5) : stem;
 }
 
 function renderView() {
@@ -601,7 +603,12 @@ function initUnifiedScore(job) {
       player: withPlayer ? {
         enablePlayer: true,
         soundFont: "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.4.0/dist/soundfont/sonivox.sf2",
-        scrollElement: $("#scoreMain"),
+        // the PAGE scrolls, not #scoreMain — pointing alphaTab at a
+        // non-scrolling element made the view snap back to the top
+        // instead of following the cursor; the offset clears the
+        // sticky transport + virtual bar
+        scrollElement: "html,body",
+        scrollOffsetY: -260,
       } : { enablePlayer: false },
     });
     api.scoreLoaded.on((score) => {
@@ -622,7 +629,7 @@ function initUnifiedScore(job) {
           }
         }
         // the left hand of the grand staff reads in bass clef
-        if (t.name === "piano_left") {
+        if (t.name.endsWith("_left")) {
           for (const stave of t.staves) {
             for (const b of stave.bars) b.clef = alphaTab.model.Clef.F4;
           }
@@ -923,6 +930,18 @@ function buildKeyboard(bar) {
     svg.appendChild(r);
     virtual.keyEls[m] = r;
   });
+  whites.forEach((m, i) => {             // note letters + octave marks
+    const t = svgEl("text", { x: i * kw + kw / 2, y: H - 4,
+                              class: "v-key-label" });
+    t.textContent = NOTE_LETTERS[m % 12];
+    svg.appendChild(t);
+    if (m % 12 === 0) {                  // every C carries its octave
+      const o = svgEl("text", { x: i * kw + kw / 2, y: H - 16,
+                                class: "v-key-octave" });
+      o.textContent = "C" + (Math.floor(m / 12) - 1);
+      svg.appendChild(o);
+    }
+  });
   whites.forEach((m, i) => {                     // blacks overlay
     if (m + 1 <= HI && isBlack(m + 1)) {
       const r = svgEl("rect", { x: (i + 0.65) * kw, y: 0,
@@ -1030,6 +1049,10 @@ function showNotePopover(note) {
   closePopover();
   const staff = note.beat.voice.bar.staff;
   const track = staff.track;
+  // the editor moves a note between STRINGS — keys, vocals and other
+  // notation-only parts have nothing to choose (their gp5 "tuning" is
+  // just the pitch-encoding trick, not real strings)
+  if (unified.tabByName[track.name] === false) return;
   const tuning = staff.tuning;                       // index 0 = string 1
   if (!tuning || !tuning.length) return;             // notation-only part
   // drums: pitches are kit voices, there is no string to move a hit to
@@ -1293,6 +1316,7 @@ async function loadChords(jobId) {
     chip.addEventListener("click", () => {
       if (unified.api) unified.api.tickPosition = c.qticks;
       highlightChord(i);
+      showChordOnVirtual(c);
     });
     chip.addEventListener("contextmenu", (e) => {
       e.preventDefault();
@@ -1347,6 +1371,43 @@ function showChordDiagram(chord, anchor) {
   pop.style.left = Math.min(r.left, window.innerWidth - 190) + "px";
   pop.style.top = (r.bottom + 8) + "px";
   document.body.appendChild(pop);
+}
+
+function showChordOnVirtual(c) {
+  /* light the chord on the ACTIVE virtual instrument: the tab's own
+     shape on the fretboard, the voicing's keys on the keyboard. The
+     lit elements join virtual.lit, so the next playback highlight
+     clears them naturally. */
+  if (!virtual.mode) return;
+  virtualLiveHighlight([]);              // clear dots + labels
+  const lit = [];
+  if (virtual.mode === "frets" && c.frets) {
+    const n = virtual.tuning.length;
+    let pi = 0;
+    c.frets.forEach((f, idx) => {        // idx 0 = the LOWEST string
+      if (f < 0 || idx >= n) return;
+      const row = n - 1 - idx;
+      const el = virtual.fretEls[row]?.[Math.min(f, MAX_VFRET)];
+      const pitch = (c.pitches || [])[pi++];
+      if (!el) return;
+      el.classList.add("live");
+      lit.push(el);
+      if (virtual.labelLayer && pitch != null) {
+        const t = svgEl("text", { x: el.getAttribute("cx"),
+                                  y: parseFloat(el.getAttribute("cy")) + 3.5,
+                                  class: "v-note-name" });
+        t.textContent = NOTE_LETTERS[pitch % 12];
+        virtual.labelLayer.appendChild(t);
+      }
+    });
+  } else if (virtual.mode === "keys" && (c.pitches || []).length) {
+    for (const p of c.pitches) {
+      const el = virtual.keyEls[p];
+      if (el) { el.classList.add("live"); lit.push(el); }
+    }
+  }
+  virtual.lit.push(...lit);
+  if (virtual.chordText) virtual.chordText.textContent = c.name;
 }
 
 function drawChordGrid(canvas, frets) {
@@ -1497,8 +1558,15 @@ function gotoReview(i) {
                % review.notes.length;
   const n = review.notes[review.idx];
   $("#reviewInfo").textContent =
-    `${review.idx + 1}/${review.notes.length} · conf ${n.conf.toFixed(2)}`;
+    `${review.idx + 1}/${review.notes.length} · confidence ${n.conf.toFixed(2)}`
+    + " — click the glowing note to fix it";
   if (unified.api) unified.api.tickPosition = n.qticks;
+  // the CURRENT disputed note stands out and the view rides to it
+  const marks = [...$("#unifiedScore").querySelectorAll(".review-mark")];
+  marks.forEach((m) =>
+    m.classList.toggle("current", +m.dataset.ri === review.idx));
+  const cur = marks.find((m) => +m.dataset.ri === review.idx);
+  if (cur) cur.scrollIntoView({ block: "center", behavior: "smooth" });
 }
 
 function drawReviewMarks() {
@@ -1511,7 +1579,7 @@ function drawReviewMarks() {
   // one grid slot of tolerance: the collision shift can move a beat
   const slot = 960 / 2;
   const disputed = review.notes;
-  const isDisputed = (ticks, pitch) => disputed.some(
+  const disputedIndex = (ticks, pitch) => disputed.findIndex(
     (n) => n.pitch === pitch && Math.abs(n.qticks - ticks) <= slot);
   for (const system of bl.staffSystems || []) {
     for (const mb of system.bars || []) {
@@ -1521,12 +1589,14 @@ function drawReviewMarks() {
           const ticks = beat.beat?.absolutePlaybackStart;
           for (const nb of beat.notes || []) {
             const pitch = nb.note?.realValue;
-            if (ticks == null || pitch == null
-                || !isDisputed(ticks, pitch)) continue;
+            if (ticks == null || pitch == null) continue;
+            const ri = disputedIndex(ticks, pitch);
+            if (ri < 0) continue;
             const r = nb.noteHeadBounds || nb.realBounds;
             if (!r) continue;
             const mark = document.createElement("div");
             mark.className = "review-mark";
+            mark.dataset.ri = String(ri);
             mark.style.left = (r.x - 3) + "px";
             mark.style.top = (r.y - 3) + "px";
             mark.style.width = (r.w + 6) + "px";
@@ -1537,6 +1607,9 @@ function drawReviewMarks() {
       }
     }
   }
+  // a re-render must not lose the "you are here" emphasis
+  atEl.querySelectorAll(".review-mark").forEach((m) =>
+    m.classList.toggle("current", +m.dataset.ri === review.idx));
 }
 
 $("#reviewBtn")?.addEventListener("click", () =>

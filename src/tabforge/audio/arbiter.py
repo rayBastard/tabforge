@@ -127,8 +127,8 @@ def run_mt3(mix: Path, work_dir: Path,
         progress("analyze", "MT3 arbiter: runner script missing from "
                             "this build — skipping verdicts")
         return None
-    progress("analyze", "MT3 arbiter: listening to the whole mix "
-                        "(~1x realtime, first run loads the model)")
+    progress("analyze", "MT3 arbiter: listening to the mix "
+                        "(~1x track length)")
     # a PyInstaller-launched parent leaks loader variables that would
     # poison the OUTSIDE venv python (wrong dylibs, wrong stdlib)
     env = {k: v for k, v in os.environ.items()

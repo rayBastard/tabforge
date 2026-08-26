@@ -393,7 +393,7 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
 
     _pad_empty_voices()
     if chords:
-        _attach_chords(gp, song, chords)
+        _attach_chords(gp, song, chords, parts)
     if lyrics:
         # the gp5 lyrics channel (task 60): (part_name, measure, text)
         part_name, measure, text = lyrics
@@ -414,12 +414,18 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
     _write_atomic(gp, song, path)
 
 
-def _attach_chords(gp, song, chords) -> None:
+def _attach_chords(gp, song, chords, parts) -> None:
     """Chord labels above the score (task 58): each (qticks, name,
-    strings-or-None) lands on the nearest beat of the first track —
-    alphaTab and Guitar Pro render them over the system, so one track
-    carries the labels for the whole song."""
-    track = song.tracks[0]
+    strings-or-None) lands on the nearest beat of the first GUITAR
+    track — chord grids belong over a tab, not over the keys or the
+    drums, and alphaTab renders the diagram header only for the
+    rendered track's own chords. A project with no fretted instrument
+    keeps its chord line in the app UI but gets no gp5 grids."""
+    idx = next((i for i, p in enumerate(parts)
+                if p.profile.tablature), None)
+    if idx is None:
+        return
+    track = song.tracks[idx]
     # a freshly built song has no beat.start values — walk the beats
     # accumulating durations to know where each one sits
     positions: list[tuple[int, object]] = []
