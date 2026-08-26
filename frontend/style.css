@@ -160,9 +160,41 @@ body {
 
 /* alphaTab's playback cursor and note highlighting are bare divs and
    svg classes — without author styles they are invisible */
-.at-cursor-bar { background: rgba(212,166,87,.12); }
-.at-cursor-beat { background: rgba(212,166,87,.85); width: 3px; }
+.at-cursor-bar { background: rgba(212,166,87,.10); border-radius: 6px; }
+.at-cursor-beat {
+  /* not a bare stick: a soft amber beam with a glowing head */
+  width: 3px;
+  border-radius: 3px;
+  background: linear-gradient(180deg,
+      rgba(212,166,87,.95), rgba(212,166,87,.35));
+  box-shadow: 0 0 8px 2px rgba(212,166,87,.45);
+}
 .at-highlight * { fill: #a86f1f; stroke: #a86f1f; }
+
+/* note hover / click feedback (a single floating overlay, no per-note
+   DOM — scores carry thousands of notes) */
+.note-hover {
+  position: absolute; pointer-events: none; z-index: 5;
+  border-radius: 50%;
+  border: 1.5px solid rgba(212,166,87,.85);
+  box-shadow: 0 0 6px rgba(212,166,87,.5);
+  transition: left .06s linear, top .06s linear;
+  animation: hover-in .12s ease-out;
+}
+@keyframes hover-in {
+  from { transform: scale(.6); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.note-flash {
+  position: absolute; pointer-events: none; z-index: 6;
+  border-radius: 50%;
+  outline: 3px solid var(--brass);
+  animation: note-flash .45s ease-out forwards;
+}
+@keyframes note-flash {
+  0% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
 
 .project-body {
   min-height: calc(100vh - 70px - 130px - 60px);

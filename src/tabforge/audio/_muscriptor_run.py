@@ -14,6 +14,11 @@ cache; code is MIT):
 import sys
 from pathlib import Path
 
+# python puts the script's own directory first on sys.path — where
+# tabforge's muscriptor.py WRAPPER lives, shadowing the real package
+_here = Path(__file__).resolve().parent
+sys.path = [p for p in sys.path if Path(p or ".").resolve() != _here]
+
 MIX = Path(sys.argv[1]).resolve()
 OUT = Path(sys.argv[2]).resolve()
 VARIANT = sys.argv[3] if len(sys.argv) > 3 else "small"

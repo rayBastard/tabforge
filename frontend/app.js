@@ -603,12 +603,10 @@ function initUnifiedScore(job) {
       player: withPlayer ? {
         enablePlayer: true,
         soundFont: "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.4.0/dist/soundfont/sonivox.sf2",
-        // the PAGE scrolls, not #scoreMain — pointing alphaTab at a
-        // non-scrolling element made the view snap back to the top
-        // instead of following the cursor; the offset clears the
-        // sticky transport + virtual bar
-        scrollElement: "html,body",
-        scrollOffsetY: -260,
+        // alphaTab's own auto-scroll fought the page layout (it kept
+        // snapping to the top) — we follow the cursor ourselves from
+        // playedBeatChanged, so its scrolling is OFF entirely
+        scrollMode: alphaTab.ScrollMode.Off,
       } : { enablePlayer: false },
     });
     api.scoreLoaded.on((score) => {
@@ -647,6 +645,7 @@ function initUnifiedScore(job) {
         const ci = chordAtTicks(beat.absolutePlaybackStart);
         if (ci >= 0) highlightChord(ci);
         updateLyricLine(beat.absolutePlaybackStart);
+        followCursor();
       });
       // the virtual instrument lights the notes of the ACTIVE tab
       api.activeBeatsChanged.on((args) => {
@@ -675,7 +674,7 @@ function initUnifiedScore(job) {
     api.playbackRangeChanged.on((e) =>
       setBulkSelection(e ? e.playbackRange : null));
     // review-mode marks live on top of the rendered score
-    api.renderFinished.on(() => drawReviewMarks());
+    api.renderFinished.on(() => { drawReviewMarks(); buildNoteIndex(); });
     return api;
   };
 
@@ -1148,6 +1147,101 @@ function reloadScore(songUrl) {
   unified.api.load(withToken(songUrl) +
     (songUrl.includes("?") ? "&" : "?") + "v=" + Date.now());
 }
+
+/* ---------- follow the playback cursor ------------------------------- */
+
+function followCursor() {
+  // ride along only while actually playing: a paused user scrolling
+  // around must never be yanked back
+  const api = unified.api;
+  if (!api || api.playerState !== alphaTab.synth.PlayerState.Playing)
+    return;
+  const cursor = $("#unifiedScore")?.querySelector(".at-cursor-beat");
+  if (!cursor) return;
+  const r = cursor.getBoundingClientRect();
+  if (!r.height) return;
+  // comfortable band: below the sticky bars, above the bottom tabbar
+  const top = 300, bottom = window.innerHeight - 140;
+  if (r.top < top || r.bottom > bottom) {
+    window.scrollTo({
+      top: window.scrollY + r.top - Math.min(360, window.innerHeight / 3),
+      behavior: "smooth",
+    });
+  }
+}
+
+/* ---------- note hover & click feedback ------------------------------ */
+
+const noteFx = { index: [], hoverEl: null };
+
+function buildNoteIndex() {
+  noteFx.index = [];
+  const api = unified.api;
+  if (!api) return;
+  const bl = api.renderer?.boundsLookup || api.boundsLookup;
+  if (!bl) return;
+  for (const system of bl.staffSystems || [])
+    for (const mb of system.bars || [])
+      for (const barBounds of mb.bars || [])
+        for (const beat of barBounds.beats || [])
+          for (const nb of beat.notes || []) {
+            const r = nb.noteHeadBounds || nb.realBounds;
+            if (r) noteFx.index.push({ r, note: nb.note });
+          }
+}
+
+function noteAt(x, y, pad = 3) {
+  for (const it of noteFx.index) {
+    const { r } = it;
+    if (x >= r.x - pad && x <= r.x + r.w + pad
+        && y >= r.y - pad && y <= r.y + r.h + pad) return it;
+  }
+  return null;
+}
+
+function placeOver(el, r, pad) {
+  // a fixed-size ring centered on the note HEAD: raw bounds can span
+  // the whole stem/beam and turned the marker into an ugly blob
+  const size = 15 + pad * 2;
+  el.style.left = (r.x + r.w / 2 - size / 2) + "px";
+  el.style.top = (r.y + r.h / 2 - size / 2) + "px";
+  el.style.width = size + "px";
+  el.style.height = size + "px";
+}
+
+(() => {
+  const atEl = $("#unifiedScore");
+  if (!atEl) return;
+  atEl.addEventListener("mousemove", (e) => {
+    const box = atEl.getBoundingClientRect();
+    const hit = noteAt(e.clientX - box.left, e.clientY - box.top);
+    if (!hit) {
+      if (noteFx.hoverEl) { noteFx.hoverEl.remove(); noteFx.hoverEl = null; }
+      atEl.style.cursor = "";
+      return;
+    }
+    if (!noteFx.hoverEl) {
+      noteFx.hoverEl = document.createElement("div");
+      noteFx.hoverEl.className = "note-hover";
+      atEl.appendChild(noteFx.hoverEl);
+    }
+    placeOver(noteFx.hoverEl, hit.r, 3);
+    atEl.style.cursor = "pointer";
+  });
+  atEl.addEventListener("mouseleave", () => {
+    if (noteFx.hoverEl) { noteFx.hoverEl.remove(); noteFx.hoverEl = null; }
+  });
+  atEl.addEventListener("mousedown", (e) => {
+    const box = atEl.getBoundingClientRect();
+    const hit = noteAt(e.clientX - box.left, e.clientY - box.top);
+    if (!hit) return;
+    const flash = document.createElement("div");
+    flash.className = "note-flash";
+    placeOver(flash, hit.r, 3);
+    atEl.appendChild(flash);
+    setTimeout(() => flash.remove(), 500);
+  });
+})();
 
 /* ---------- synced lyrics (task 60) ---------------------------------- */
 

@@ -642,3 +642,48 @@ in its MIDI (all 100) — dynamics come from the stem paths only.
 **The accuracy war's scoreboard, first golden baseline -> now:**
 guitar 0.24 -> 0.41, bass 0.34 -> 0.63, piano (broken) -> 0.58,
 drums 0.38 -> 0.55, vocals 0.13 -> 0.15 + honest dead-note crosses.
+
+## THE SOLO CORPUS — 2026-08-26 ("only instruments/", MIDI truth by the user)
+
+Eight single-instrument tracks measure transcription WITHOUT the
+separation variable. Detection matrix first: the real instrument's
+card survives on 7 of 8 (Bass, Vocal, Synth2 perfectly clean — one
+card, no phantoms). Failures: the catch-basin "other" card sticks to
+solo tracks (Keyboard, Guitar); a phantom bass/guitar "uncertain"
+survives on Drums/Synth; and PERCUSSION is the worst case — ethnic
+percussion matches neither MT3's kit notion nor the drums own-match
+guard, so the real instrument is killed while phantoms live. That
+failure is direct fuel for task 62's "Solo track detected" card.
+
+Multi-path scoring against the user's MIDI truth (strict 50 ms,
+per-instrument F1-argmax alignment):
+
+```
+                       Keyboard  Guitar   Bass   Synth(pad)
+muscriptor (mix)          —       0.41    0.68     0.07
+mt3 (mix)                0.59     0.02    0.02     0.27
+solo: BP/mono on mix     0.49     0.31    0.59*    0.19
+demucs stem + BP         0.54     0.33    0.33     0.18
+                                          *mono path
+```
+
+Verdicts:
+- **The routing table survives the solo corpus intact**: keys->mt3
+  (0.59), guitar->muscriptor (0.41), bass->muscriptor (0.68, P 0.79;
+  the mono path is a strong 0.59 fallback). MT3 stays blind on
+  guitar/bass even solo; MuScriptor is blind on synth PADS (0.07).
+- **Task 62's headline question answered: demucs eats NOTHING on
+  clean material** — the stem path matches or beats raw-mix BP on
+  every instrument (+0.02 / 0.00 / −0.01). Solo mode's value is
+  time (the demucs stage), card sanity, and honesty — not accuracy.
+- **Keyboard excess anatomy**: of MT3's 384 notes, 234 carry octave
+  twins (the patch's real doubling) and 125 are fast re-articulations;
+  the truth logs 188 single notes. All four dedup/merge variants
+  measured WORSE than shipping as-is (0.59 vs 0.47-0.57) — the truth
+  matches both octaves partially, so any blind collapse loses more
+  hits than it gains precision. Same lesson as the golden bass:
+  octave dedup stays a HUMAN mass-editor op.
+- Tension noted: solo synth pads score mt3 0.27 vs stem 0.18 (+0.09),
+  but golden says +0.02 — below the switch rule. Task 62 may route
+  "other"->mt3 in SOLO MODE only (the profile supports split
+  defaults).
