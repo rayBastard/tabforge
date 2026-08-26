@@ -145,6 +145,12 @@ async function fetchLimits() {
   return serverLimits;
 }
 
+// the MT3-arbiter checkbox only appears when the server has an install
+(async () => {
+  const limits = await fetchLimits();
+  if (limits && limits.mt3_available) $("#mt3Row").hidden = false;
+})();
+
 async function openProjectFile() {
   goBtn.disabled = true;
   neck.hidden = false;
@@ -189,6 +195,7 @@ async function startAnalyze() {
   form.append("file", pickedFile);
   form.append("separator",
               $("#hqSeparation")?.checked ? "roformer" : "demucs");
+  form.append("use_mt3", $("#mt3Arbiter")?.checked ? "1" : "0");
   try {
     const res = await apiFetch("/api/jobs", { method: "POST", body: form });
     if (!res.ok) throw new Error(await errorDetail(res));

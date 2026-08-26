@@ -224,7 +224,8 @@ RMS_ABSENT = 0.002
 def run_analyze(audio: Path, out_dir: Path,
                 progress: ProgressFn = _noop,
                 cancel_token: object | None = None,
-                separator: str = "demucs") -> AnalyzeResult:
+                separator: str = "demucs",
+                use_mt3: bool = True) -> AnalyzeResult:
     """Separate + quick per-stem facts + shared tempo/key. No demucs work
     is ever repeated after this: the stems stay in out_dir/stems.
 
@@ -319,7 +320,7 @@ def run_analyze(audio: Path, out_dir: Path,
     # only when a YourMT3+ install is configured (TABFORGE_MT3_DIR).
     try:
         from .audio import arbiter
-        if arbiter.find_mt3() is not None:
+        if use_mt3 and arbiter.find_mt3() is not None:
             import soundfile as sf
             info = sf.info(str(demucs_input))
             duration_min = info.frames / info.samplerate / 60

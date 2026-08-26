@@ -75,17 +75,24 @@ def _mt3_card(program: int, is_drum: bool) -> str:
     return "other"          # strings, brass, synth, everything else
 
 
+# default install locations probed when TABFORGE_MT3_DIR is unset —
+# a Finder-launched app gets no shell environment, so the arbiter must
+# find a standard install on its own
+_DEFAULT_MT3_DIRS = ("~/mt3", "~/.tabforge/mt3")
+
+
 def find_mt3() -> tuple[Path, Path] | None:
-    """(ymt3space, venv python) when a YourMT3+ install is configured."""
-    root = os.environ.get("TABFORGE_MT3_DIR")
-    if not root:
-        return None
-    root = Path(root).expanduser()
-    space = root / "ymt3space"
-    python = Path(os.environ.get("TABFORGE_MT3_PYTHON",
-                                 root / "venv-mt3" / "bin" / "python"))
-    if space.is_dir() and python.exists():
-        return space, python
+    """(ymt3space, venv python) when a YourMT3+ install is present.
+    TABFORGE_MT3_DIR wins; otherwise the default locations are probed."""
+    env = os.environ.get("TABFORGE_MT3_DIR")
+    roots = [env] if env else list(_DEFAULT_MT3_DIRS)
+    for root in roots:
+        root = Path(root).expanduser()
+        space = root / "ymt3space"
+        python = Path(os.environ.get(
+            "TABFORGE_MT3_PYTHON", root / "venv-mt3" / "bin" / "python"))
+        if space.is_dir() and python.exists():
+            return space, python
     return None
 
 

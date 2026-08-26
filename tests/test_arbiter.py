@@ -90,17 +90,37 @@ class TestJudge(unittest.TestCase):
 
 
 class TestGracefulDegradation(unittest.TestCase):
-    def test_no_env_no_arbiter(self):
-        with mock.patch.dict("os.environ", {}, clear=True):
+    def test_no_env_no_defaults_no_arbiter(self):
+        with mock.patch.dict("os.environ", {}, clear=True), \
+             mock.patch.object(arbiter, "_DEFAULT_MT3_DIRS", ()):
             self.assertIsNone(arbiter.find_mt3())
 
     def test_run_mt3_without_install(self):
         import tempfile
         from pathlib import Path
         with mock.patch.dict("os.environ", {}, clear=True), \
+             mock.patch.object(arbiter, "_DEFAULT_MT3_DIRS", ()), \
              tempfile.TemporaryDirectory() as d:
             self.assertIsNone(
                 arbiter.run_mt3(Path(d) / "mix.wav", Path(d)))
+
+    def test_default_location_is_probed(self):
+        """A Finder-launched app has no shell env — the standard
+        install location must be found without TABFORGE_MT3_DIR."""
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "mt3"
+            (root / "ymt3space").mkdir(parents=True)
+            py = root / "venv-mt3" / "bin" / "python"
+            py.parent.mkdir(parents=True)
+            py.touch()
+            with mock.patch.dict("os.environ", {}, clear=True), \
+                 mock.patch.object(arbiter, "_DEFAULT_MT3_DIRS",
+                                   (str(root),)):
+                found = arbiter.find_mt3()
+        self.assertIsNotNone(found)
+        self.assertEqual(found[0].name, "ymt3space")
 
 
 class TestMt3Card(unittest.TestCase):

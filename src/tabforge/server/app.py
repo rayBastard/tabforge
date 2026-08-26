@@ -225,7 +225,8 @@ def _progress_fn(job: Job):
 
 
 def _run_analyze(job: Job, audio: Path,
-                 separator: str = SEPARATOR) -> None:
+                 separator: str = SEPARATOR,
+                 use_mt3: bool = True) -> None:
     with job.lock:
         if job.cancel.is_set():          # canceled while still queued
             job.status = "canceled"
@@ -234,7 +235,8 @@ def _run_analyze(job: Job, audio: Path,
         job.status = "running"
     try:
         analyzed = run_analyze(audio, job.dir / "out", _progress_fn(job),
-                               cancel_token=job.id, separator=separator)
+                               cancel_token=job.id, separator=separator,
+                               use_mt3=use_mt3)
         with job.lock:
             job.analyzed = analyzed
             job.bpm = analyzed.bpm
@@ -309,7 +311,8 @@ def _run_transcribe(job: Job, opts: PipelineOptions) -> None:
 
 @app.post("/api/jobs")
 async def create_job(file: UploadFile,
-                     separator: str = Form(SEPARATOR)) -> dict:
+                     separator: str = Form(SEPARATOR),
+                     use_mt3: str = Form("1")) -> dict:
     """Step 1: upload + separation + analysis. The job stops at status
     'analyzed' with per-instrument facts; step 2 is POST .../transcribe.
     separator: 'demucs' (fast, default) or 'roformer' (BS-Roformer-SW —
@@ -352,7 +355,8 @@ async def create_job(file: UploadFile,
                    if c.isalnum() or c in " ._-")[:60].strip()
     job.title = safe or "Track"
     JOBS[job.id] = job
-    POOL.submit(_run_analyze, job, audio, separator)
+    POOL.submit(_run_analyze, job, audio, separator,
+                use_mt3 not in ("0", "false", "off", ""))
     return {"id": job.id}
 
 
@@ -688,8 +692,10 @@ async def tunings() -> dict:
 async def limits() -> dict:
     """The UI checks the file size BEFORE uploading — rejecting a 45 MB
     wav after a full upload is a bad way to say no."""
+    from ..audio.arbiter import find_mt3
     return {"max_upload_mb": MAX_UPLOAD_BYTES // 1_000_000,
-            "max_duration_s": MAX_DURATION_S}
+            "max_duration_s": MAX_DURATION_S,
+            "mt3_available": find_mt3() is not None}
 
 
 # the frontend goes last so it doesn't intercept /api/*

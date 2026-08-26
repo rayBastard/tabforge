@@ -48,6 +48,13 @@
       much slower
     </label>
 
+    <!-- shown only when the server actually finds a YourMT3+ install -->
+    <label class="mixrow" id="mt3Row" hidden>
+      <input type="checkbox" id="mt3Arbiter" checked>
+      MT3 arbiter — a second opinion on which instruments really play
+      (adds ~1× the track length to the analysis)
+    </label>
+
     <button id="go" class="go" disabled>Analyze track</button>
     <p class="hint" id="hint">First the track is separated and analyzed —
        then you choose what to transcribe. The first run downloads the
