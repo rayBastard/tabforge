@@ -610,5 +610,35 @@ the first (and per the >=0.05 rule, so far the only) switch:
 - Vocals stay on the mono path: MT3's vocal wins (Loken 0.28 vs our
   0.19) are entangled with its "other" class — not cleanly routable.
 
-Part 2 (MuScriptor A/B) blocked on gated weights — awaiting the
-user's HF license acceptance; harness ready in a scratch venv.
+## MUSCRIPTOR — 2026-08-26 (task 57, part 2: the war's endgame)
+
+MuScriptor-small (Kyutai/Mirelo 2026, 103M params, ~393 MB, code MIT,
+weights CC BY-NC 4.0 gated on HF) transcribes the whole mix at ~0.4x
+realtime on this machine — and unlike MT3 it is NOT blind on heavy
+Suno material. Frozen-ruler A/B on the three golden tracks:
+
+```
+inst     BP-stack   MT3   MuScriptor   routed to
+bass       0.43     0.01    0.62       muscriptor (Loken 0.90: P .89/R .91)
+guitar     0.29     0.05    0.41       muscriptor (Loken 0.51 at P 0.90)
+piano      0.44     0.57    0.60       mt3 (+0.02 < the 0.05 rule)
+drums      0.55     0.43    0.56       our classifier (richer voices too)
+vocals     0.15     0.21*   0.01       mono path (MuScriptor blind on
+                                       semi-recitative; *MT3's win is
+                                       entangled with its 'other' class)
+synth      0.04     0.06    0.06       stem (nothing helps yet)
+```
+
+End-to-end through the full pipeline (fingering, exports, no-snap)
+the routed numbers hold exactly: bass 0.63 / guitar 0.41 / piano
+0.58. Integration mirrors MT3: an external venv (~/muscriptor,
+TABFORGE_MUSCRIPTOR_DIR override) driven by a subprocess runner —
+installing into tabforge's own venv is deliberately not offered,
+MuScriptor's pins would downgrade torchaudio under demucs. Weights
+are never bundled (non-commercial license); without the install every
+routed instrument silently falls back to its stem path. No velocity
+in its MIDI (all 100) — dynamics come from the stem paths only.
+
+**The accuracy war's scoreboard, first golden baseline -> now:**
+guitar 0.24 -> 0.41, bass 0.34 -> 0.63, piano (broken) -> 0.58,
+drums 0.38 -> 0.55, vocals 0.13 -> 0.15 + honest dead-note crosses.

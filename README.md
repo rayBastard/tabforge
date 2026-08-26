@@ -179,6 +179,31 @@ python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\act
 pip install -e ".[all]"
 ```
 
+### Optional whole-mix models (better notes, separate installs)
+
+Two external models can take over transcription for specific
+instruments. Both are optional: without them TabForge falls back to
+its built-in per-stem transcription.
+
+**MuScriptor** (guitar + bass; the biggest accuracy win on our stand —
+bass F1 0.43→0.62, guitar 0.29→0.41). Code is MIT, but the **weights
+are CC BY-NC 4.0 (non-commercial)** and gated on Hugging Face: accept
+the license at huggingface.co/MuScriptor/muscriptor-small, log in with
+`huggingface-cli login`, then:
+
+```bash
+python3.11 -m venv ~/muscriptor/venv
+~/muscriptor/venv/bin/pip install muscriptor
+```
+
+It lives in its own venv on purpose — its dependency pins clash with
+demucs. `TABFORGE_MUSCRIPTOR_DIR` overrides the location. Note the
+non-commercial weight license applies to what you do with the output.
+
+**YourMT3+** (keys + the instrument-presence arbiter on the analyze
+screen): see `scripts/mt3_experiment/README.md` for the install
+recipe; point `TABFORGE_MT3_DIR` at it (default `~/mt3`).
+
 ## Running
 
 ```bash

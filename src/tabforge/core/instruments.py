@@ -49,16 +49,22 @@ class InstrumentProfile:
         return self.allow_hammer or self.legato_as_slur
 
 
+# note_source="muscriptor": on golden its whole-mix guitar/bass beat
+# every stem path we have — guitar 0.29->0.41 (Loken 0.51 at P 0.90),
+# bass 0.43->0.62 (Loken 0.90) — and unlike MT3 it is NOT blind on
+# heavy material. Optional install (CC BY-NC weights): without it the
+# stem paths below keep the job.
 _GUITAR = InstrumentProfile(
     name="guitar", midi_program=25, tablature=True,   # 25 = steel guitar
     allow_bends=True, allow_vibrato=True, allow_slides=True,
-    allow_hammer=True, legato_as_slur=False, tuning=None)
+    allow_hammer=True, legato_as_slur=False, tuning=None,
+    note_source="muscriptor")
 
 _BASS = InstrumentProfile(
     name="bass", midi_program=33, tablature=True,
     allow_bends=True, allow_vibrato=True, allow_slides=True,
     allow_hammer=True, legato_as_slur=False, tuning="bass_4", max_fret=20,
-    transcriber="mono")
+    transcriber="mono", note_source="muscriptor")
 
 # Keys: no strings — no bends, slides, or hammer-ons; legato is written
 # as a slur, and a tab staff makes no sense.

@@ -378,6 +378,17 @@ def run_analyze(audio: Path, out_dir: Path,
         progress("analyze", "MT3 arbiter failed — cards keep their "
                             "RMS-based statuses")
 
+    # MuScriptor whole-mix transcription (task 57): cached once here —
+    # bass and guitar route to it when the user has an install
+    # (weights are CC BY-NC, never bundled; silently absent otherwise)
+    try:
+        from .audio.muscriptor import find_muscriptor, run_muscriptor
+        if find_muscriptor() is not None:
+            run_muscriptor(demucs_input, out_dir, progress)
+    except Exception:  # noqa: BLE001 — optional backend, never fatal
+        progress("analyze", "MuScriptor failed — stem transcription "
+                            "will keep its instruments")
+
     # Half-time detector (task 56): on DRUMLESS keys-led material the
     # beat tracker loves double time (Fulgrim: 152 vs the sheet's 76).
     # When the confirmed lead keys move at the BEAT rate of the chosen
@@ -448,21 +459,24 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
         progress("transcribe", f"{name}: detecting notes")
         preset = transcribe.PRESETS.get(name, {})
         # note_source routing (task 57): an instrument whose profile
-        # trusts the whole-mix MT3 transcription takes its notes from
-        # the arbiter's cached mt3.mid instead of the separated stem —
-        # only for the stem that IS that card (an "other" stem treated
-        # as keys must not duplicate the piano's notes)
+        # trusts a whole-mix model takes its notes from that model's
+        # cached MIDI instead of the separated stem — only for the
+        # stem that IS that card (an "other" stem treated as keys must
+        # not duplicate the piano's notes). Missing cache = silent
+        # fallback to the stem path.
         from_mt3 = False
         src_profile = profile_for(opts.treat.get(name, name))
-        if (src_profile.note_source == "mt3"
+        source = src_profile.note_source
+        if (source in ("mt3", "muscriptor")
                 and opts.treat.get(name, name) == name):
             from .audio.arbiter import mt3_card_notes
-            mt3_notes = mt3_card_notes(out_dir / "mt3.mid", name)
-            if mt3_notes:
+            cache = out_dir / f"{source}.mid"
+            mix_notes = mt3_card_notes(cache, name)
+            if mix_notes:
                 progress("transcribe",
-                         f"{name}: {len(mt3_notes)} notes from the "
-                         f"whole-mix MT3 transcription")
-                notes = mt3_notes
+                         f"{name}: {len(mix_notes)} notes from the "
+                         f"whole-mix {source} transcription")
+                notes = mix_notes
                 from_mt3 = True
         if from_mt3:
             pass
