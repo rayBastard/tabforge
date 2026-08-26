@@ -144,18 +144,21 @@ class TestVerdictsFlow(unittest.TestCase):
                      "guitar": 12 / 4.9, "bass": 14 / 4.9}
         statuses = {"guitar": "found", "bass": "found", "piano": "absent",
                     "vocals": "found", "other": "quiet", "drums": "found"}
-        probs = {"guitar": {"Electric guitar": 0.260,
-                            "Distortion": 0.217, "Heavy metal": 0.094},
-                 "vocals": {"Singing": 0.135, "Speech": 0.268,
+        probs = {"vocals": {"Singing": 0.135, "Speech": 0.268,
                             "Rapping": 0.127},
-                 "drums": {"Drum kit": 0.349},
                  "piano": {"Piano": 0.001}}
         with mock.patch.object(arbiter, "run_mt3",
                                return_value=Path("x.mid")), \
              mock.patch.object(arbiter, "mt3_densities",
                                return_value=densities), \
+             mock.patch.object(arbiter, "mt3_note_pools",
+                               return_value={}), \
              mock.patch.object(arbiter, "_bass_leak_share",
                                return_value=0.04), \
+             mock.patch.object(arbiter, "_guitar_foreign_match",
+                               return_value=0.05), \
+             mock.patch.object(arbiter, "_drums_own_match",
+                               return_value=0.98), \
              mock.patch("tabforge.audio.tagging.tag_probs",
                         side_effect=lambda w, wanted: probs.get(
                             Path(w).stem, {})):

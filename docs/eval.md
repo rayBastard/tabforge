@@ -468,20 +468,27 @@ verdict rests on three signals, each measured on the golden corpus:
 
 1. **Density**: MT3 notes/min per card. ≥20/min (≥60 for drums) =
    found. Fulgrim piano 222/min; Loken guitar 2.5/min.
-2. **Self-tags** (PANNs probabilities that a stem sounds like
-   itself). For guitar the guard asks for the DISTORTION family
-   (Electric guitar + Distortion + Heavy metal ≥ 0.30: Loken 0.57 /
-   Hero 0.49 vs Fulgrim 0.11-0.21), NOT "Guitar" in general — the
-   plain Guitar tag proved unstable on phantom stems across
-   separations (Fulgrim bleed: 0.21 on one demucs run, 0.45 on the
-   next; demucs shapes the bleed like a guitar), while the blindness
-   domain the guard exists for IS distorted metal; clean guitar that
-   really plays is heard by MT3 itself. Vocals:
+2. **Content matching against MT3's own mix transcription** (guitar
+   and drums). The key insight, found when the user's live Fulgrim
+   run defeated two successive tag-based guards: MT3 DID hear the
+   phantom guitar stem's melody — and filed it under piano. So the
+   guitar guard transcribes a 30 s stem sample and measures the share
+   of its notes that MT3 heard as ANOTHER pitched instrument
+   (time + pitch-class): phantom 0.36/0.37 on two independent
+   separations vs real guitar 0.05 (Loken) / 0.12 (Hero) — threshold
+   0.25. Drums mirror it with onsets: a real kit's hits are covered
+   by MT3's own drum notes (0.93-0.98) even when MT3 undercounts,
+   Fulgrim's phantom (piano attacks) is not (0.28-0.31) — threshold
+   0.6. Deterministic (MT3 + BP have no run-to-run randomness), which
+   PANNs tags on bleed stems are NOT: the Guitar tag on the SAME
+   phantom swung 0.21 → 0.45 between demucs runs (random shifts), and
+   the distortion-family variant swung past its threshold too. Tags
+   survive only where they are semantic rather than timbral — vocals:
    Singing+Speech+Rapping ≥ 0.25 (Hero 0.69 / Loken 0.53 vs Fulgrim
-   0.13). Drums: kit-family ≥ 0.15 (0.35-0.55 vs 0.03). Dead ends
-   documented: top-2 tags alone (both stems tag "Guitar"), and the
-   leak-share test for guitar (0.56-0.92 EVERYWHERE — guitar stems
-   leak by construction, which is why the leak filter exempts them).
+   0.13). Other dead ends documented: top-2 tags (both stems tag
+   "Guitar"), leak-share for guitar (0.56-0.92 EVERYWHERE — guitar
+   stems leak by construction, which is why the leak filter exempts
+   them).
 3. **Leak share** for bass, where PANNs fails outright (synth bass
    scores Bass guitar 0.02 on REAL Hero bass): share of the stem's
    sampled notes whose harmonics live in another stem — Fulgrim's

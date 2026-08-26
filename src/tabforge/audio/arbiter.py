@@ -40,17 +40,20 @@ from pathlib import Path
 FOUND_DENSITY = {"drums": 60.0}
 FOUND_DENSITY_DEFAULT = 20.0
 
-# thresholds tuned on the golden corpus (docs/eval.md, task 54):
-# healthy margins on all 18 card decisions across the three tracks.
-# The guitar guard asks for DISTORTION-family evidence, not "guitar"
-# in general: the plain Guitar tag is unstable on phantom stems
-# (Fulgrim bleed tagged 0.21 on one separation, 0.45 on the next —
-# demucs shapes the bleed like a guitar), while the blindness domain
-# this guard exists for IS distorted metal guitar. Clean guitar that
-# really plays is heard by MT3 itself (density -> found).
-GUITAR_MIN = 0.30       # Loken 0.57 / Hero 0.49 vs Fulgrim 0.11-0.21
-VOICE_MIN = 0.25        # Hero 0.69 / Loken 0.53 vs Fulgrim 0.13
-DRUMS_MIN = 0.15        # Loken 0.38 / Hero 0.55 vs Fulgrim 0.03
+# thresholds tuned on the golden corpus (docs/eval.md, task 54) and
+# REVALIDATED on a second, fresh separation of each track: PANNs tag
+# probabilities on bleed stems proved unstable across demucs runs
+# (Fulgrim's phantom guitar: Guitar 0.21 on one separation, 0.45 on
+# the next), so guitar and drums use CONTENT matching against MT3's
+# own mix-level transcription instead — deterministic and stable
+# (phantom guitar foreign-match 0.36/0.37 on two separations).
+GUITAR_FOREIGN_MAX = 0.25   # phantom 0.36-0.37 vs real 0.05-0.12:
+                            # "MT3 heard this stem's melody — and filed
+                            # it under another instrument" = bleed
+DRUMS_OWN_MIN = 0.6         # real kits 0.93-0.98 (MT3 covers the hits)
+                            # vs Fulgrim's phantom 0.28-0.31
+VOICE_MIN = 0.25        # speech-family tags ARE stable (semantic, not
+                        # timbral): Hero 0.69 / Loken 0.53 vs 0.13
 PIANO_MIN = 0.10
 # measured on the 30 s analyze sample: real bass 0.006 (Loken) /
 # 0.047 (Hero) vs Fulgrim's phantom (piano left hand) 0.135
@@ -59,9 +62,7 @@ BASS_MAX_LEAK = 0.10
 MT3_TIMEOUT_S = 3600    # ~1x realtime on CPU; a 6-min track takes ~6 min
 
 _SELF_TAGS = {
-    "guitar": ("Electric guitar", "Distortion", "Heavy metal"),
     "vocals": ("Singing", "Speech", "Rapping"),
-    "drums": ("Drum kit", "Drum", "Snare drum"),
     "piano": ("Piano", "Electric piano"),
 }
 
@@ -156,40 +157,114 @@ def mt3_densities(midi: Path, duration_min: float) -> dict[str, float]:
     return {card: n / minutes for card, n in counts.items()}
 
 
-def _bass_leak_share(stems: dict[str, Path], sample_s: float = 30.0
-                     ) -> float:
+def mt3_note_pools(midi: Path) -> dict[str, list[tuple[int, float]]]:
+    """(pitch, onset) pairs per analyze card from the MT3 MIDI."""
+    import pretty_midi
+
+    pools: dict[str, list[tuple[int, float]]] = {}
+    pm = pretty_midi.PrettyMIDI(str(midi))
+    for track in pm.instruments:
+        card = _mt3_card(track.program, track.is_drum)
+        pools.setdefault(card, []).extend(
+            (n.pitch, n.start) for n in track.notes)
+    return pools
+
+
+def _sample_notes(wav: Path, preset: dict, max_polyphony: int = 6,
+                  sample_s: float = 30.0) -> list:
+    """Basic Pitch on the middle sample_s of a stem, note times shifted
+    back to the ABSOLUTE track timeline."""
+    from ..core import NoteEvent
+    from . import transcribe as T
+
+    import soundfile as sf
+
+    info = sf.info(str(wav))
+    total_s = info.frames / info.samplerate
+    start_s = max(0.0, (total_s - sample_s) / 2)
+    target = wav
+    if total_s > sample_s + 2:
+        frames = int(info.samplerate * sample_s)
+        data, sr = sf.read(str(wav), start=int(start_s * info.samplerate),
+                           frames=frames, always_2d=True)
+        target = wav.parent / "_arbiter_sample.wav"
+        sf.write(str(target), data, sr)
+    notes = T.cleanup(T.transcribe_stem(target, **preset),
+                      max_polyphony=max_polyphony)
+    if target is not wav:
+        notes = [NoteEvent(n.pitch, n.start + start_s, n.duration,
+                           n.velocity) for n in notes]
+        target.unlink(missing_ok=True)
+    return notes
+
+
+def _bass_leak_share(stems: dict[str, Path]) -> float:
     """Share of the bass stem's sampled notes whose harmonics are
     stronger in another stem — phantom bass (bleed) scores high."""
-    from ..core import NoteEvent
     from . import transcribe as T
     from .validate import _StemSpectra, filter_leaked_notes
 
     bass = stems.get("bass")
     if bass is None:
         return 0.0
-    import soundfile as sf
-
-    info = sf.info(str(bass))
-    total_s = info.frames / info.samplerate
-    start_s = max(0.0, (total_s - sample_s) / 2)
-    target = bass
-    if total_s > sample_s + 2:
-        frames = int(info.samplerate * sample_s)
-        data, sr = sf.read(str(bass), start=int(start_s * info.samplerate),
-                           frames=frames, always_2d=True)
-        target = bass.parent / "_arbiter_bass.wav"
-        sf.write(str(target), data, sr)
-    notes = T.cleanup(T.transcribe_stem(
-        target, **T.PRESETS.get("bass", {})), max_polyphony=1)
-    if target is not bass:
-        notes = [NoteEvent(n.pitch, n.start + start_s, n.duration,
-                           n.velocity) for n in notes]
-        target.unlink(missing_ok=True)
+    notes = _sample_notes(bass, T.PRESETS.get("bass", {}),
+                          max_polyphony=1)
     if not notes:
         return 0.0
     spectra = _StemSpectra(stems)
     kept = filter_leaked_notes(notes, "bass", stems, spectra, margin=2.0)
     return 1.0 - len(kept) / len(notes)
+
+
+def _guitar_foreign_match(stems: dict[str, Path],
+                          pools: dict, tol: float = 0.1) -> float:
+    """Share of the guitar stem's sampled notes that MT3 heard in the
+    mix and filed under ANOTHER pitched instrument (time + pitch-class
+    match). High = the stem is that instrument's bleed, shaped like a
+    guitar by demucs; low = MT3 simply did not hear this material
+    (its distorted-guitar blindness). Stable where PANNs tags are not:
+    0.36/0.37 on two separations of the Fulgrim phantom vs 0.05 (Loken)
+    and 0.12 (Hero) for real guitar."""
+    from . import transcribe as T
+
+    wav = stems.get("guitar")
+    if wav is None:
+        return 0.0
+    notes = _sample_notes(wav, T.PRESETS.get("guitar", {}))
+    if not notes:
+        return 0.0
+    foreign = [x for card, pool in pools.items()
+               if card not in ("guitar", "drums") for x in pool]
+    hits = sum(
+        1 for n in notes
+        if any(abs(s - n.start) <= tol and (p - n.pitch) % 12 == 0
+               for p, s in foreign))
+    return hits / len(notes)
+
+
+def _drums_own_match(stems: dict[str, Path], pools: dict,
+                     sample_s: float = 30.0, tol: float = 0.1) -> float:
+    """Share of the drum stem's onsets that MT3's own DRUM notes cover.
+    A real kit is covered even when MT3 undercounts it (0.93-0.98);
+    Fulgrim's phantom drum stem (piano attacks and hiss) is not
+    (0.28-0.31)."""
+    import librosa
+    import numpy as np
+
+    wav = stems.get("drums")
+    if wav is None:
+        return 0.0
+    y, sr = librosa.load(str(wav), mono=True)
+    mid = len(y) // 2
+    half = int(sample_s * sr / 2)
+    off = max(0, mid - half) / sr
+    onsets = librosa.onset.onset_detect(
+        y=y[max(0, mid - half): mid + half], sr=sr, units="time") + off
+    own = np.array(sorted(s for _, s in pools.get("drums", [])))
+    if not len(onsets) or not len(own):
+        return 0.0
+    return float(np.mean([np.min(np.abs(own - t)) <= tol
+                          for t in onsets]))
 
 
 def judge(stem: str, density: float, rms_status: str,
@@ -216,12 +291,18 @@ def verdicts(mix: Path, stems: dict[str, Path],
     if midi is None:
         return None
     density = mt3_densities(midi, duration_min)
+    pools = mt3_note_pools(midi)
     from .tagging import tag_probs
 
     def evidence_for(stem: str):
         def check() -> bool:
             if stem == "bass":
                 return _bass_leak_share(stems) <= BASS_MAX_LEAK
+            if stem == "guitar":
+                return (_guitar_foreign_match(stems, pools)
+                        < GUITAR_FOREIGN_MAX)
+            if stem == "drums":
+                return _drums_own_match(stems, pools) >= DRUMS_OWN_MIN
             wav = stems.get(stem)
             if wav is None:
                 return True     # nothing to test — do not uncheck
@@ -230,10 +311,7 @@ def verdicts(mix: Path, stems: dict[str, Path],
                 return True     # tagger off/unavailable: benefit of doubt
             if stem == "vocals":
                 return sum(probs.values()) >= VOICE_MIN
-            if stem == "guitar":     # distortion-family evidence adds up
-                return sum(probs.values()) >= GUITAR_MIN
-            floor = {"drums": DRUMS_MIN, "piano": PIANO_MIN}[stem]
-            return max(probs.values()) >= floor
+            return max(probs.values()) >= PIANO_MIN
         return check
 
     out = {}
