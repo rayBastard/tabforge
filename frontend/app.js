@@ -1174,28 +1174,33 @@ function reloadScore(songUrl) {
 
 /* ---------- follow the playback cursor ------------------------------- */
 
+const follow = { lineY: null };
+
 function followCursor(beat) {
   // ride along only while actually playing: a paused user scrolling
   // around must never be yanked back
   const api = unified.api;
   if (!api || api.playerState !== alphaTab.synth.PlayerState.Playing)
     return;
-  // geometry from the boundsLookup, NOT the DOM cursor: the cursor
-  // element blinks through 0,0 on re-renders and rests, which read as
-  // "cursor is at the top" and yanked the page up
+  // page-turn behavior: while the cursor stays on the SAME staff line
+  // the page does not move at all; entering a new line scrolls once.
+  // (Band-keeping scrolled on every beat and fought its own smooth
+  // animation — the view wobbled back and forth.)
   const bl = api.renderer?.boundsLookup || api.boundsLookup;
   const bb = bl?.findBeat ? bl.findBeat(beat) : null;
-  const r = bb?.visualBounds || bb?.realBounds;
-  if (!r || !r.h) return;
-  const atTop = $("#unifiedScore").getBoundingClientRect().top;
-  const yTop = atTop + r.y, yBot = yTop + r.h;
-  const top = 300, bottom = window.innerHeight - 140;
-  if (yTop < top || yBot > bottom) {
-    window.scrollTo({
-      top: window.scrollY + yTop - Math.min(360, window.innerHeight / 3),
-      behavior: "smooth",
-    });
-  }
+  const line = bb?.barBounds?.masterBarBounds?.visualBounds
+            || bb?.barBounds?.masterBarBounds?.realBounds;
+  if (!line || !line.h) return;
+  if (follow.lineY === line.y) return;
+  follow.lineY = line.y;
+  const atAbsTop = $("#unifiedScore").getBoundingClientRect().top
+                 + window.scrollY;
+  const target = atAbsTop + line.y - 320;
+  // only move if the new line is actually out of comfortable view
+  const onScreen = atAbsTop + line.y - window.scrollY;
+  if (onScreen > 280 && onScreen + line.h < window.innerHeight - 120)
+    return;
+  window.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
 }
 
 /* ---------- click-to-hear on the virtual instrument ------------------ */

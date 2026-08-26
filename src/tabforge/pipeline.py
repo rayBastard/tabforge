@@ -299,23 +299,30 @@ def _analyze_solo(audio: Path, out_dir: Path,
         key = None
         warnings.append("key: detection failed")
 
-    # both whole-mix models cache their MIDI here for routing/verdicts
+    # both whole-mix models cache their MIDI here for routing/verdicts;
+    # the solo-detect merges BOTH opinions per card — MT3 hears keys
+    # and pads, MuScriptor hears guitar and bass (a clean solo guitar
+    # landed on the "other" card when MT3 judged alone)
+    import soundfile as sf
+    minutes = max(sf.info(str(mix)).frames
+                  / sf.info(str(mix)).samplerate / 60, 0.1)
     densities: dict[str, float] = {}
     try:
         from .audio import arbiter
         if arbiter.find_mt3() is not None:
             midi = arbiter.run_mt3(mix, out_dir, progress)
             if midi is not None:
-                import soundfile as sf
-                info = sf.info(str(mix))
-                densities = arbiter.mt3_densities(
-                    midi, info.frames / info.samplerate / 60)
+                densities = arbiter.mt3_densities(midi, minutes)
     except Exception:  # noqa: BLE001
         pass
     try:
         from .audio.muscriptor import find_muscriptor, run_muscriptor
         if find_muscriptor() is not None:
-            run_muscriptor(mix, out_dir, progress)
+            m = run_muscriptor(mix, out_dir, progress)
+            if m is not None:
+                from .audio.arbiter import mt3_densities
+                for card, d in mt3_densities(m, minutes).items():
+                    densities[card] = max(densities.get(card, 0.0), d)
     except Exception:  # noqa: BLE001
         pass
 
@@ -323,6 +330,14 @@ def _analyze_solo(audio: Path, out_dir: Path,
     analysis: dict[str, StemAnalysis] = {}
     if densities:
         dominant = max(densities, key=densities.get)
+        if dominant == "other":
+            # the catch-basin wins only when no NAMED instrument comes
+            # close — a solo guitar half-heard as "other" is a guitar
+            named = {c: d for c, d in densities.items() if c != "other"}
+            if named:
+                best = max(named, key=named.get)
+                if named[best] >= 0.4 * densities["other"]:
+                    dominant = best
         for card in cards:
             dens = densities.get(card, 0.0)
             heard = dens >= (60.0 if card == "drums" else 5.0)
