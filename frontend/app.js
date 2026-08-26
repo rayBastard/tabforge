@@ -706,7 +706,6 @@ function initUnifiedScore(job) {
     unified.api.playerStateChanged.on((e) => {
       playBtn.textContent =
         e.state === alphaTab.synth.PlayerState.Playing ? "⏸" : "▶";
-      if (e.state === alphaTab.synth.PlayerState.Playing) resumeFollow();
     });
     unified.api.error.on(() => {
       if (!unified.armed) { playBtn.disabled = true; playBtn.textContent = "✕"; }
@@ -1186,31 +1185,25 @@ function reloadScore(songUrl) {
 
 /* ---------- follow the playback cursor ------------------------------- */
 
-const follow = { lineY: null, paused: false };
+// The HUMAN owns the scrollbar. Auto-following is OFF unless the
+// user turns it on with the ⤓ button — and ANY manual scroll (wheel,
+// trackpad, dragging the scrollbar itself) turns it off again. Our
+// own programmatic scrolls are marked so they don't self-disable.
+const follow = { lineY: null, enabled: false, ours: 0 };
 
-// the HUMAN owns the scroll: any manual wheel/touch pauses following
-// (a floating chip brings it back; pressing play also resets it)
-["wheel", "touchmove"].forEach((ev) =>
-  window.addEventListener(ev, () => {
-    const api = unified.api;
-    if (api && api.playerState === alphaTab.synth.PlayerState.Playing
-        && !follow.paused) {
-      follow.paused = true;
-      const chip = $("#followChip");
-      if (chip) chip.hidden = false;
-    }
-  }, { passive: true }));
-
-function resumeFollow() {
-  follow.paused = false;
-  follow.lineY = null;              // re-scroll to the current line
-  const chip = $("#followChip");
-  if (chip) chip.hidden = true;
+function setFollow(on) {
+  follow.enabled = on;
+  follow.lineY = null;
+  $("#followBtn")?.classList.toggle("active", on);
 }
 
-$("#followChip")?.addEventListener("click", () => {
-  resumeFollow();
-});
+$("#followBtn")?.addEventListener("click", () =>
+  setFollow(!follow.enabled));
+
+window.addEventListener("scroll", () => {
+  if (follow.ours > 0) return;        // that one was us
+  if (follow.enabled) setFollow(false);
+}, { passive: true });
 
 function followCursor(beat) {
   // ride along only while actually playing: a paused user scrolling
@@ -1218,7 +1211,7 @@ function followCursor(beat) {
   const api = unified.api;
   if (!api || api.playerState !== alphaTab.synth.PlayerState.Playing)
     return;
-  if (follow.paused) return;
+  if (!follow.enabled) return;
   // page-turn behavior: while the cursor stays on the SAME staff line
   // the page does not move at all; entering a new line scrolls once.
   // (Band-keeping scrolled on every beat and fought its own smooth
@@ -1232,6 +1225,8 @@ function followCursor(beat) {
   follow.lineY = line.y;
   const atAbsTop = $("#unifiedScore").getBoundingClientRect().top
                  + window.scrollY;
+  follow.ours += 1;
+  setTimeout(() => { follow.ours -= 1; }, 900);   // smooth scroll spans
   window.scrollTo({ top: Math.max(0, atAbsTop + line.y - 320),
                     behavior: "smooth" });
 }
@@ -1553,8 +1548,12 @@ function highlightChord(idx) {
     el.classList.toggle("active", i === idx));
   chordLine.current = idx;
   const el = bar.children[idx];
-  if (el) el.scrollIntoView({ inline: "center", block: "nearest",
-                              behavior: "smooth" });
+  // scroll the STRIP only — scrollIntoView also scrolled the PAGE
+  // vertically toward the bar and kept yanking the reader's position
+  if (el) bar.scrollTo({
+    left: el.offsetLeft - bar.clientWidth / 2 + el.offsetWidth / 2,
+    behavior: "smooth",
+  });
 }
 
 function chordAtTicks(ticks) {

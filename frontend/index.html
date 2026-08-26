@@ -119,6 +119,9 @@
             title="Review mode: step through low-confidence notes">👁 review</button>
     <button id="lyricsBtn" class="transport-btn" hidden
             title="Lyrics: show/hide the segment editor">🗨 lyrics</button>
+    <button id="followBtn" class="transport-btn"
+            title="Follow the playback cursor (off = the page is all
+yours; any manual scroll turns it off again)">⤓</button>
     <button id="transportPlay" class="transport-btn play" disabled
             title="Play the whole project">▶</button>
     <button id="backingPlay" class="backing" hidden
@@ -172,10 +175,6 @@
        up with the playback and with any click in the score, and on the
        fretboard a clicked note shows its alternatives for re-pinning -->
   <div class="virtualbar" id="virtualBar" hidden></div>
-
-  <!-- appears when manual scrolling paused the cursor-following -->
-  <button id="followChip" class="follow-chip" hidden
-          title="Resume following the playback cursor">⤓ follow</button>
 
   <div class="project-body">
     <main class="score" id="scoreMain">
