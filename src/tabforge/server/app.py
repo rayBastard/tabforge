@@ -407,6 +407,8 @@ async def transcribe_job(job_id: str, selection: dict) -> dict:
         split_guitars=bool(selection.get("split_guitars", False)),
         treat={str(k): str(v) for k, v in treat.items()},
         tempo_scale=tempo_scale,
+        lyrics_lang=(str(selection["lyrics_lang"])[:8]
+                     if selection.get("lyrics_lang") else None),
     )
     job.opts = opts
     POOL.submit(_run_transcribe, job, opts)
@@ -526,6 +528,60 @@ async def chords(job_id: str) -> dict:
     if not path or not path.exists():
         return {"chords": []}
     return {"chords": json.loads(path.read_text())}
+
+
+@app.get("/api/jobs/{job_id}/lyrics")
+async def lyrics(job_id: str) -> dict:
+    """Word-level synced lyrics (task 60)."""
+    import json
+
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    path = (job.dir / "out" / "lyrics.json") if job.dir else None
+    if not path or not path.exists():
+        return {"segments": [], "language": None}
+    return json.loads(path.read_text())
+
+
+@app.post("/api/jobs/{job_id}/lyrics")
+async def toggle_lyrics_segment(job_id: str, req: dict) -> dict:
+    """Hide/show one segment (Suno pseudo-words die in one click);
+    the .lrc and the gp5 lyrics channel follow."""
+    import json
+
+    from ..pipeline import Grid, _rebuild_outputs, scale_beats
+    from ..audio.lyrics import to_lrc
+
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if job.status != "done" or job.opts is None:
+        raise HTTPException(409, "Transcribe first")
+    path = job.dir / "out" / "lyrics.json"
+    if not path.exists():
+        raise HTTPException(404, "No lyrics")
+    data = json.loads(path.read_text())
+    try:
+        idx = int(req["index"])
+        data["segments"][idx]["hidden"] = bool(req["hidden"])
+    except (KeyError, ValueError, IndexError, TypeError):
+        raise HTTPException(400, "toggle needs index and hidden")
+    path.write_text(json.dumps(data))
+    lrc = job.dir / "out" / "vocals" / "lyrics.lrc"
+    if lrc.parent.exists():
+        lrc.write_text(to_lrc(data))
+    try:
+        state = json.loads((job.dir / "out" / "parts.json").read_text())
+        beats = (scale_beats(job.analyzed.beats, job.opts.tempo_scale)
+                 if job.opts.tempo_scale != 1.0 else job.analyzed.beats)
+        grid = (Grid(beats, subdivision=job.opts.subdivision)
+                if len(beats) > 1 else None)
+        _rebuild_outputs(job.dir / "out", state, set(),
+                         job.analyzed, job.opts, grid)
+    except Exception:  # noqa: BLE001
+        pass
+    return {"segments": data["segments"], "song": job.song}
 
 
 @app.get("/api/jobs/{job_id}/sections")
@@ -761,9 +817,11 @@ async def limits() -> dict:
     """The UI checks the file size BEFORE uploading — rejecting a 45 MB
     wav after a full upload is a bad way to say no."""
     from ..audio.arbiter import find_mt3
+    from ..audio.lyrics import available as lyrics_available
     return {"max_upload_mb": MAX_UPLOAD_BYTES // 1_000_000,
             "max_duration_s": MAX_DURATION_S,
-            "mt3_available": find_mt3() is not None}
+            "mt3_available": find_mt3() is not None,
+            "lyrics_available": lyrics_available()}
 
 
 # the frontend goes last so it doesn't intercept /api/*

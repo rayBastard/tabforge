@@ -59,6 +59,8 @@ class PipelineOptions:
     # eighth textures defeat beat-strength alternation), so the octave
     # is the USER's call — they know the piece.
     tempo_scale: float = 1.0
+    # lyrics language for the whisper pass (task 60); None = auto
+    lyrics_lang: str | None = None
     # low-register octave double-pass for bass/guitar/vocals.
     # Default OFF: on the stand it made bass WORSE (0.15 -> 0.07 mean
     # F1) and left guitar flat — the low-register misery there is
@@ -658,6 +660,19 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
                 tablature=profile.tablature,
             ))
 
+    # synced lyrics (task 60): whisper over the vocal stem — optional,
+    # attaches the .lrc to the vocals card and feeds the gp5 channel
+    if "vocals" in stems:
+        try:
+            _run_lyrics(out_dir, stems["vocals"], grid, opts, progress)
+            lrc = out_dir / "vocals" / "lyrics.lrc"
+            if lrc.exists():
+                for r in results:
+                    if r.stem == "vocals":
+                        r.files["lrc"] = lrc
+        except Exception as e:  # noqa: BLE001 — decoration, never fatal
+            progress("transcribe", f"lyrics failed ({e})")
+
     # the whole project as ONE multi-track score: the unified player
     # plays it together, with per-track mute/solo
     if song_parts:
@@ -694,7 +709,8 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
                 bpm=bpm, beats_per_measure=opts.beats_per_measure,
                 subdivision=opts.subdivision, title="TabForge project",
                 key=key, grid=grid, chords=chord_labels,
-                sections=section_marks)
+                sections=section_marks,
+                lyrics=_lyrics_for_export(out_dir, opts))
         except Exception as e:
             progress("export", f"project score failed to build ({e})")
     return results
@@ -933,7 +949,8 @@ def _rebuild_outputs(out_dir: Path, state: dict, edited: set[str],
                             subdivision=opts.subdivision,
                             title="TabForge project", key=shared.key,
                             grid=grid, chords=chord_labels,
-                            sections=section_marks)
+                            sections=section_marks,
+                            lyrics=_lyrics_for_export(out_dir, opts))
     return ascii_out
 
 
@@ -1008,6 +1025,59 @@ def _compute_chords(out_dir: Path, state: dict, beats: list[float],
         })
     (out_dir / "chords.json").write_text(json.dumps(out))
     return out
+
+
+def _lyrics_for_export(out_dir: Path,
+                       opts: PipelineOptions) -> tuple[str, int, str] | None:
+    """(vocals_part_name, starting_measure, text) for the gp5 lyrics
+    channel, honoring hidden segments. None when no lyrics exist."""
+    import json
+
+    path = out_dir / "lyrics.json"
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text())
+    words, first_q = [], None
+    for seg in data.get("segments", []):
+        if seg.get("hidden"):
+            continue
+        for w in seg["words"]:
+            words.append(w["word"])
+            if first_q is None:
+                first_q = w.get("qticks", 0)
+    if not words:
+        return None
+    measure = int((first_q or 0) // (960 * opts.beats_per_measure)) + 1
+    return "vocals", measure, " ".join(words)
+
+
+def _run_lyrics(out_dir: Path, vocals_wav: Path, grid,
+                opts: PipelineOptions, progress: ProgressFn) -> None:
+    """Whisper over the vocal stem -> lyrics.json (+ .lrc). Optional:
+    silently absent without the tabforge[lyrics] extra."""
+    import json
+
+    from .audio import lyrics as L
+
+    if not L.available():
+        return
+    data = L.transcribe_lyrics(vocals_wav, opts.lyrics_lang, progress)
+    if not data or not data["segments"]:
+        return
+    for seg in data["segments"]:
+        for w in seg["words"]:
+            tick = (grid.tick_index(w["start"]) if grid is not None
+                    else 0)
+            w["qticks"] = int(tick * 960 / opts.subdivision)
+    (out_dir / "lyrics.json").write_text(json.dumps(data))
+    vocals_dir = out_dir / "vocals"
+    vocals_dir.mkdir(parents=True, exist_ok=True)
+    (vocals_dir / "lyrics.lrc").write_text(L.to_lrc(data))
+    n_words = sum(len(s["words"]) for s in data["segments"])
+    junk = sum(1 for s in data["segments"] if s["junk"])
+    progress("transcribe",
+             f"lyrics: {n_words} words ({data['language']}), "
+             f"{junk} segment(s) look like non-words")
 
 
 def _sections_for_export(out_dir: Path, beats: list[float],

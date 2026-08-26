@@ -145,10 +145,11 @@ async function fetchLimits() {
   return serverLimits;
 }
 
-// the MT3-arbiter checkbox only appears when the server has an install
+// optional-backend rows appear only when the server has the installs
 (async () => {
   const limits = await fetchLimits();
   if (limits && limits.mt3_available) $("#mt3Row").hidden = false;
+  if (limits && limits.lyrics_available) $("#lyricsRow").hidden = false;
 })();
 
 async function openProjectFile() {
@@ -225,6 +226,7 @@ async function startTranscribe() {
         tuning: tuningSel ? tuningSel.value : "standard",
         subdivision: parseInt($("#instPrecision")?.value || "2", 10),
         tempo_scale: parseFloat($("#instTempoScale")?.value || "1"),
+        lyrics_lang: $("#lyricsLang")?.value || null,
       }),
     });
     if (!res.ok) throw new Error(await errorDetail(res));
@@ -463,6 +465,7 @@ function finish(job) {
   $("#reviewBtn").hidden = false;
   loadChords(job.id);
   loadSections(job.id);
+  loadLyrics(job.id);
 
   if (!job.results.length) {
     setLog("Processing finished, but no notes were found. Try other stems.", true);
@@ -634,6 +637,7 @@ function initUnifiedScore(job) {
           `bar ${beat.voice.bar.index + 1} / ${api.score.masterBars.length}`;
         const ci = chordAtTicks(beat.absolutePlaybackStart);
         if (ci >= 0) highlightChord(ci);
+        updateLyricLine(beat.absolutePlaybackStart);
       });
       // the virtual instrument lights the notes of the ACTIVE tab
       api.activeBeatsChanged.on((args) => {
@@ -1119,6 +1123,101 @@ function reloadScore(songUrl) {
   unified.api.load(withToken(songUrl) +
     (songUrl.includes("?") ? "&" : "?") + "v=" + Date.now());
 }
+
+/* ---------- synced lyrics (task 60) ---------------------------------- */
+
+const lyricsUI = { segments: [], seg: -1, word: -1 };
+
+async function loadLyrics(jobId) {
+  lyricsUI.segments = [];
+  lyricsUI.seg = lyricsUI.word = -1;
+  try {
+    const res = await apiFetch(`/api/jobs/${jobId}/lyrics`);
+    if (res.ok) lyricsUI.segments = (await res.json()).segments || [];
+  } catch { /* decoration only */ }
+  $("#lyricsBtn").hidden = !lyricsUI.segments.length;
+  $("#lyricsBar").hidden = true;
+  $("#lyricsPanel").hidden = true;
+  renderLyricsPanel(jobId);
+}
+
+function renderLyricsPanel(jobId) {
+  const panel = $("#lyricsPanel");
+  if (!panel) return;
+  panel.innerHTML = "";
+  lyricsUI.segments.forEach((seg, i) => {
+    const row = document.createElement("div");
+    row.className = "lyrics-seg" + (seg.junk ? " junk" : "")
+                  + (seg.hidden ? " hidden-seg" : "");
+    const eye = document.createElement("button");
+    eye.textContent = seg.hidden ? "🚫" : "👁";
+    eye.title = seg.hidden ? "Show this segment"
+                           : "Hide this segment (junk words)";
+    eye.addEventListener("click", async () => {
+      try {
+        const res = await apiFetch(`/api/jobs/${jobId}/lyrics`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ index: i, hidden: !seg.hidden }),
+        });
+        if (!res.ok) throw new Error(await errorDetail(res));
+        seg.hidden = !seg.hidden;
+        renderLyricsPanel(jobId);
+      } catch (err) { setLog(`Lyrics toggle failed: ${err.message}`, true); }
+    });
+    const t = document.createElement("span");
+    const m = Math.floor(seg.start / 60);
+    t.className = "lyrics-time";
+    t.textContent = `${m}:${(seg.start % 60).toFixed(0).padStart(2, "0")}`;
+    const text = document.createElement("span");
+    text.textContent = seg.words.map((w) => w.word).join(" ")
+                     + (seg.junk ? "  ⚠" : "");
+    text.addEventListener("click", () => {
+      if (unified.api) unified.api.tickPosition = seg.words[0].qticks || 0;
+    });
+    row.append(eye, t, text);
+    panel.appendChild(row);
+  });
+}
+
+function updateLyricLine(ticks) {
+  const segs = lyricsUI.segments;
+  if (!segs.length) return;
+  let si = -1;
+  for (let i = 0; i < segs.length; i++) {
+    const ws = segs[i].words;
+    if (ws.length && ws[0].qticks <= ticks
+        && ticks <= ws[ws.length - 1].qticks + 960 * 4) si = i;
+  }
+  const bar = $("#lyricsBar");
+  if (si < 0 || segs[si].hidden) { bar.hidden = true; lyricsUI.seg = -1; return; }
+  if (si !== lyricsUI.seg) {
+    bar.innerHTML = "";
+    segs[si].words.forEach((w) => {
+      const span = document.createElement("span");
+      span.textContent = w.word;
+      span.addEventListener("click", () => {
+        if (unified.api) unified.api.tickPosition = w.qticks || 0;
+      });
+      bar.appendChild(span);
+    });
+    bar.hidden = false;
+    lyricsUI.seg = si;
+    lyricsUI.word = -1;
+  }
+  let wi = -1;
+  segs[si].words.forEach((w, k) => { if (w.qticks <= ticks) wi = k; });
+  if (wi !== lyricsUI.word) {
+    [...bar.children].forEach((el, k) =>
+      el.classList.toggle("sung", k === wi));
+    lyricsUI.word = wi;
+  }
+}
+
+$("#lyricsBtn")?.addEventListener("click", () => {
+  const p = $("#lyricsPanel");
+  p.hidden = !p.hidden;
+});
 
 /* ---------- song structure (task 59) --------------------------------- */
 

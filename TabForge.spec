@@ -25,7 +25,10 @@ hiddenimports = []
 # self-tag guard silently degrades to benefit-of-doubt
 for pkg in ("demucs", "basic_pitch", "librosa", "resampy",
             "torchaudio", "coremltools", "panns_inference",
-            "torchlibrosa"):
+            "torchlibrosa",
+            # synced lyrics: faster-whisper + the CTranslate2 dylibs
+            # and PyAV's bundled ffmpeg
+            "faster_whisper", "ctranslate2", "av", "tokenizers"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b

@@ -55,6 +55,20 @@
       (adds ~1× the track length to the analysis)
     </label>
 
+    <!-- shown only when the tabforge[lyrics] extra is installed -->
+    <label class="mixrow" id="lyricsRow" hidden>
+      Lyrics language:
+      <select id="lyricsLang">
+        <option value="">auto</option>
+        <option value="en">English</option>
+        <option value="ru">Русский</option>
+        <option value="de">Deutsch</option>
+        <option value="es">Español</option>
+        <option value="fr">Français</option>
+      </select>
+      (vocals are transcribed to synced lyrics)
+    </label>
+
     <button id="go" class="go" disabled>Analyze track</button>
     <p class="hint" id="hint">First the track is separated and analyzed —
        then you choose what to transcribe. The first run downloads the
@@ -92,6 +106,8 @@
             title="Put the note back where it was">↩ revert</button>
     <button id="reviewBtn" class="transport-btn" hidden
             title="Review mode: step through low-confidence notes">👁 review</button>
+    <button id="lyricsBtn" class="transport-btn" hidden
+            title="Lyrics: show/hide the segment editor">🗨 lyrics</button>
     <button id="transportPlay" class="transport-btn play" disabled
             title="Play the whole project">▶</button>
     <button id="backingPlay" class="backing" hidden
@@ -132,6 +148,13 @@
   <!-- the chord line: the song's harmony as clickable chips, the
        current chord follows the cursor; click = jump, ⌗ = diagram -->
   <div class="chordbar" id="chordBar" hidden></div>
+
+  <!-- the running lyric line: the current segment's words, the sung
+       word highlighted at the cursor; click a word = jump -->
+  <div class="lyricsbar" id="lyricsBar" hidden></div>
+
+  <!-- the lyrics editor: all segments, junk dimmed, one-click hide -->
+  <div class="lyricspanel" id="lyricsPanel" hidden></div>
 
   <!-- the virtual instrument: fretboard / keyboard / drum pads for the
        ACTIVE tab, right under the transport where the eyes are; lights

@@ -514,6 +514,26 @@ select {
 .alphatab { background: #f6f1e7; border-radius: 8px; margin-top: 14px;
             position: relative; }
 
+/* synced lyrics (task 60) */
+.lyricsbar {
+  padding: 6px 16px; background: #221b18; color: #cbbfa9;
+  border-bottom: 1px solid #4a3c33; font-size: 14px;
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.lyricsbar span { cursor: pointer; }
+.lyricsbar span.sung { color: #f4b942; font-weight: 600; }
+.lyricspanel {
+  max-height: 220px; overflow-y: auto; background: #221b18;
+  border-bottom: 1px solid #4a3c33; padding: 6px 16px; font-size: 13px;
+}
+.lyrics-seg { display: flex; gap: 8px; align-items: baseline;
+              padding: 2px 0; color: #d9cfba; }
+.lyrics-seg button { background: none; border: none; cursor: pointer; }
+.lyrics-seg.junk { opacity: 0.55; }
+.lyrics-seg.hidden-seg { opacity: 0.3; text-decoration: line-through; }
+.lyrics-time { color: #8d7c66; font-family: monospace; }
+.lyrics-seg span:last-child { cursor: pointer; }
+
 /* song structure timeline (task 59) */
 .sectionbar {
   display: flex; gap: 2px; padding: 4px 16px 0;
