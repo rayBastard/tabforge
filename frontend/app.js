@@ -461,6 +461,7 @@ function finish(job) {
   refLink.href = withToken(`/api/jobs/${job.id}/reference`);
   refLink.hidden = false;
   $("#reviewBtn").hidden = false;
+  loadChords(job.id);
 
   if (!job.results.length) {
     setLog("Processing finished, but no notes were found. Try other stems.", true);
@@ -630,6 +631,8 @@ function initUnifiedScore(job) {
         if (!beat) return;
         posEl.textContent =
           `bar ${beat.voice.bar.index + 1} / ${api.score.masterBars.length}`;
+        const ci = chordAtTicks(beat.absolutePlaybackStart);
+        if (ci >= 0) highlightChord(ci);
       });
       // the virtual instrument lights the notes of the ACTIVE tab
       api.activeBeatsChanged.on((args) => {
@@ -1114,6 +1117,123 @@ function reloadScore(songUrl) {
   // cache-buster: the gp5 on disk changed but the URL did not
   unified.api.load(withToken(songUrl) +
     (songUrl.includes("?") ? "&" : "?") + "v=" + Date.now());
+}
+
+/* ---------- chord line (task 58) ------------------------------------- */
+
+const chordLine = { spans: [], current: -1 };
+
+async function loadChords(jobId) {
+  const bar = $("#chordBar");
+  chordLine.spans = [];
+  chordLine.current = -1;
+  try {
+    const res = await apiFetch(`/api/jobs/${jobId}/chords`);
+    if (res.ok) chordLine.spans = (await res.json()).chords || [];
+  } catch { /* decoration only */ }
+  if (!bar) return;
+  bar.innerHTML = "";
+  bar.hidden = !chordLine.spans.length;
+  chordLine.spans.forEach((c, i) => {
+    const chip = document.createElement("button");
+    chip.className = "chord-chip";
+    chip.textContent = c.name;
+    chip.title = "Jump here · right-click for the diagram";
+    chip.addEventListener("click", () => {
+      if (unified.api) unified.api.tickPosition = c.qticks;
+      highlightChord(i);
+    });
+    chip.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      showChordDiagram(c, chip);
+    });
+    bar.appendChild(chip);
+  });
+}
+
+function highlightChord(idx) {
+  if (idx === chordLine.current) return;
+  const bar = $("#chordBar");
+  if (!bar) return;
+  bar.querySelectorAll(".chord-chip").forEach((el, i) =>
+    el.classList.toggle("active", i === idx));
+  chordLine.current = idx;
+  const el = bar.children[idx];
+  if (el) el.scrollIntoView({ inline: "center", block: "nearest",
+                              behavior: "smooth" });
+}
+
+function chordAtTicks(ticks) {
+  const spans = chordLine.spans;
+  for (let i = spans.length - 1; i >= 0; i--)
+    if (spans[i].qticks <= ticks + 1) return i;
+  return -1;
+}
+
+function showChordDiagram(chord, anchor) {
+  closePopover();
+  const pop = document.createElement("div");
+  pop.className = "note-popover chord-popover";
+  const title = document.createElement("h4");
+  title.textContent = chord.name;
+  pop.appendChild(title);
+  if (chord.frets && chord.frets.length) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 150; canvas.height = 170;
+    drawChordGrid(canvas, chord.frets);
+    pop.appendChild(canvas);
+  } else {
+    const p = document.createElement("p");
+    p.textContent = "no fretted shape";
+    pop.appendChild(p);
+  }
+  const x = document.createElement("button");
+  x.className = "popover-x";
+  x.textContent = "✕";
+  x.addEventListener("click", closePopover);
+  pop.appendChild(x);
+  const r = anchor.getBoundingClientRect();
+  pop.style.left = Math.min(r.left, window.innerWidth - 190) + "px";
+  pop.style.top = (r.bottom + 8) + "px";
+  document.body.appendChild(pop);
+}
+
+function drawChordGrid(canvas, frets) {
+  // frets: low string first, -1 = muted, 0 = open
+  const ctx = canvas.getContext("2d");
+  const n = frets.length;
+  const left = 22, top = 34, w = 106, h = 120, rows = 5;
+  const pressed = frets.filter((f) => f > 0);
+  const base = pressed.length ? Math.min(...pressed) : 1;
+  const first = Math.max(1, Math.min(base, Math.max(...pressed, 1) - rows + 1));
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = "#4a3c33"; ctx.fillStyle = "#4a3c33";
+  ctx.lineWidth = first === 1 ? 4 : 1;
+  ctx.strokeRect(left, top, w, 0.5);          // nut / first line
+  ctx.lineWidth = 1;
+  for (let r = 0; r <= rows; r++) {
+    const y = top + (h / rows) * r;
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + w, y); ctx.stroke();
+  }
+  for (let s = 0; s < n; s++) {
+    const x = left + (w / (n - 1)) * s;
+    ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + h); ctx.stroke();
+  }
+  if (first > 1) {
+    ctx.font = "11px sans-serif";
+    ctx.fillText(String(first) + "fr", left + w + 4, top + h / rows / 2 + 4);
+  }
+  ctx.font = "13px sans-serif";
+  frets.forEach((f, s) => {
+    const x = left + (w / (n - 1)) * s;
+    if (f < 0) { ctx.fillText("✕", x - 4, top - 8); return; }
+    if (f === 0) {
+      ctx.beginPath(); ctx.arc(x, top - 12, 4, 0, 7); ctx.stroke();
+      return;
+    }
+    const y = top + (h / rows) * (f - first + 0.5);
+    ctx.beginPath(); ctx.arc(x, y, 6, 0, 7); ctx.fill();
+  });
 }
 
 /* ---------- mass editor (task 55): drag-select bars -> operate ------- */

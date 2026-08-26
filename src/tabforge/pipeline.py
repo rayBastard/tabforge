@@ -654,12 +654,25 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
         progress("export", "assembling the multi-track project score")
         song_dir = out_dir / "song"
         song_dir.mkdir(parents=True, exist_ok=True)
+        chord_labels = None
+        try:
+            import json as _json
+            state = _json.loads(_parts_file(out_dir).read_text())
+            chord_data = _compute_chords(out_dir, state, beats, key,
+                                         grid, opts, song_parts)
+            chord_labels = [(c["qticks"], c["name"], c["frets"])
+                            for c in chord_data]
+            if chord_data:
+                progress("export",
+                         f"chord line: {len(chord_data)} chords")
+        except Exception as e:  # noqa: BLE001 — decoration, never fatal
+            progress("export", f"chord line failed to build ({e})")
         try:
             writers.export_song_gp5(
                 song_parts, song_dir / "song.gp5",
                 bpm=bpm, beats_per_measure=opts.beats_per_measure,
                 subdivision=opts.subdivision, title="TabForge project",
-                key=key, grid=grid)
+                key=key, grid=grid, chords=chord_labels)
         except Exception as e:
             progress("export", f"project score failed to build ({e})")
     return results
@@ -878,13 +891,96 @@ def _rebuild_outputs(out_dir: Path, state: dict, edited: set[str],
                 writers.export_ascii(shapes, stem_dir / f"{name}.txt",
                                      cfg, legato=p_legato)
 
+    chord_labels = None
+    try:
+        beats = (scale_beats(shared.beats, opts.tempo_scale)
+                 if opts.tempo_scale != 1.0 else shared.beats)
+        chord_data = _compute_chords(out_dir, state, beats, shared.key,
+                                     grid, opts, song_parts)
+        chord_labels = [(c["qticks"], c["name"], c["frets"])
+                        for c in chord_data]
+    except Exception:  # noqa: BLE001 — decoration, never fatal
+        pass
     writers.export_song_gp5(song_parts, out_dir / "song" / "song.gp5",
                             bpm=shared.bpm * opts.tempo_scale,
                             beats_per_measure=opts.beats_per_measure,
                             subdivision=opts.subdivision,
                             title="TabForge project", key=shared.key,
-                            grid=grid)
+                            grid=grid, chords=chord_labels)
     return ascii_out
+
+
+def _compute_chords(out_dir: Path, state: dict, beats: list[float],
+                    key, grid, opts: PipelineOptions,
+                    song_parts=None) -> list[dict]:
+    """The chord line (task 58): pooled harmony of every pitched part,
+    segmented over the beat grid; diagrams come from OUR tab shapes
+    where a guitar actually plays the span, else from a standard
+    voicing laid out by the same fretboard engine. Persisted as
+    chords.json for the UI and returned for the gp5 labels."""
+    import json
+
+    from .core.chords import track_chords
+    from .core.fretboard import assign_tab
+
+    notes = []
+    for p in state.values():
+        notes.extend(_revive_notes(p))
+    spans = track_chords(notes, beats)
+    flats = bool(key and key.accidentals < 0)
+
+    guitar_shapes = []
+    n_strings = 6
+    if song_parts:
+        for sp in song_parts:
+            if sp.profile.tablature and sp.name.startswith("guitar"):
+                guitar_shapes.extend(sp.shapes)
+                n_strings = len(sp.cfg.tuning)
+        guitar_shapes.sort(key=lambda s: s.start)
+
+    def tick_of(start: float) -> int:
+        if grid is not None:
+            return grid.tick_index(start)
+        return round(start * opts.subdivision / (60.0 / max(opts.tempo_scale, 1e-6)))
+
+    def frets_for(span) -> list[int] | None:
+        # the shape the tab actually plays in this span (>=2 strings)
+        for s in guitar_shapes:
+            if span.start - 0.05 <= s.start < span.end:
+                if len(s.placements) >= 2:
+                    frets = [-1] * n_strings
+                    for pl in s.placements:
+                        frets[pl.string] = pl.fret   # low string first
+                    return frets
+        # keys-only harmony: a standard voicing via the same engine
+        from .core import TabConfig
+        root = 40 + ((span.guess.root - 4) % 12)
+        chord_notes = [NoteEvent(root, 0.0, 1.0),
+                       NoteEvent(root + 7, 0.0, 1.0),
+                       NoteEvent(root + 12, 0.0, 1.0)]
+        third = {"m": 3, "m7": 3, "m add9": 3, "dim": 3}.get(
+            span.guess.suffix, None if span.guess.suffix in ("5", "sus2", "sus4") else 4)
+        if third is not None:
+            chord_notes.append(NoteEvent(root + 12 + third, 0.0, 1.0))
+        cfg = TabConfig()
+        shapes = assign_tab(chord_notes, cfg)
+        if not shapes or not shapes[0].placements:
+            return None
+        frets = [-1] * 6
+        for pl in shapes[0].placements:
+            frets[pl.string] = pl.fret               # low string first
+        return frets
+
+    out = []
+    for span in spans:
+        out.append({
+            "start": span.start, "end": span.end,
+            "qticks": int(tick_of(span.start) * 960 / opts.subdivision),
+            "name": span.guess.name(flats),
+            "frets": frets_for(span),
+        })
+    (out_dir / "chords.json").write_text(json.dumps(out))
+    return out
 
 
 def _drop_notes(part: dict, removed: set[int]) -> list[dict]:

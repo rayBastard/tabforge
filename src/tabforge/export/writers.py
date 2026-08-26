@@ -87,7 +87,7 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
                     subdivision: int = 4,
                     title: str = "TabForge", artist: str = "",
                     key: Key | None = None, origin: float = 0.0,
-                    grid=None) -> None:
+                    grid=None, chords=None) -> None:
     """
     Builds a .gp5 where every part is a track of ONE score — the project
     player plays them together, mutes and solos per track.
@@ -391,7 +391,39 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
             _fill_rests(voice, slots_per_measure - cursor)
 
     _pad_empty_voices()
+    if chords:
+        _attach_chords(gp, song, chords)
     _write_atomic(gp, song, path)
+
+
+def _attach_chords(gp, song, chords) -> None:
+    """Chord labels above the score (task 58): each (qticks, name,
+    strings-or-None) lands on the nearest beat of the first track —
+    alphaTab and Guitar Pro render them over the system, so one track
+    carries the labels for the whole song."""
+    track = song.tracks[0]
+    # a freshly built song has no beat.start values — walk the beats
+    # accumulating durations to know where each one sits
+    positions: list[tuple[int, object]] = []
+    t = 0
+    for m in track.measures:
+        for v in m.voices[:1]:
+            for b in v.beats:
+                positions.append((t, b))
+                t += b.duration.time
+    if not positions:
+        return
+    for qticks, name, strings in chords:
+        pos, target = min(positions, key=lambda pb: abs(pb[0] - qticks))
+        if abs(pos - qticks) > 960:
+            continue                     # no beat anywhere near the span
+        n = len(track.strings) or 6
+        frets = list(strings)[:n] if strings else [-1] * n
+        frets += [-1] * (n - len(frets))
+        pressed = [f for f in frets if f > 0]
+        target.effect.chord = gp.Chord(
+            length=n, name=name, strings=frets,
+            firstFret=min(pressed) if pressed else 1, show=True)
 
 
 def export_musicxml(shapes: Sequence[Shape], path: Path, bpm: float = 120.0,

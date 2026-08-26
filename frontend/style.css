@@ -514,6 +514,21 @@ select {
 .alphatab { background: #f6f1e7; border-radius: 8px; margin-top: 14px;
             position: relative; }
 
+/* chord line (task 58) */
+.chordbar {
+  display: flex; gap: 6px; overflow-x: auto; padding: 6px 16px;
+  background: #221b18; border-bottom: 1px solid #4a3c33;
+  scrollbar-width: thin;
+}
+.chord-chip {
+  flex: 0 0 auto; background: #3a2f28; color: #e8dfcf; border: none;
+  border-radius: 999px; padding: 4px 12px; font-size: 13px;
+  cursor: pointer;
+}
+.chord-chip:hover { background: #55453a; }
+.chord-chip.active { background: #d99a2b; color: #241c14; font-weight: 600; }
+.chord-popover canvas { display: block; margin: 6px auto 0; }
+
 /* mass editor + review bars (task 55) */
 .bulkbar {
   display: flex; align-items: center; gap: 8px;

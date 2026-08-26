@@ -513,6 +513,21 @@ async def part_notes(job_id: str, part: str) -> dict:
         raise HTTPException(404, str(e))
 
 
+@app.get("/api/jobs/{job_id}/chords")
+async def chords(job_id: str) -> dict:
+    """The chord line (task 58): spans with names, positions in
+    alphaTab quarter-ticks and fret diagrams from the actual tab."""
+    import json
+
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    path = (job.dir / "out" / "chords.json") if job.dir else None
+    if not path or not path.exists():
+        return {"chords": []}
+    return {"chords": json.loads(path.read_text())}
+
+
 @app.get("/api/jobs/{job_id}/reference")
 async def reference_zip(job_id: str):
     """Export the CURRENT (post-edit) notes as per-instrument MIDI
