@@ -87,7 +87,7 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
                     subdivision: int = 4,
                     title: str = "TabForge", artist: str = "",
                     key: Key | None = None, origin: float = 0.0,
-                    grid=None, chords=None) -> None:
+                    grid=None, chords=None, sections=None) -> None:
     """
     Builds a .gp5 where every part is a track of ONE score — the project
     player plays them together, mutes and solos per track.
@@ -393,6 +393,14 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
     _pad_empty_voices()
     if chords:
         _attach_chords(gp, song, chords)
+    if sections:
+        # section markers on the measure headers (task 59)
+        ticks_per_measure = 960 * beats_per_measure
+        headers = [m.header for m in song.tracks[0].measures]
+        for qticks, label in sections:
+            idx = min(len(headers) - 1,
+                      max(0, round(qticks / ticks_per_measure)))
+            headers[idx].marker = gp.Marker(title=str(label)[:40])
     _write_atomic(gp, song, path)
 
 

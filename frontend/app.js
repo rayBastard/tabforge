@@ -462,6 +462,7 @@ function finish(job) {
   refLink.hidden = false;
   $("#reviewBtn").hidden = false;
   loadChords(job.id);
+  loadSections(job.id);
 
   if (!job.results.length) {
     setLog("Processing finished, but no notes were found. Try other stems.", true);
@@ -1117,6 +1118,55 @@ function reloadScore(songUrl) {
   // cache-buster: the gp5 on disk changed but the URL did not
   unified.api.load(withToken(songUrl) +
     (songUrl.includes("?") ? "&" : "?") + "v=" + Date.now());
+}
+
+/* ---------- song structure (task 59) --------------------------------- */
+
+const SECTION_HUES = { Intro: 200, Verse: 90, Chorus: 28, Bridge: 275,
+                       Outro: 200 };
+
+async function loadSections(jobId) {
+  const bar = $("#sectionBar");
+  if (!bar) return;
+  let secs = [];
+  try {
+    const res = await apiFetch(`/api/jobs/${jobId}/sections`);
+    if (res.ok) secs = (await res.json()).sections || [];
+  } catch { /* decoration only */ }
+  bar.innerHTML = "";
+  bar.hidden = !secs.length;
+  if (!secs.length) return;
+  const total = secs[secs.length - 1].end - secs[0].start || 1;
+  secs.forEach((s, i) => {
+    const band = document.createElement("button");
+    band.className = "section-band";
+    band.textContent = s.label;
+    band.title = `${s.label} — click to jump, double-click to rename`;
+    band.style.flexGrow = String(Math.max(s.end - s.start, 1) / total);
+    const hue = SECTION_HUES[s.label] ?? (i * 67) % 360;
+    band.style.background = `hsl(${hue} 30% 26%)`;
+    band.addEventListener("click", () => {
+      if (unified.api) unified.api.tickPosition = s.qticks || 0;
+    });
+    band.addEventListener("dblclick", async () => {
+      const label = prompt("Section name:", s.label);
+      if (!label || label === s.label) return;
+      try {
+        const res = await apiFetch(`/api/jobs/${jobId}/sections`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ index: i, label }),
+        });
+        if (!res.ok) throw new Error(await errorDetail(res));
+        const data = await res.json();
+        loadSections(jobId);
+        reloadScore(data.song);        // the gp5 markers follow
+      } catch (err) {
+        setLog(`Rename failed: ${err.message}`, true);
+      }
+    });
+    bar.appendChild(band);
+  });
 }
 
 /* ---------- chord line (task 58) ------------------------------------- */

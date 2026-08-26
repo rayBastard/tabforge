@@ -528,6 +528,59 @@ async def chords(job_id: str) -> dict:
     return {"chords": json.loads(path.read_text())}
 
 
+@app.get("/api/jobs/{job_id}/sections")
+async def sections(job_id: str) -> dict:
+    """Song structure (task 59): auto-detected, human-renamable."""
+    import json
+
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    path = (job.dir / "out" / "sections.json") if job.dir else None
+    if not path or not path.exists():
+        return {"sections": []}
+    return {"sections": json.loads(path.read_text())}
+
+
+@app.post("/api/jobs/{job_id}/sections")
+async def rename_section(job_id: str, req: dict) -> dict:
+    """Rename one section (automation proposes, the human refines);
+    the gp5 markers follow."""
+    import json
+
+    from ..pipeline import Grid, _rebuild_outputs, scale_beats
+
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if job.status != "done" or job.opts is None:
+        raise HTTPException(409, "Transcribe first")
+    path = job.dir / "out" / "sections.json"
+    if not path.exists():
+        raise HTTPException(404, "No sections detected")
+    secs = json.loads(path.read_text())
+    try:
+        idx = int(req["index"])
+        label = str(req["label"]).strip()[:40]
+        if not label:
+            raise ValueError
+        secs[idx]["label"] = label
+    except (KeyError, ValueError, IndexError, TypeError):
+        raise HTTPException(400, "rename needs index and a label")
+    path.write_text(json.dumps(secs))
+    try:
+        state = json.loads((job.dir / "out" / "parts.json").read_text())
+        beats = (scale_beats(job.analyzed.beats, job.opts.tempo_scale)
+                 if job.opts.tempo_scale != 1.0 else job.analyzed.beats)
+        grid = (Grid(beats, subdivision=job.opts.subdivision)
+                if len(beats) > 1 else None)
+        _rebuild_outputs(job.dir / "out", state, set(),
+                         job.analyzed, job.opts, grid)
+    except Exception:  # noqa: BLE001 — the json is updated regardless
+        pass
+    return {"sections": secs, "song": job.song}
+
+
 @app.get("/api/jobs/{job_id}/reference")
 async def reference_zip(job_id: str):
     """Export the CURRENT (post-edit) notes as per-instrument MIDI

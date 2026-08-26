@@ -514,6 +514,18 @@ select {
 .alphatab { background: #f6f1e7; border-radius: 8px; margin-top: 14px;
             position: relative; }
 
+/* song structure timeline (task 59) */
+.sectionbar {
+  display: flex; gap: 2px; padding: 4px 16px 0;
+  background: #221b18;
+}
+.section-band {
+  flex: 1 1 0; min-width: 34px; border: none; border-radius: 4px;
+  color: #e8dfcf; font-size: 11px; padding: 3px 4px; cursor: pointer;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.section-band:hover { filter: brightness(1.3); }
+
 /* chord line (task 58) */
 .chordbar {
   display: flex; gap: 6px; overflow-x: auto; padding: 6px 16px;

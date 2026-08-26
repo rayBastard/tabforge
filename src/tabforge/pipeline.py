@@ -407,6 +407,16 @@ def run_analyze(audio: Path, out_dir: Path,
                  f"tempo: keys move at the beat rate — half time "
                  f"({bpm:.0f} BPM) suggested")
 
+    # structure features (task 59): beat-synced chroma of the MIX —
+    # cached now, while the mix is at hand; boundaries are detected at
+    # transcribe time where the chord line exists as a second voice
+    try:
+        from .audio.sections import compute_features
+        compute_features(demucs_input, beats,
+                         out_dir / "sections_features.npz")
+    except Exception:  # noqa: BLE001 — decoration, never fatal
+        pass
+
     return AnalyzeResult(stems=all_stems, analysis=analysis,
                          bpm=bpm, beats=beats,
                          tempo_reliable=tempo_reliable, key=key,
@@ -667,12 +677,24 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
                          f"chord line: {len(chord_data)} chords")
         except Exception as e:  # noqa: BLE001 — decoration, never fatal
             progress("export", f"chord line failed to build ({e})")
+        section_marks = None
+        try:
+            chord_src = chord_data if chord_labels else None
+            section_marks = _sections_for_export(
+                out_dir, beats, opts, grid, chord_src, redetect=True)
+            if section_marks:
+                progress("export",
+                         f"structure: {len(section_marks)} sections "
+                         + "·".join(l for _, l in section_marks[:6]))
+        except Exception as e:  # noqa: BLE001
+            progress("export", f"section detection failed ({e})")
         try:
             writers.export_song_gp5(
                 song_parts, song_dir / "song.gp5",
                 bpm=bpm, beats_per_measure=opts.beats_per_measure,
                 subdivision=opts.subdivision, title="TabForge project",
-                key=key, grid=grid, chords=chord_labels)
+                key=key, grid=grid, chords=chord_labels,
+                sections=section_marks)
         except Exception as e:
             progress("export", f"project score failed to build ({e})")
     return results
@@ -892,6 +914,7 @@ def _rebuild_outputs(out_dir: Path, state: dict, edited: set[str],
                                      cfg, legato=p_legato)
 
     chord_labels = None
+    section_marks = None
     try:
         beats = (scale_beats(shared.beats, opts.tempo_scale)
                  if opts.tempo_scale != 1.0 else shared.beats)
@@ -899,6 +922,9 @@ def _rebuild_outputs(out_dir: Path, state: dict, edited: set[str],
                                      grid, opts, song_parts)
         chord_labels = [(c["qticks"], c["name"], c["frets"])
                         for c in chord_data]
+        # reuse sections.json: the user's renames must survive edits
+        section_marks = _sections_for_export(
+            out_dir, beats, opts, grid, chord_data, redetect=False)
     except Exception:  # noqa: BLE001 — decoration, never fatal
         pass
     writers.export_song_gp5(song_parts, out_dir / "song" / "song.gp5",
@@ -906,7 +932,8 @@ def _rebuild_outputs(out_dir: Path, state: dict, edited: set[str],
                             beats_per_measure=opts.beats_per_measure,
                             subdivision=opts.subdivision,
                             title="TabForge project", key=shared.key,
-                            grid=grid, chords=chord_labels)
+                            grid=grid, chords=chord_labels,
+                            sections=section_marks)
     return ascii_out
 
 
@@ -981,6 +1008,36 @@ def _compute_chords(out_dir: Path, state: dict, beats: list[float],
         })
     (out_dir / "chords.json").write_text(json.dumps(out))
     return out
+
+
+def _sections_for_export(out_dir: Path, beats: list[float],
+                         opts: PipelineOptions, grid,
+                         chord_data: list[dict] | None,
+                         redetect: bool) -> list[tuple[int, str]]:
+    """Section spans for the gp5 markers and the UI. redetect=True
+    (a fresh transcription) runs detection and overwrites
+    sections.json; False (rebuilds after edits/renames) reuses the
+    file so the user's names survive."""
+    import json
+
+    path = out_dir / "sections.json"
+    if redetect or not path.exists():
+        from .audio.sections import detect_sections
+        secs = detect_sections(out_dir / "sections_features.npz",
+                               beats, opts.beats_per_measure, chord_data)
+        if not secs:
+            return []
+
+        def tick_of(start: float) -> int:
+            if grid is not None:
+                return grid.tick_index(start)
+            return 0
+        for s in secs:
+            s["qticks"] = int(tick_of(s["start"]) * 960 / opts.subdivision)
+        path.write_text(json.dumps(secs))
+    else:
+        secs = json.loads(path.read_text())
+    return [(s["qticks"], s["label"]) for s in secs]
 
 
 def _drop_notes(part: dict, removed: set[int]) -> list[dict]:
