@@ -22,3 +22,18 @@ new torchaudio delegates to torchcodec, which wants a system ffmpeg):
     .venv/bin/python score_mt3.py <tabforge_root> <midi ...>
 
 Findings (2026-08-26): see docs/eval.md, task 51.
+
+## Product integration (task 54): the analyze-stage arbiter
+
+The pipeline uses the same install as an optional instrument-presence
+arbiter. Point TABFORGE_MT3_DIR at the directory holding `ymt3space/`
+and `venv-mt3/` (TABFORGE_MT3_PYTHON overrides the interpreter path):
+
+    export TABFORGE_MT3_DIR=~/mt3            # contains ymt3space/, venv-mt3/
+
+With it set, run_analyze transcribes the whole mix once (~1x realtime
+on CPU, cached as `mt3.mid` in the job dir) and every instrument card
+gets a verdict — found / absent / uncertain — refining the RMS status
+(src/tabforge/audio/arbiter.py; thresholds documented in docs/eval.md,
+task 54). Without the env var the arbiter is silent and analyze
+behaves exactly as before.

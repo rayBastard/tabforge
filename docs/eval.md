@@ -453,3 +453,44 @@ piano   0.27  0.48  0.05  unchanged (MT3 offers 0.57 — task 54)
 vocals  0.17  0.31  0.04  mono+recitative, ties BP + honest crosses
 synth   0.05  0.12  0.07  still needs a real note source
 ```
+
+## THE MT3 ARBITER IN THE PRODUCT — 2026-08-26 (task 54)
+
+`src/tabforge/audio/arbiter.py`: when TABFORGE_MT3_DIR points at a
+YourMT3+ install, run_analyze transcribes the whole mix once (~1×
+realtime CPU, cached) and every instrument card gets a verdict —
+**found / absent / uncertain** — on top of its RMS status. Phantom
+cards start unchecked (still clickable); "uncertain" keeps the card
+checked. No install → analyze behaves exactly as before.
+
+MT3 silence is ambiguous (blind on metal vs genuinely absent), so the
+verdict rests on three signals, each measured on the golden corpus:
+
+1. **Density**: MT3 notes/min per card. ≥20/min (≥60 for drums) =
+   found. Fulgrim piano 222/min; Loken guitar 2.5/min.
+2. **Self-tags** (PANNs probabilities that a stem sounds like
+   itself): Loken's metal guitar stem scores Guitar 0.80 vs Fulgrim's
+   phantom guitar stem (orchestra bleed shaped like a guitar) 0.21 —
+   threshold 0.4. Vocals: Singing+Speech+Rapping ≥ 0.25 (Hero 0.69 /
+   Loken 0.53 vs Fulgrim 0.13). Drums: kit-family ≥ 0.15 (0.35-0.55
+   vs 0.03). Dead end documented: top-2 tags alone could NOT separate
+   them — both stems tag "Guitar"; only the raw probabilities do.
+3. **Leak share** for bass, where PANNs fails outright (synth bass
+   scores Bass guitar 0.02 on REAL Hero bass): share of the stem's
+   sampled notes whose harmonics live in another stem — Fulgrim's
+   phantom bass (piano left hand) 0.135 vs real 0.006-0.047,
+   threshold 0.10. Two more dead ends documented: low-band energy
+   fraction (demucs bass stems are all ~0.85 <120 Hz by construction)
+   and RMS share (phantom 0.101 vs real 0.113 — inseparable).
+
+**Acceptance (real MT3 MIDIs + real tagger + real leak, 12/12)**:
+Fulgrim = piano found, strings found (other), guitar/bass/drums
+absent — matches the user's sheet music exactly; Loken = guitar
+uncertain (CHECKED — the blindness guard holds), bass/vocals kept,
+drums found; Hero = guitar found, bass kept. The "other" card is
+never auto-unchecked — the catch-basin has no self-identity to test.
+
+Not done here (candidate for later): MT3 as a note SOURCE for clean
+piano (0.57 vs our 0.26) — the arbiter now caches mt3.mid in the job
+dir, so a future "use MT3 notes for this stem" toggle has its data
+ready.

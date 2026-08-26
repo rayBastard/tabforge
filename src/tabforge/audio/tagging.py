@@ -54,6 +54,39 @@ def _ensure_files() -> bool:
         return False
 
 
+def tag_probs(wav: Path, wanted: tuple[str, ...],
+              clip_s: float = 20.0) -> dict[str, float]:
+    """Raw PANNs probabilities for specific labels on the middle of a
+    stem — the arbiter's self-evidence ('does the guitar stem actually
+    sound like a guitar?'). Best-effort: {} when tagging is off or the
+    model is unavailable."""
+    if os.environ.get("TABFORGE_NO_TAGGING"):
+        return {}
+    global _tagger
+    try:
+        if _tagger is None:
+            if not _ensure_files():
+                return {}
+            from panns_inference import AudioTagging
+            _tagger = AudioTagging(checkpoint_path=str(_CHECKPOINT),
+                                   device="cpu")
+        import librosa
+        from panns_inference import labels
+
+        y, sr = librosa.load(str(wav), sr=32000, mono=True)
+        if not len(y):
+            return {}
+        mid = len(y) // 2
+        half = int(clip_s * sr / 2)
+        clip = y[max(0, mid - half): mid + half]
+        clipwise, _ = _tagger.inference(clip[None, :])
+        index = {label: i for i, label in enumerate(labels)}
+        return {w: float(clipwise[0][index[w]])
+                for w in wanted if w in index}
+    except Exception:  # noqa: BLE001 — tagging is best-effort decoration
+        return {}
+
+
 def tag_stem(wav: Path, clip_s: float = 20.0,
              min_prob: float = 0.08, top: int = 2) -> list[str]:
     """Top instrument labels heard in the middle of the stem, or []."""

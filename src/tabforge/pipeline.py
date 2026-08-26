@@ -73,6 +73,8 @@ class StemAnalysis:
     # what the tagger actually HEARS in the stem (demucs names outputs
     # by role, not by listening — an orchestra lands in "guitar")
     sounds_like: list[str] = field(default_factory=list)
+    # MT3 arbiter's opinion: found | absent | uncertain | None (no MT3)
+    verdict: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -81,6 +83,7 @@ class StemAnalysis:
             "min_pitch": self.min_pitch, "max_pitch": self.max_pitch,
             "suggested_tuning": self.suggested_tuning,
             "sounds_like": list(self.sounds_like),
+            "verdict": self.verdict,
         }
 
 
@@ -310,6 +313,27 @@ def run_analyze(audio: Path, out_dir: Path,
             analysis["drums"] = StemAnalysis(
                 "drums", status, rms, note_count=len(onsets))
             progress("analyze", f"drums: {status}, {len(onsets)} hits")
+
+    # MT3 arbiter (task 54): optional second opinion on WHAT actually
+    # plays — verdicts refine the RMS statuses on the cards. Activates
+    # only when a YourMT3+ install is configured (TABFORGE_MT3_DIR).
+    try:
+        from .audio import arbiter
+        if arbiter.find_mt3() is not None:
+            import soundfile as sf
+            info = sf.info(str(demucs_input))
+            duration_min = info.frames / info.samplerate / 60
+            v = arbiter.verdicts(
+                demucs_input, all_stems,
+                {s: a.status for s, a in analysis.items()},
+                duration_min, out_dir, progress)
+            if v:
+                for stem, verdict in v.items():
+                    if stem in analysis:
+                        analysis[stem].verdict = verdict
+    except Exception:  # noqa: BLE001 — the arbiter must never kill analyze
+        progress("analyze", "MT3 arbiter failed — cards keep their "
+                            "RMS-based statuses")
 
     return AnalyzeResult(stems=all_stems, analysis=analysis,
                          bpm=bpm, beats=beats,

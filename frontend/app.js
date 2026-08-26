@@ -267,8 +267,24 @@ function showInstruments(job) {
   for (const a of job.analysis) {
     const row = document.createElement("label");
     row.className = "inst " + a.status;
-    const checked = a.status === "found" ? "checked" : "";
+    // The MT3 arbiter's verdict refines the RMS status: a phantom card
+    // (energetic stem the arbiter can't confirm) starts UNCHECKED but
+    // stays clickable; "uncertain" (arbiter blind, stem sounds real)
+    // stays checked. Truly silent stems remain disabled as before.
+    let checked = a.status === "found" ? "checked" : "";
+    if (a.verdict === "absent") checked = "";
+    else if (a.verdict === "found" || a.verdict === "uncertain")
+      checked = "checked";
     const disabled = a.status === "absent" ? "disabled" : "";
+    const VERDICT_BADGE = {
+      found: ["✓ arbiter: heard", "found"],
+      absent: ["✗ arbiter: not heard", "absent"],
+      uncertain: ["? arbiter: unsure", "quiet"],
+    };
+    const badge = VERDICT_BADGE[a.verdict]
+      ? `<span class="inst-status ${VERDICT_BADGE[a.verdict][1]}">${
+           VERDICT_BADGE[a.verdict][0]}</span>`
+      : "";
     const range = a.stem === "drums"                 // unpitched: no range
       ? (a.notes ? `${a.notes} hits` : "—")
       : a.min_pitch != null
@@ -276,7 +292,7 @@ function showInstruments(job) {
     row.innerHTML =
       `<input type="checkbox" value="${a.stem}" ${checked} ${disabled}>
        <span class="inst-name">${STEM_NAMES[a.stem] || a.stem}</span>
-       <span class="inst-status ${a.status}">${a.status}</span>
+       <span class="inst-status ${a.status}">${a.status}</span>${badge}
        <span class="inst-range">${range}</span>`;
     box.appendChild(row);
 
