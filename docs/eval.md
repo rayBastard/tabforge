@@ -532,3 +532,58 @@ per-instrument MIDI named EXACTLY like the golden corpus
 ("<track> (Guitar).mid"), so a user's correction drops straight into
 "Tracks and midi/" and the eval stand scores every future version
 against it. program → human → reference → next version.
+
+## GUITAR TIMING + TEMPO DOUBLING — 2026-08-26 (task 56)
+
+### The snap was the enemy — all of it
+
+Investigation per plan: onset-error histograms (est−truth, same
+pitch, aligned) BEFORE vs AFTER quantization on cached golden
+estimates. Findings, in order of death:
+
+1. **No systematic detector lag**: raw onset medians are 0..−10 ms on
+   both tracks — the "guitar attack smear" hypothesis is dead, no
+   constant profile shift needed.
+2. **No grid phase error**: onset-vs-grid residual medians are 0-1 ms
+   — the phase-compensation idea is dead too.
+3. **Partial snap strengths are the worst of all worlds** (Loken:
+   raw 0.396, strength 0.9 → 0.348, strength 0.6 → 0.320): a
+   half-pulled note lands between raw truth and the grid.
+4. **The pre-export quantize is redundant**: the gp5 writer maps
+   notes onto grid slots at export anyway (same nearest-tick
+   decision). The snap added NOTHING to notation and destroyed
+   timing everywhere else — parts.json, playback, the editor, the
+   reference export, the eval.
+
+`quantize_strength` default 0.9 → **0.0**. End-to-end on golden:
+
+```
+inst    was -> now   pF1   note
+piano   0.27   0.44  0.48  gap nearly closed
+bass    0.37   0.43  0.56  Loken 0.41 -> 0.61 (P 0.75)
+guitar  0.28   0.29  0.41  Loken 0.36 -> 0.40 (goal >=0.35: met there;
+                           Hero stays 0.19 — its stem's own pF1 is 0.31,
+                           matching noise owns the rest)
+drums   0.55   0.55
+vocals  0.17   0.15        −0.02, alignment jitter on mono vocals
+```
+
+### Double time: the root was a PHANTOM tempo source
+
+Fulgrim's 152 BPM came from beat-tracking the DRUMS stem — which on
+drumless material is bleed hiss (RMS passes, rhythm doesn't). The
+onset-envelope crest factor separates a real kit from hiss by 10×
+(Hero 59 / Loken 43 vs Fulgrim 5.5): `choose_tempo_source` now
+requires crest ≥ 15, drumless tracks fall back to the mix.
+
+The mix still prefers double time (161.5), so a second, musical rule:
+on keys-led material (piano found by the arbiter, no kit passed the
+crest gate) where the piano's strong-attack median IOI runs at the
+BEAT rate of the chosen grid — nothing between beats — the tempo is
+halved and the beat list thinned. Fulgrim: 152 → **80.7 BPM**, inside
+the sheet's 73-82. Hero/Loken take tempo from their real kits and
+never consult the rule. Dead ends documented: even/odd beat-envelope
+ratio (Hero's snare puts MORE energy on odd beats — 1.30), median
+note duration vs half-tick (does not discriminate), pooled-IOI
+(chord rolls and BP re-attacks drown it; per-part strong-attack IOI
+with the arbiter's verdict is what works).

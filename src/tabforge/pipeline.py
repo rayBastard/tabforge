@@ -37,7 +37,13 @@ class PipelineOptions:
     tuning: str = "standard"
     subdivision: int = 4
     beats_per_measure: int = 4
-    quantize_strength: float = 0.9
+    # 0.0 = keep truthful onsets (task 56): the gp5 writer slots notes
+    # onto the grid at export anyway, so a pre-snap adds NOTHING to the
+    # notation while destroying timing everywhere else — measured on
+    # golden: piano 0.27->0.44, Loken bass 0.41->0.61, guitar +0.01.
+    # Partial strengths are the worst of both worlds (notes land in
+    # no-man's land between raw and grid).
+    quantize_strength: float = 0.0
     separate: bool = True          # False = transcribe the whole mix
     split_guitars: bool = False    # split guitar into lead & rhythm parts
     # per-stem role override, e.g. {"guitar": "piano"} when the "guitar"
@@ -75,6 +81,8 @@ class StemAnalysis:
     sounds_like: list[str] = field(default_factory=list)
     # MT3 arbiter's opinion: found | absent | uncertain | None (no MT3)
     verdict: str | None = None
+    # median strong-attack inter-onset interval, s (half-time detector)
+    median_ioi: float | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -130,14 +138,34 @@ def _noop(_stage: str, _msg: str) -> None:
     pass
 
 
+def _beatworthy(wav: Path, crest_min: float = 15.0) -> bool:
+    """A REAL kit's onset envelope is spiky (99th percentile 43-59x its
+    median on golden); a phantom drums stem — bleed hiss on drumless
+    material — is nearly flat (5.5x on Fulgrim, which quietly fed the
+    beat tracker garbage and doubled the tempo). Task 56."""
+    import librosa
+    import numpy as np
+
+    y, sr = librosa.load(str(wav), mono=True, duration=90)
+    if not len(y):
+        return False
+    oenv = librosa.onset.onset_strength(y=y, sr=sr)
+    positive = oenv[oenv > 0]
+    if not len(positive):
+        return False
+    crest = float(np.percentile(oenv, 99) / max(np.median(positive), 1e-6))
+    return crest >= crest_min
+
+
 def choose_tempo_source(stems: dict[str, Path], mix: Path,
                         is_audible: Callable[[Path], bool]) -> tuple[Path, str]:
     """Drums carry the clearest attacks — but only when they exist AND
-    actually contain signal: htdemucs always writes a drums.wav, and for
-    drumless material it is just residual bleed that would yield a garbage
-    beat grid. Anything else falls back to the full mix."""
+    actually contain a kit: htdemucs always writes a drums.wav, and for
+    drumless material it is just residual bleed that would yield a
+    garbage beat grid (RMS alone cannot tell — the crest test can).
+    Anything else falls back to the full mix."""
     drums = stems.get("drums")
-    if drums is not None and is_audible(drums):
+    if drums is not None and is_audible(drums) and _beatworthy(drums):
         return drums, "drums"
     return mix, "mix"
 
@@ -196,7 +224,7 @@ def _quick_note_stats(wav: Path, stem: str, work_dir: Path,
         notes, max_polyphony=1 if stem == "bass"
         else 10 if stem == "piano" else 6)
     if not notes:
-        return 0, None, None
+        return 0, None, None, None
     # ROBUST range: a real lowest note is a note the part actually
     # PLAYS — the riff hammers its root at one pitch again and again
     # (drop-A material: A1 dozens of times), while transcription ghosts
@@ -214,7 +242,21 @@ def _quick_note_stats(wav: Path, stem: str, work_dir: Path,
         return ordered[0]
 
     pitches = sorted(hist)
-    return len(notes), robust(pitches), robust(pitches[::-1])
+
+    # median inter-onset interval of the STRONG attacks (chord notes
+    # within 50 ms merge into one onset) — the half-time detector's
+    # raw material (task 56): weak BP re-attacks would drown it
+    import statistics
+    vmed = statistics.median(n.velocity for n in notes)
+    onsets: list[float] = []
+    for n in sorted(notes, key=lambda n: n.start):
+        if n.velocity >= vmed and (not onsets
+                                   or n.start - onsets[-1] > 0.05):
+            onsets.append(n.start)
+    iois = [b - a for a, b in zip(onsets, onsets[1:])]
+    ioi = statistics.median(iois) if len(iois) >= 10 else None
+
+    return len(notes), robust(pitches), robust(pitches[::-1]), ioi
 
 
 RMS_FOUND = 0.005      # same threshold family as stem_is_audible
@@ -288,11 +330,11 @@ def run_analyze(audio: Path, out_dir: Path,
             continue
         status = "found" if rms >= RMS_FOUND else "quiet"
         progress("analyze", f"{stem}: listening for its range")
-        count, lo, hi = _quick_note_stats(wav, stem, out_dir)
+        count, lo, hi, ioi = _quick_note_stats(wav, stem, out_dir)
         from .audio.tagging import tag_stem
         heard = tag_stem(wav)
         analysis[stem] = StemAnalysis(
-            stem, status, rms, note_count=count,
+            stem, status, rms, note_count=count, median_ioi=ioi,
             min_pitch=lo, max_pitch=hi,
             suggested_tuning=suggest_tuning(stem, lo),
             sounds_like=heard)
@@ -335,6 +377,24 @@ def run_analyze(audio: Path, out_dir: Path,
     except Exception:  # noqa: BLE001 — the arbiter must never kill analyze
         progress("analyze", "MT3 arbiter failed — cards keep their "
                             "RMS-based statuses")
+
+    # Half-time detector (task 56): on DRUMLESS keys-led material the
+    # beat tracker loves double time (Fulgrim: 152 vs the sheet's 76).
+    # When the confirmed lead keys move at the BEAT rate of the chosen
+    # grid — nothing between beats — the musical tempo is half. Only
+    # fires when no kit dictates the grid; the UI selector still lets
+    # the user override either way.
+    piano = analysis.get("piano")
+    keys_led = (piano is not None and piano.status == "found"
+                and piano.verdict in (None, "found", "uncertain")
+                and source_name == "mix")   # no kit passed the crest gate
+    if (keys_led and len(beats) > 3 and piano.median_ioi
+            and piano.median_ioi >= 0.9 * (60.0 / bpm)):
+        bpm /= 2
+        beats = beats[::2]
+        progress("analyze",
+                 f"tempo: keys move at the beat rate — half time "
+                 f"({bpm:.0f} BPM) suggested")
 
     return AnalyzeResult(stems=all_stems, analysis=analysis,
                          bpm=bpm, beats=beats,

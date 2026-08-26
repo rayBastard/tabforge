@@ -1,7 +1,9 @@
 """Tempo-source selection and stem audibility tests."""
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from tabforge import pipeline
 from tabforge.pipeline import choose_tempo_source
 
 try:
@@ -16,10 +18,26 @@ DRUMS = Path("/stems/drums.wav")
 
 
 class TestChooseTempoSource(unittest.TestCase):
+    def setUp(self):
+        # the crest test opens real audio; these are path-logic tests
+        patcher = mock.patch.object(pipeline, "_beatworthy",
+                                    return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_audible_drums_win(self):
         src, name = choose_tempo_source({"drums": DRUMS}, MIX,
                                         is_audible=lambda p: True)
         self.assertEqual((src, name), (DRUMS, "drums"))
+
+    def test_flat_hiss_drums_fall_back_to_mix(self):
+        # a phantom drums stem (bleed hiss) passes RMS but not the
+        # crest test — it must not feed the beat tracker (task 56)
+        with mock.patch.object(pipeline, "_beatworthy",
+                               return_value=False):
+            src, name = choose_tempo_source({"drums": DRUMS}, MIX,
+                                            is_audible=lambda p: True)
+        self.assertEqual((src, name), (MIX, "mix"))
 
     def test_missing_drums_fall_back_to_mix(self):
         src, name = choose_tempo_source({"bass": Path("/stems/bass.wav")}, MIX,
