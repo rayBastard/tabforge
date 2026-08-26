@@ -490,12 +490,20 @@ verdict rests on three signals, each measured on the golden corpus:
    stems leak by construction, which is why the leak filter exempts
    them).
 3. **Leak share** for bass, where PANNs fails outright (synth bass
-   scores Bass guitar 0.02 on REAL Hero bass): share of the stem's
-   sampled notes whose harmonics live in another stem — Fulgrim's
-   phantom bass (piano left hand) 0.135 vs real 0.006-0.047,
-   threshold 0.10. Two more dead ends documented: low-band energy
-   fraction (demucs bass stems are all ~0.85 <120 Hz by construction)
-   and RMS share (phantom 0.101 vs real 0.113 — inseparable).
+   scores Bass guitar 0.02 on REAL Hero bass) and content matching
+   is unsafe (bass doubles the guitar's roots at the same pitch
+   class: Hero foreign-match 0.21 vs phantom 0.26 — too close):
+   share of the stem's sampled notes whose harmonics live in another
+   stem, taken as the MEDIAN over three 30 s windows at filter
+   margin 1.2. Phantom 0.43/0.45 (two separations) vs real 0.03
+   (Loken) / 0.07 (Hero), threshold 0.20. The median matters twice:
+   a single mid-track window slipped under the old threshold on the
+   user's live separation, and Hero's REAL bass has one locally
+   dirty section (0.26 at the 2/3 window vs 0.01-0.11 elsewhere)
+   that a max-statistic would have flagged. More dead ends
+   documented: low-band energy fraction (demucs bass stems are all
+   ~0.85 <120 Hz by construction) and RMS share (phantom 0.101 vs
+   real 0.113 — inseparable).
 
 **Acceptance (real MT3 MIDIs + real tagger + real leak, 17/17 —
 including a SECOND, fresh Fulgrim separation that fooled the original

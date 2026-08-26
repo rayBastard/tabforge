@@ -55,9 +55,11 @@ DRUMS_OWN_MIN = 0.6         # real kits 0.93-0.98 (MT3 covers the hits)
 VOICE_MIN = 0.25        # speech-family tags ARE stable (semantic, not
                         # timbral): Hero 0.69 / Loken 0.53 vs 0.13
 PIANO_MIN = 0.10
-# measured on the 30 s analyze sample: real bass 0.006 (Loken) /
-# 0.047 (Hero) vs Fulgrim's phantom (piano left hand) 0.135
-BASS_MAX_LEAK = 0.10
+# MEDIAN leak share over three 30 s windows at filter margin 1.2:
+# real bass 0.03 (Loken) / 0.07 (Hero — one dirty section outlier at
+# 0.26 is exactly what the median absorbs) vs Fulgrim's phantom
+# (piano left hand) 0.43/0.45 on two independent separations
+BASS_MAX_LEAK = 0.20
 
 MT3_TIMEOUT_S = 3600    # ~1x realtime on CPU; a 6-min track takes ~6 min
 
@@ -171,9 +173,9 @@ def mt3_note_pools(midi: Path) -> dict[str, list[tuple[int, float]]]:
 
 
 def _sample_notes(wav: Path, preset: dict, max_polyphony: int = 6,
-                  sample_s: float = 30.0) -> list:
-    """Basic Pitch on the middle sample_s of a stem, note times shifted
-    back to the ABSOLUTE track timeline."""
+                  sample_s: float = 30.0, center: float = 0.5) -> list:
+    """Basic Pitch on sample_s of a stem around `center` (0..1 of the
+    track), note times shifted back to the ABSOLUTE track timeline."""
     from ..core import NoteEvent
     from . import transcribe as T
 
@@ -181,7 +183,8 @@ def _sample_notes(wav: Path, preset: dict, max_polyphony: int = 6,
 
     info = sf.info(str(wav))
     total_s = info.frames / info.samplerate
-    start_s = max(0.0, (total_s - sample_s) / 2)
+    start_s = min(max(0.0, total_s * center - sample_s / 2),
+                  max(0.0, total_s - sample_s))
     target = wav
     if total_s > sample_s + 2:
         frames = int(info.samplerate * sample_s)
@@ -200,20 +203,33 @@ def _sample_notes(wav: Path, preset: dict, max_polyphony: int = 6,
 
 def _bass_leak_share(stems: dict[str, Path]) -> float:
     """Share of the bass stem's sampled notes whose harmonics are
-    stronger in another stem — phantom bass (bleed) scores high."""
+    stronger in another stem — phantom bass (bleed) scores high.
+
+    The MEDIAN of three sample windows: a phantom is a phantom all the
+    way through (0.41-0.67 in every off-center window), while a single
+    window proved vulnerable both to demucs's run-to-run variance (the
+    user's live Fulgrim run slipped under a mid-window threshold) and
+    to one locally dirty section of a REAL bass stem (Hero at 2/3:
+    0.26 against 0.01-0.11 everywhere else)."""
+    import statistics
+
     from . import transcribe as T
     from .validate import _StemSpectra, filter_leaked_notes
 
     bass = stems.get("bass")
     if bass is None:
         return 0.0
-    notes = _sample_notes(bass, T.PRESETS.get("bass", {}),
-                          max_polyphony=1)
-    if not notes:
-        return 0.0
     spectra = _StemSpectra(stems)
-    kept = filter_leaked_notes(notes, "bass", stems, spectra, margin=2.0)
-    return 1.0 - len(kept) / len(notes)
+    shares = []
+    for center in (0.25, 0.5, 0.75):
+        notes = _sample_notes(bass, T.PRESETS.get("bass", {}),
+                              max_polyphony=1, center=center)
+        if not notes:
+            continue
+        kept = filter_leaked_notes(notes, "bass", stems, spectra,
+                                   margin=1.2)
+        shares.append(1.0 - len(kept) / len(notes))
+    return statistics.median(shares) if shares else 0.0
 
 
 def _guitar_foreign_match(stems: dict[str, Path],
