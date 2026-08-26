@@ -78,7 +78,8 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name="TabForge.app",
-    icon=None,
+    # built from frontend/icons/icon-512.png, rounded to Apple's grid
+    icon="assets/TabForge.icns",
     bundle_identifier="com.tabforge.app",
     info_plist={
         "NSHighResolutionCapable": True,
