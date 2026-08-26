@@ -321,15 +321,29 @@ All behavior lives in `TabConfig` (`src/tabforge/core/fretboard.py`):
 
 ## Honest limitations
 
-- Polyphonic guitar transcription is an unsolved problem: expect 70–90%
-  on clean tone, worse with distortion. Bass transcribes almost perfectly.
-- Guitar sounds an octave lower than written — if the notes seem "off",
-  check this first.
-- Suno tracks are generated, not played: physically unplayable voicings
-  do occur. The algorithm finds the closest playable one.
-- Tempo changes within a track are averaged for now (the grid assumes
-  one tempo per track).
+- Polyphonic transcription is an unsolved problem. On our golden
+  corpus (real Suno tracks with per-instrument MIDI truth) the strict
+  note-level F1 tops out around: bass 0.63, drums 0.55, keys 0.58,
+  guitar 0.41, vocals 0.15 — with the optional whole-mix models
+  installed; less without them. The numbers, and every approach that
+  did NOT survive measurement, live in `docs/eval.md`.
+- **Synth-bass octave convention**: a synth bass layers a
+  sub-oscillator, so the "same" line genuinely sounds in two octaves
+  at once. TabForge writes the octave a bassist would play; a MIDI
+  exported elsewhere (Suno's own included) may log it an octave up.
+  Neither is wrong — check before assuming a transcription error.
+- Guitar sounds an octave lower than written — if the notes seem
+  "off", check this first.
+- Suno tracks are generated, not played: physically unplayable
+  voicings do occur. The algorithm finds the closest playable one.
+- Tempo changes within a track are averaged (one grid per track);
+  half/double-time ambiguity is auto-resolved only for drumless
+  keys-led material — elsewhere the tempo selector is your override.
 - Drum transcription is a spectral heuristic, not a learned model: it
   hears kick/snare/cymbal reliably, but a kick+hi-hat played together
   classifies as the louder voice, and toms are easily mistaken for
   either neighbor.
+- Chord names, song sections and synced lyrics are PROPOSALS by
+  design — rename, hide and correct them in the player; generative
+  vocals sometimes sing non-words, which the lyrics editor marks and
+  hides in one click.

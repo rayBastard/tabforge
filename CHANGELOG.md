@@ -1,5 +1,64 @@
 # Changelog
 
+## v0.6.0 — 2026-08-26
+
+The accuracy war concluded and the guitarist's convenience layer.
+Golden-corpus strict F1, first honest baseline -> now: guitar
+0.24 -> 0.41, bass 0.34 -> 0.63, keys (broken) -> 0.58, drums
+0.38 -> 0.55, vocals 0.13 -> 0.15 + honest dead-note crosses.
+
+### Accuracy (tasks 52-57, docs/eval.md has every measurement)
+- Honest evaluation ruler: per-instrument alignment (time x octave),
+  pitch-only column, per-file offset discovery in Suno exports.
+- Monophonic bass/vocals path (pyin + onset segmentation) with a
+  density chooser falling back to Basic Pitch on dirty stems;
+  recitative vocals become dead-note crosses instead of fake pitches.
+- MT3 instrument-presence arbiter on the analyze cards
+  (found / absent / uncertain) with content-match guards; optional
+  install at ~/mt3.
+- Note-source routing: keys from MT3, guitar+bass from MuScriptor
+  (optional non-commercial install), drums and vocals stay native.
+- The pre-export snap is gone (the gp5 writer slots notes itself):
+  keys 0.27 -> 0.44, Loken bass 0.41 -> 0.61 on golden.
+- Phantom drums can no longer drive the tempo (envelope crest gate);
+  keys-led drumless tracks auto-suggest half time (152 -> 81 BPM on
+  the piano golden, sheet says 73-82).
+- Softer guitar Basic Pitch preset: +0.10 F1 on the metal golden.
+
+### Convenience (tasks 55, 58-60)
+- Mass editor: drag-select bars -> octave shift / delete / move to
+  another instrument / collapse octave doubles; pins and legato
+  survive.
+- Review mode: per-note confidence, disputed notes highlighted and
+  steppable.
+- Reference export: corrected notes leave as per-instrument MIDI
+  named like the golden corpus — your edits become ground truth.
+- Chord line: names (power chords and slash basses included) above
+  the score, synced to the cursor, fret diagrams from the actual tab
+  shapes, labels in the gp5.
+- Song sections: chroma novelty + chord-loop-break voting, colored
+  timeline, click to jump, rename inline (gp5 markers follow).
+- Synced lyrics (tabforge[lyrics], faster-whisper): running
+  word-highlighted line, junk-word marking with one-click hide,
+  .lrc export and the gp5 lyrics channel.
+- MT3 arbiter checkbox, chords/sections and lyrics checkboxes with a
+  language override on the start screen.
+
+## v0.5.0 — 2026-08-25
+
+Post-feedback polish (tasks 33-38 + the rhythm war): beat repair and
+smoothing, rhythm precision selector, fretboard editor with
+alternatives and approve/revert, 24-fret neck with note names and
+chord labels, grand staff for keys, 88-key piano, project save/load
+(.tabforge), spacebar transport, tab-only guitar view.
+
+## v0.4.0 — 2026-08-25
+
+The drum track (9-voice spectral classifier), desktop app rebuild,
+tick-based export, instrument profiles, two-step analyze/transcribe
+flow, the project screen and the unified multi-track player, the
+note editor.
+
 ## v0.3.0 — 2026-08-25
 
 Phases 5 and 6: the server grew up and moved out, and the app fits in

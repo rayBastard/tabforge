@@ -226,6 +226,8 @@ async function startTranscribe() {
         tuning: tuningSel ? tuningSel.value : "standard",
         subdivision: parseInt($("#instPrecision")?.value || "2", 10),
         tempo_scale: parseFloat($("#instTempoScale")?.value || "1"),
+        with_chords: $("#withChords")?.checked !== false,
+        with_lyrics: $("#withLyrics")?.checked !== false,
         lyrics_lang: $("#lyricsLang")?.value || null,
       }),
     });

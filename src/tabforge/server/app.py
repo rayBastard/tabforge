@@ -407,6 +407,8 @@ async def transcribe_job(job_id: str, selection: dict) -> dict:
         split_guitars=bool(selection.get("split_guitars", False)),
         treat={str(k): str(v) for k, v in treat.items()},
         tempo_scale=tempo_scale,
+        with_chords=bool(selection.get("with_chords", True)),
+        with_lyrics=bool(selection.get("with_lyrics", True)),
         lyrics_lang=(str(selection["lyrics_lang"])[:8]
                      if selection.get("lyrics_lang") else None),
     )

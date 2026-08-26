@@ -55,9 +55,15 @@
       (adds ~1× the track length to the analysis)
     </label>
 
+    <label class="mixrow" id="chordsRow">
+      <input type="checkbox" id="withChords" checked>
+      Chord line &amp; song sections (labels in the player and the gp5)
+    </label>
+
     <!-- shown only when the tabforge[lyrics] extra is installed -->
     <label class="mixrow" id="lyricsRow" hidden>
-      Lyrics language:
+      <input type="checkbox" id="withLyrics" checked>
+      Synced lyrics from the vocals —
       <select id="lyricsLang">
         <option value="">auto</option>
         <option value="en">English</option>
@@ -66,7 +72,6 @@
         <option value="es">Español</option>
         <option value="fr">Français</option>
       </select>
-      (vocals are transcribed to synced lyrics)
     </label>
 
     <button id="go" class="go" disabled>Analyze track</button>

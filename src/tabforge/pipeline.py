@@ -59,6 +59,9 @@ class PipelineOptions:
     # eighth textures defeat beat-strength alternation), so the octave
     # is the USER's call — they know the piece.
     tempo_scale: float = 1.0
+    # the convenience layer (tasks 58-60), each optional per job
+    with_chords: bool = True       # chord line + gp5 labels + sections
+    with_lyrics: bool = True       # whisper over the vocal stem
     # lyrics language for the whisper pass (task 60); None = auto
     lyrics_lang: str | None = None
     # low-register octave double-pass for bass/guitar/vocals.
@@ -662,7 +665,7 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
 
     # synced lyrics (task 60): whisper over the vocal stem — optional,
     # attaches the .lrc to the vocals card and feeds the gp5 channel
-    if "vocals" in stems:
+    if "vocals" in stems and opts.with_lyrics:
         try:
             _run_lyrics(out_dir, stems["vocals"], grid, opts, progress)
             lrc = out_dir / "vocals" / "lyrics.lrc"
@@ -682,6 +685,8 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
         chord_labels = None
         try:
             import json as _json
+            if not opts.with_chords:
+                raise StopIteration      # skipped by choice, not error
             state = _json.loads(_parts_file(out_dir).read_text())
             chord_data = _compute_chords(out_dir, state, beats, key,
                                          grid, opts, song_parts)
@@ -690,10 +695,14 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
             if chord_data:
                 progress("export",
                          f"chord line: {len(chord_data)} chords")
+        except StopIteration:
+            pass
         except Exception as e:  # noqa: BLE001 — decoration, never fatal
             progress("export", f"chord line failed to build ({e})")
         section_marks = None
         try:
+            if not opts.with_chords:
+                raise StopIteration
             chord_src = chord_data if chord_labels else None
             section_marks = _sections_for_export(
                 out_dir, beats, opts, grid, chord_src, redetect=True)
@@ -701,6 +710,8 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
                 progress("export",
                          f"structure: {len(section_marks)} sections "
                          + "·".join(l for _, l in section_marks[:6]))
+        except StopIteration:
+            pass
         except Exception as e:  # noqa: BLE001
             progress("export", f"section detection failed ({e})")
         try:
