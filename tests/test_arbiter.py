@@ -173,5 +173,34 @@ class TestVerdictsFlow(unittest.TestCase):
         self.assertEqual(out["other"], "found")
 
 
+
+
+class TestMt3NoteSource(unittest.TestCase):
+    def test_missing_cache_returns_none(self):
+        from pathlib import Path
+        self.assertIsNone(
+            arbiter.mt3_card_notes(Path("/nonexistent/mt3.mid"), "piano"))
+
+    def test_card_filtering_and_velocity(self):
+        import tempfile
+        from pathlib import Path
+        import pretty_midi
+
+        pm = pretty_midi.PrettyMIDI()
+        piano = pretty_midi.Instrument(program=0)
+        piano.notes.append(pretty_midi.Note(velocity=80, pitch=60,
+                                            start=1.0, end=1.5))
+        guitar = pretty_midi.Instrument(program=25)
+        guitar.notes.append(pretty_midi.Note(velocity=90, pitch=52,
+                                             start=0.5, end=1.0))
+        pm.instruments += [piano, guitar]
+        with tempfile.TemporaryDirectory() as d:
+            midi = Path(d) / "mt3.mid"
+            pm.write(str(midi))
+            notes = arbiter.mt3_card_notes(midi, "piano")
+        self.assertEqual([(n.pitch, n.velocity) for n in notes],
+                         [(60, 80)])
+
+
 if __name__ == "__main__":
     unittest.main()

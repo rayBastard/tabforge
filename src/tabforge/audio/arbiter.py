@@ -159,6 +159,28 @@ def mt3_densities(midi: Path, duration_min: float) -> dict[str, float]:
     return {card: n / minutes for card, n in counts.items()}
 
 
+def mt3_card_notes(midi: Path, card: str):
+    """Full NoteEvents of one analyze card from the cached whole-mix
+    MT3 transcription — the "mt3" note_source (task 57). None when the
+    cache is missing or MT3 heard nothing for the card."""
+    if not midi.exists():
+        return None
+    import pretty_midi
+
+    from ..core import NoteEvent
+
+    out = []
+    pm = pretty_midi.PrettyMIDI(str(midi))
+    for track in pm.instruments:
+        if _mt3_card(track.program, track.is_drum) != card:
+            continue
+        out.extend(NoteEvent(n.pitch, n.start,
+                             max(n.end - n.start, 0.05), n.velocity)
+                   for n in track.notes)
+    out.sort(key=lambda n: n.start)
+    return out or None
+
+
 def mt3_note_pools(midi: Path) -> dict[str, list[tuple[int, float]]]:
     """(pitch, onset) pairs per analyze card from the MT3 MIDI."""
     import pretty_midi

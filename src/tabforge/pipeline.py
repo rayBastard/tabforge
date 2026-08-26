@@ -447,7 +447,26 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
             continue
         progress("transcribe", f"{name}: detecting notes")
         preset = transcribe.PRESETS.get(name, {})
-        if profile_for(opts.treat.get(name, name)).transcriber == "mono":
+        # note_source routing (task 57): an instrument whose profile
+        # trusts the whole-mix MT3 transcription takes its notes from
+        # the arbiter's cached mt3.mid instead of the separated stem —
+        # only for the stem that IS that card (an "other" stem treated
+        # as keys must not duplicate the piano's notes)
+        from_mt3 = False
+        src_profile = profile_for(opts.treat.get(name, name))
+        if (src_profile.note_source == "mt3"
+                and opts.treat.get(name, name) == name):
+            from .audio.arbiter import mt3_card_notes
+            mt3_notes = mt3_card_notes(out_dir / "mt3.mid", name)
+            if mt3_notes:
+                progress("transcribe",
+                         f"{name}: {len(mt3_notes)} notes from the "
+                         f"whole-mix MT3 transcription")
+                notes = mt3_notes
+                from_mt3 = True
+        if from_mt3:
+            pass
+        elif src_profile.transcriber == "mono":
             # monophonic stems (bass, recitative vocals): a mono f0
             # tracker cannot produce octave twins — task 53. But a
             # dirty stem (heavy bleed) defeats the tracker: when it
@@ -487,7 +506,11 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
         # Guitar and bass are exempt — their own stems separate weakly,
         # so their true notes' energy often sits elsewhere and the
         # filter would slaughter real lines (measured on the stand).
-        if spectra is not None and name in ("piano", "vocals", "other"):
+        if (spectra is not None and not from_mt3
+                and name in ("piano", "vocals", "other")):
+            # mt3-sourced notes are exempt: they come from the MIX, so
+            # judging them by where demucs happened to put the energy
+            # would re-import the separation's diseases.
             # dead notes are exempt: a spoken syllable is not harmonic
             # at its (placeholder) pitch, but it IS a real vocal event
             pitched = [n for n in notes if not n.dead]
@@ -594,9 +617,12 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
             from .audio.validate import note_confidences
             _save_part_state(out_dir, part_name, part_notes, legato,
                              tuning_key, profile.name,
-                             conf=note_confidences(part_notes, name,
-                                                   analyzed.stems,
-                                                   spectra))
+                             # mix-sourced notes must not be judged by
+                             # the stem's spectrum (see the leak-filter
+                             # exemption above)
+                             conf=note_confidences(
+                                 part_notes, name, analyzed.stems,
+                                 None if from_mt3 else spectra))
             results.append(StemResult(
                 stem=part_name, bpm=bpm,
                 key=key.name if key else "unknown key",

@@ -37,6 +37,12 @@ class InstrumentProfile:
     # "mono" (f0 tracker + onset segmentation — kills octave twins by
     # construction; measured on the golden stand, task 53)
     transcriber: str = "basic_pitch"
+    # where the NOTES come from (task 57): "stem" = transcribe the
+    # separated stem (the transcriber above); "mt3" = take this
+    # instrument's notes from the whole-mix MT3 transcription when one
+    # is available (the arbiter caches mt3.mid) — falls back to the
+    # stem path without it. Switched only on a >=0.05 golden win.
+    note_source: str = "stem"
 
     @property
     def wants_legato_pairs(self) -> bool:
@@ -56,12 +62,15 @@ _BASS = InstrumentProfile(
 
 # Keys: no strings — no bends, slides, or hammer-ons; legato is written
 # as a slur, and a tab staff makes no sense.
+# note_source="mt3": on golden, MT3's whole-mix piano beats our
+# stem path 0.57 vs 0.44 (and fixes the piano-bleeds-into-other and
+# missing-upper-register diseases at the root — no separation involved)
 _PIANO = InstrumentProfile(
     name="piano", midi_program=0, tablature=False,
     allow_bends=False, allow_vibrato=False, allow_slides=False,
     allow_hammer=False, legato_as_slur=True,
     tuning="notation_wide", max_fret=24, chord_gather_window=0.08,
-    let_ring=True)
+    let_ring=True, note_source="mt3")
 
 # Drums: everything a string can do is meaningless here — the whole
 # track is percussion channel 10, where the "pitch" names a kit voice.

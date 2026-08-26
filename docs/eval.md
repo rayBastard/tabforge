@@ -587,3 +587,28 @@ ratio (Hero's snare puts MORE energy on odd beats — 1.30), median
 note duration vs half-tick (does not discriminate), pooled-IOI
 (chord rolls and BP re-attacks drown it; per-part strong-attack IOI
 with the arbiter's verdict is what works).
+
+## NOTE-SOURCE ROUTING — 2026-08-26 (task 57, part 1: MT3 for keys)
+
+`InstrumentProfile.note_source` ("stem" | "mt3"): an instrument can
+now take its notes from the arbiter's cached whole-mix MT3
+transcription instead of Basic Pitch on its separated stem. Piano is
+the first (and per the >=0.05 rule, so far the only) switch:
+
+- MT3 rescored under the current per-instrument ruler: piano 0.57 /
+  our stem path 0.44 (+0.13). End-to-end through the pipeline the
+  routed piano lands at **0.58** on Fulgrim — the chord gather even
+  adds a hair, and no-snap keeps MT3's timing intact.
+- Mix-sourced notes are exempt from the leak filter and from
+  stem-spectrum confidence: judging them by where demucs happened to
+  put the energy would re-import the separation's diseases — which is
+  the point: the piano-bleeds-into-other and missing-upper-register
+  problems never enter this path at all.
+- Only the stem that IS the card routes (an "other" stem treated as
+  keys must not duplicate the piano's notes); a missing mt3.mid falls
+  back to the stem path silently.
+- Vocals stay on the mono path: MT3's vocal wins (Loken 0.28 vs our
+  0.19) are entangled with its "other" class — not cleanly routable.
+
+Part 2 (MuScriptor A/B) blocked on gated weights — awaiting the
+user's HF license acceptance; harness ready in a scratch venv.
