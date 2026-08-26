@@ -7,7 +7,10 @@
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files
 
-datas = [("frontend", "frontend")]
+datas = [("frontend", "frontend"),
+         # the MT3 arbiter runs this file as a SUBPROCESS script in an
+         # external venv — it must exist on disk, not inside the PYZ
+         ("src/tabforge/audio/_mt3_run.py", "tabforge/audio")]
 binaries = []
 hiddenimports = []
 

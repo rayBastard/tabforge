@@ -114,6 +114,16 @@ def run_mt3(mix: Path, work_dir: Path,
         return None
     space, python = found
     runner = Path(__file__).with_name("_mt3_run.py")
+    if not runner.exists():
+        # frozen app: modules live inside the PyInstaller archive, but
+        # the runner is shipped as a data file next to the bundle root
+        import sys
+        base = Path(getattr(sys, "_MEIPASS", ""))
+        runner = base / "tabforge" / "audio" / "_mt3_run.py"
+    if not runner.exists():
+        progress("analyze", "MT3 arbiter: runner script missing from "
+                            "this build — skipping verdicts")
+        return None
     progress("analyze", "MT3 arbiter: listening to the whole mix "
                         "(~1x realtime, first run loads the model)")
     # a PyInstaller-launched parent leaks loader variables that would
