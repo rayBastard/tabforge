@@ -511,7 +511,26 @@ select {
 }
 .stem-downloads a:hover { border-color: var(--brass); color: var(--brass); }
 
-.alphatab { background: #f6f1e7; border-radius: 8px; margin-top: 14px; }
+.alphatab { background: #f6f1e7; border-radius: 8px; margin-top: 14px;
+            position: relative; }
+
+/* mass editor + review bars (task 55) */
+.bulkbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 16px; background: #2b2320; color: #f0e9dc;
+  border-bottom: 1px solid #4a3c33; font-size: 13px;
+}
+.bulkbar button, .bulkbar select {
+  background: #4a3c33; color: #f0e9dc; border: none; border-radius: 6px;
+  padding: 4px 10px; cursor: pointer; font-size: 13px;
+}
+.bulkbar button:hover { background: #6b5647; }
+.bulkbar #bulkInfo, .bulkbar #reviewInfo { opacity: 0.85; }
+.review-mark {
+  position: absolute; pointer-events: none; border-radius: 4px;
+  background: rgba(224, 122, 27, 0.28);
+  outline: 2px solid rgba(224, 122, 27, 0.75);
+}
 
 .inst { display: flex; gap: 10px; align-items: center; min-height: 44px; }
 .inst.absent { opacity: .45; }

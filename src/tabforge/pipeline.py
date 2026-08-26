@@ -530,8 +530,12 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
             song_parts.append(writers.SongPart(
                 name=part_name, shapes=shapes, cfg=cfg,
                 profile=profile, legato=legato))
+            from .audio.validate import note_confidences
             _save_part_state(out_dir, part_name, part_notes, legato,
-                             tuning_key, profile.name)
+                             tuning_key, profile.name,
+                             conf=note_confidences(part_notes, name,
+                                                   analyzed.stems,
+                                                   spectra))
             results.append(StemResult(
                 stem=part_name, bpm=bpm,
                 key=key.name if key else "unknown key",
@@ -641,16 +645,20 @@ def _parts_file(out_dir: Path) -> Path:
 
 
 def _save_part_state(out_dir: Path, part_name: str, notes, legato,
-                     tuning_key: str, profile_name: str) -> None:
+                     tuning_key: str, profile_name: str,
+                     conf: list[float] | None = None) -> None:
     import json
 
     path = _parts_file(out_dir)
     state = json.loads(path.read_text()) if path.exists() else {}
     index_of = {id(n): i for i, n in enumerate(notes)}
+    conf = conf or [1.0] * len(notes)
     state[part_name] = {
         "notes": [{"pitch": n.pitch, "start": n.start,
                    "duration": n.duration, "velocity": n.velocity,
-                   "bends": list(n.bends), "dead": n.dead} for n in notes],
+                   "bends": list(n.bends), "dead": n.dead,
+                   "conf": c}
+                  for n, c in zip(notes, conf)],
         "legato": [[index_of[id(a)], index_of[id(b)], kind]
                    for a, b, kind in (legato or [])
                    if id(a) in index_of and id(b) in index_of],
@@ -713,12 +721,32 @@ def apply_repin(out_dir: Path, part_name: str, tick: int, pitch: int,
     part["pins"] = {str(k): v for k, v in pins.items()}
     path.write_text(json.dumps(state))
 
-    # rebuild every part's shapes (cheap — pure math), rewrite the edited
-    # part's files and the shared song.gp5
+    edited_ascii = _rebuild_outputs(out_dir, state, {part_name},
+                                    shared, opts, grid)
+    return {"prev": prev, "ascii": edited_ascii.get(part_name, "")}
+
+
+def _revive_notes(part: dict) -> list[NoteEvent]:
+    return [NoteEvent(n["pitch"], n["start"], n["duration"],
+                      n["velocity"], list(n["bends"]),
+                      n.get("dead", False))
+            for n in part["notes"]]
+
+
+def _rebuild_outputs(out_dir: Path, state: dict, edited: set[str],
+                     shared: AnalyzeResult, opts: PipelineOptions,
+                     grid) -> dict[str, str]:
+    """Rebuild every part's shapes (cheap — pure math), rewrite the
+    edited parts' files and the shared song.gp5. Returns the new ascii
+    tab per edited part (empty string for notation-only parts)."""
+    from .export import writers
+
     song_parts = []
-    edited_ascii = ""
+    ascii_out: dict[str, str] = {}
     for name, p in state.items():
-        p_notes = revive(p)
+        p_notes = _revive_notes(p)
+        if not p_notes:
+            continue
         profile = profile_for(p["profile"])
         cfg = TabConfig(tuning=TUNINGS[p["tuning"]],
                         max_fret=profile.max_fret)
@@ -731,8 +759,9 @@ def apply_repin(out_dir: Path, part_name: str, tick: int, pitch: int,
         song_parts.append(writers.SongPart(
             name=name, shapes=shapes, cfg=cfg,
             profile=profile, legato=p_legato))
-        if name == part_name:
+        if name in edited:
             stem_dir = out_dir / name
+            stem_dir.mkdir(parents=True, exist_ok=True)
             writers.export_gp5(shapes, stem_dir / f"{name}.gp5", cfg,
                                bpm=shared.bpm * opts.tempo_scale,
                                beats_per_measure=opts.beats_per_measure,
@@ -741,8 +770,10 @@ def apply_repin(out_dir: Path, part_name: str, tick: int, pitch: int,
                                legato=p_legato, grid=grid, profile=profile)
             writers.export_midi(shapes, stem_dir / f"{name}.mid",
                                 program=profile.midi_program)
+            ascii_out[name] = ""
             if profile.tablature:
-                edited_ascii = render_ascii(shapes, cfg, legato=p_legato)
+                ascii_out[name] = render_ascii(shapes, cfg,
+                                               legato=p_legato)
                 writers.export_ascii(shapes, stem_dir / f"{name}.txt",
                                      cfg, legato=p_legato)
 
@@ -752,7 +783,203 @@ def apply_repin(out_dir: Path, part_name: str, tick: int, pitch: int,
                             subdivision=opts.subdivision,
                             title="TabForge project", key=shared.key,
                             grid=grid)
-    return {"prev": prev, "ascii": edited_ascii}
+    return ascii_out
+
+
+def _drop_notes(part: dict, removed: set[int]) -> list[dict]:
+    """Remove notes by index; remap pins and legato pairs (both are
+    INDEX-keyed) onto the surviving order. Returns the removed dicts."""
+    keep = [i for i in range(len(part["notes"])) if i not in removed]
+    remap = {old: new for new, old in enumerate(keep)}
+    dropped = [part["notes"][i] for i in sorted(removed)]
+    part["notes"] = [part["notes"][i] for i in keep]
+    part["pins"] = {str(remap[int(k)]): v
+                    for k, v in part["pins"].items() if int(k) in remap}
+    part["legato"] = [[remap[a], remap[b], kind]
+                      for a, b, kind in part["legato"]
+                      if a in remap and b in remap]
+    return dropped
+
+
+def _insert_notes(part: dict, new_notes: list[dict]) -> None:
+    """Merge foreign notes into a part keeping time order; pins and
+    legato indices follow their notes through the re-sort."""
+    combined = ([(n, i) for i, n in enumerate(part["notes"])]
+                + [(n, None) for n in new_notes])
+    combined.sort(key=lambda t: t[0]["start"])
+    remap = {old: new for new, (_, old) in enumerate(combined)
+             if old is not None}
+    part["notes"] = [n for n, _ in combined]
+    part["pins"] = {str(remap[int(k)]): v
+                    for k, v in part["pins"].items() if int(k) in remap}
+    part["legato"] = [[remap[a], remap[b], kind]
+                      for a, b, kind in part["legato"]]
+
+
+BULK_OPS = ("octave_up", "octave_down", "delete", "dedup_octaves",
+            "reassign")
+
+
+def apply_bulk_edit(out_dir: Path, part_name: str, start_tick: int,
+                    end_tick: int, op: str, shared: AnalyzeResult,
+                    opts: PipelineOptions,
+                    target_part: str | None = None) -> dict:
+    """Mass editor operation (task 55) on every note of a part whose
+    grid tick falls in [start_tick, end_tick]: octave shift, delete,
+    collapse octave doubles (upper wins — the 52.3 verdict: safe only
+    as a HUMAN decision on a selection), or reassign to another part.
+    Rebuilds the affected parts' files; returns new ascii + counts."""
+    import json
+
+    if op not in BULK_OPS:
+        raise ValueError(f"unknown bulk op: {op}")
+    path = _parts_file(out_dir)
+    state = json.loads(path.read_text())
+    if part_name not in state:
+        raise ValueError(f"unknown part: {part_name}")
+    if op == "reassign":
+        if not target_part or target_part not in state:
+            raise ValueError("reassign needs an existing target part")
+        if target_part == part_name:
+            raise ValueError("reassign target is the source part")
+
+    beats = (scale_beats(shared.beats, opts.tempo_scale)
+             if opts.tempo_scale != 1.0 else shared.beats)
+    grid = (Grid(beats, subdivision=opts.subdivision)
+            if len(beats) > 1 else None)
+
+    def tick_of(start: float) -> int:
+        if grid is not None:
+            return grid.tick_index(start)
+        return round(start / (60.0 / (shared.bpm * opts.tempo_scale)
+                              / opts.subdivision))
+
+    part = state[part_name]
+    selected = [i for i, n in enumerate(part["notes"])
+                if start_tick <= tick_of(n["start"]) <= end_tick]
+    if not selected:
+        raise ValueError("no notes in the selected range")
+
+    edited = {part_name}
+    affected = len(selected)
+    if op in ("octave_up", "octave_down"):
+        delta = 12 if op == "octave_up" else -12
+        for i in selected:
+            n = part["notes"][i]
+            n["pitch"] = max(0, min(127, n["pitch"] + delta))
+    elif op == "delete":
+        _drop_notes(part, set(selected))
+    elif op == "dedup_octaves":
+        # upper-wins inside the selection: drop the LOWER of every
+        # time-overlapping ±12 pair (measured +0.015 F1 on Loken,
+        # harmful on octave-doubled writing — hence a manual op)
+        notes = part["notes"]
+        removed: set[int] = set()
+        chosen = set(selected)
+        for i in selected:
+            a = notes[i]
+            for j in chosen:
+                b = notes[j]
+                if (b["pitch"] - a["pitch"] == 12
+                        and a["start"] < b["start"] + b["duration"]
+                        and b["start"] < a["start"] + a["duration"]):
+                    removed.add(i)
+                    break
+        if not removed:
+            raise ValueError("no octave doubles in the selected range")
+        affected = len(removed)
+        _drop_notes(part, removed)
+    elif op == "reassign":
+        moved = _drop_notes(part, set(selected))
+        _insert_notes(state[target_part], moved)
+        edited.add(target_part)
+
+    path.write_text(json.dumps(state))
+    ascii_out = _rebuild_outputs(out_dir, state, edited,
+                                 shared, opts, grid)
+    return {"ascii": ascii_out, "count": affected}
+
+
+def part_note_meta(out_dir: Path, part_name: str, shared: AnalyzeResult,
+                   opts: PipelineOptions) -> list[dict]:
+    """Per-note positions (alphaTab quarter-ticks) + confidence for the
+    Review mode overlay (task 55)."""
+    import json
+
+    state = json.loads(_parts_file(out_dir).read_text())
+    if part_name not in state:
+        raise ValueError(f"unknown part: {part_name}")
+    beats = (scale_beats(shared.beats, opts.tempo_scale)
+             if opts.tempo_scale != 1.0 else shared.beats)
+    grid = (Grid(beats, subdivision=opts.subdivision)
+            if len(beats) > 1 else None)
+
+    def tick_of(start: float) -> int:
+        if grid is not None:
+            return grid.tick_index(start)
+        return round(start / (60.0 / (shared.bpm * opts.tempo_scale)
+                              / opts.subdivision))
+
+    return [{"qticks": int(tick_of(n["start"]) * 960 / opts.subdivision),
+             "pitch": n["pitch"],
+             "conf": n.get("conf", 1.0),
+             "dead": n.get("dead", False)}
+            for n in state[part_name]["notes"]]
+
+
+# reference-file instrument words, matching the golden corpus loader's
+# convention "<track> (Instrument).mid" (first alpha-only parenthesized
+# group names the instrument; multiple parts of one instrument get
+# " (2)", " (3)" suffixes like Suno's own exports)
+_REFERENCE_WORD = {
+    "guitar": "Guitar", "guitar_lead": "Guitar",
+    "guitar_rhythm": "Guitar", "bass": "Bass",
+    "piano": "Piano", "piano_left": "Piano",
+    "vocals": "Vocals", "other": "Synth",
+}
+
+
+def export_reference(out_dir: Path, title: str) -> Path:
+    """The human-in-the-loop payoff (task 55): after an edit session
+    the corrected project exports as per-instrument MIDI named exactly
+    like the golden corpus — the user's correction becomes ground
+    truth the eval stand can score future versions against."""
+    import json
+    import zipfile
+
+    import pretty_midi
+
+    state = json.loads(_parts_file(out_dir).read_text())
+    ref_dir = out_dir / "reference"
+    ref_dir.mkdir(parents=True, exist_ok=True)
+    used: dict[str, int] = {}
+    written = []
+    for name, p in state.items():
+        notes = [n for n in p["notes"] if not n.get("dead")]
+        if not notes:
+            continue
+        word = _REFERENCE_WORD.get(name, name.split("_")[0].capitalize())
+        used[word] = used.get(word, 0) + 1
+        suffix = f" ({used[word]})" if used[word] > 1 else ""
+        profile = profile_for(p["profile"])
+        pm = pretty_midi.PrettyMIDI()
+        inst = pretty_midi.Instrument(program=profile.midi_program,
+                                      is_drum=profile.percussion,
+                                      name=name)
+        inst.notes = [pretty_midi.Note(
+            velocity=n["velocity"], pitch=n["pitch"], start=n["start"],
+            end=n["start"] + max(n["duration"], 0.05)) for n in notes]
+        pm.instruments.append(inst)
+        f = ref_dir / f"{title} ({word}){suffix}.mid"
+        pm.write(str(f))
+        written.append(f)
+    if not written:
+        raise ValueError("nothing to export — no notes in any part")
+    zip_path = out_dir / "reference.zip"
+    with zipfile.ZipFile(zip_path, "w") as z:
+        for f in written:
+            z.write(f, f.name)
+    return zip_path
 
 
 def _analyze_mix_only(audio: Path, opts: PipelineOptions,

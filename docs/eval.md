@@ -494,3 +494,17 @@ Not done here (candidate for later): MT3 as a note SOURCE for clean
 piano (0.57 vs our 0.26) — the arbiter now caches mt3.mid in the job
 dir, so a future "use MT3 notes for this stem" toggle has its data
 ready.
+
+## HUMAN IN THE LOOP — 2026-08-26 (task 55)
+
+The loop the whole stand exists for now closes IN the product:
+drag-select bars → mass ops (octave shift, delete, reassign to
+another instrument, and "collapse octave doubles" — the 52.3 dedup
+that is only safe as a human decision); per-note confidence
+(velocity blended with harmonic support share) stored in parts.json,
+surfaced as a Review mode that overlays and steps through disputed
+notes; and "export reference" — the corrected project leaves as
+per-instrument MIDI named EXACTLY like the golden corpus
+("<track> (Guitar).mid"), so a user's correction drops straight into
+"Tracks and midi/" and the eval stand scores every future version
+against it. program → human → reference → next version.

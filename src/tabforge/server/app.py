@@ -37,7 +37,8 @@ from fastapi.staticfiles import StaticFiles
 from ..audio.keydetect import Key
 from ..audio.transcribe import abort_separation
 from ..core.fretboard import TUNINGS
-from ..pipeline import (STAGES, AnalyzeResult, PipelineOptions, apply_repin,
+from ..pipeline import (STAGES, AnalyzeResult, PipelineOptions,
+                        apply_bulk_edit, apply_repin, export_reference,
                         run_analyze, run_transcribe)
 
 if getattr(sys, "frozen", False):
@@ -78,6 +79,7 @@ class Job:
     song: str = ""                    # URL of the multi-track project gp5
     dir: Path | None = None
     audio: Path | None = None         # the uploaded file
+    title: str = "Track"              # display name from the upload
     analyzed: object | None = None    # pipeline.AnalyzeResult (server-side)
     opts: object | None = None        # PipelineOptions of the last transcribe
     created_at: float = field(default_factory=time.time)
@@ -343,6 +345,12 @@ async def create_job(file: UploadFile,
         raise
 
     job.audio = audio
+    # display title: the original name, defanged (it reaches zip entry
+    # names and a filesystem path in the reference export)
+    raw = Path(file.filename or "").stem
+    safe = "".join(c for c in raw
+                   if c.isalnum() or c in " ._-")[:60].strip()
+    job.title = safe or "Track"
     JOBS[job.id] = job
     POOL.submit(_run_analyze, job, audio, separator)
     return {"id": job.id}
@@ -450,6 +458,74 @@ async def repin_note(job_id: str, req: dict) -> dict:
             if r.get("stem") == part and result["ascii"]:
                 r["ascii"] = result["ascii"]
     return {"prev": result["prev"], "song": job.song}
+
+
+@app.post("/api/jobs/{job_id}/bulk_edit")
+async def bulk_edit(job_id: str, req: dict) -> dict:
+    """Mass editor op (task 55): every note of a part inside a
+    drag-selected range — octave shift, delete, collapse octave
+    doubles, or reassign to another part. Pure math, no audio."""
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if job.status != "done" or job.opts is None:
+        raise HTTPException(409, "Transcribe first, then edit")
+    try:
+        sub = job.opts.subdivision
+        result = apply_bulk_edit(
+            job.dir / "out", req["part"],
+            start_tick=round(int(req["from_qticks"]) * sub / 960),
+            end_tick=round(int(req["to_qticks"]) * sub / 960),
+            op=req["op"],
+            shared=job.analyzed, opts=job.opts,
+            target_part=req.get("target"))
+    except (KeyError, TypeError):
+        raise HTTPException(
+            400, "bulk_edit needs part, op, from_qticks, to_qticks")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    with job.lock:
+        for r in job.results:
+            new_ascii = result["ascii"].get(r.get("stem"))
+            if new_ascii:
+                r["ascii"] = new_ascii
+    return {"count": result["count"], "song": job.song}
+
+
+@app.get("/api/jobs/{job_id}/notes/{part}")
+async def part_notes(job_id: str, part: str) -> dict:
+    """Note positions + confidence for the Review-mode overlay."""
+    from ..pipeline import part_note_meta
+
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if job.status != "done" or job.opts is None:
+        raise HTTPException(409, "Transcribe first")
+    try:
+        return {"notes": part_note_meta(job.dir / "out", part,
+                                        job.analyzed, job.opts)}
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.get("/api/jobs/{job_id}/reference")
+async def reference_zip(job_id: str):
+    """Export the CURRENT (post-edit) notes as per-instrument MIDI
+    named like the golden corpus — the correction becomes ground
+    truth for the eval stand."""
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if job.status != "done":
+        raise HTTPException(409, "Transcribe first")
+    title = job.title
+    try:
+        zip_path = export_reference(job.dir / "out", title)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return FileResponse(zip_path, filename=f"{title} reference.zip",
+                        media_type="application/zip")
 
 
 @app.get("/api/jobs/{job_id}")

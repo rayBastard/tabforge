@@ -63,6 +63,36 @@ class _StemSpectra:
         return total
 
 
+def note_confidences(notes: list[NoteEvent], stem: str,
+                     stems: dict[str, Path],
+                     spectra: _StemSpectra | None = None) -> list[float]:
+    """0..1 confidence per note (task 55): how loudly it was played
+    (velocity) blended with how firmly the audio evidence supports it —
+    the share of harmonic energy at the note's time/pitch that lives in
+    its OWN stem rather than a rival's. Dead notes (recitative crosses)
+    ride on velocity alone: they claim rhythm, not pitch."""
+    if not notes:
+        return []
+    vels = [min(1.0, n.velocity / 110.0) for n in notes]
+    rivals = ([s for s in PITCHED if s != stem and s in stems]
+              if stem in PITCHED else [])
+    if not rivals or spectra is None:
+        return vels
+    out = []
+    for n, vel in zip(notes, vels):
+        if n.dead:
+            out.append(vel)
+            continue
+        f0 = 440.0 * 2 ** ((n.pitch - 69) / 12)
+        home = spectra.energy(stem, f0, n.start, n.duration)
+        strongest = max(spectra.energy(r, f0, n.start, n.duration)
+                        for r in rivals)
+        total = home + strongest
+        support = 1.0 if total < 1e-6 else home / total
+        out.append(round(0.4 * vel + 0.6 * support, 3))
+    return out
+
+
 def filter_leaked_notes(notes: list[NoteEvent], stem: str,
                         stems: dict[str, Path],
                         spectra: _StemSpectra | None = None,

@@ -450,6 +450,11 @@ function finish(job) {
   saveLink.href = withToken(`/api/jobs/${job.id}/project`);
   saveLink.hidden = false;
 
+  const refLink = $("#refLink");
+  refLink.href = withToken(`/api/jobs/${job.id}/reference`);
+  refLink.hidden = false;
+  $("#reviewBtn").hidden = false;
+
   if (!job.results.length) {
     setLog("Processing finished, but no notes were found. Try other stems.", true);
     return;
@@ -567,6 +572,11 @@ function initUnifiedScore(job) {
   const tabByName = unified.tabByName;
   unified.mixer.clear();
   buildScoreTabs(job);
+  // drums live outside parts.json — the mass editor can't touch them
+  bulk.parts = job.results.filter((r) => r.stem !== "drums")
+                          .map((r) => r.stem);
+  setBulkSelection(null);
+  exitReview();
 
   const makeApi = (withPlayer) => {
     const api = new alphaTab.AlphaTabApi(atEl, {
@@ -637,6 +647,11 @@ function initUnifiedScore(job) {
     });
     // the note editor: click a note, pick where it should live
     api.noteMouseDown.on((note) => showNotePopover(note));
+    // drag-selecting bars on the score doubles as the MASS-EDIT range
+    api.playbackRangeChanged.on((e) =>
+      setBulkSelection(e ? e.playbackRange : null));
+    // review-mode marks live on top of the rendered score
+    api.renderFinished.on(() => drawReviewMarks());
     return api;
   };
 
@@ -1093,6 +1108,164 @@ function reloadScore(songUrl) {
   unified.api.load(withToken(songUrl) +
     (songUrl.includes("?") ? "&" : "?") + "v=" + Date.now());
 }
+
+/* ---------- mass editor (task 55): drag-select bars -> operate ------- */
+
+const bulk = { range: null, parts: [] };
+
+function activePart() {
+  return (virtual.track && virtual.track.name) || bulk.parts[0] || null;
+}
+
+function setBulkSelection(range) {
+  bulk.range = range || null;
+  const bar = $("#bulkBar");
+  if (!bar) return;
+  if (!bulk.range) { bar.hidden = true; return; }
+  const part = activePart();
+  if (!part) { bar.hidden = true; return; }
+  $("#bulkInfo").textContent = `${STEM_NAMES[part] || part}: selection`;
+  const target = $("#bulkTarget");
+  target.innerHTML = "";
+  for (const p of bulk.parts) {
+    if (p === part) continue;
+    const o = document.createElement("option");
+    o.value = p;
+    o.textContent = STEM_NAMES[p] || p;
+    target.appendChild(o);
+  }
+  target.hidden = !target.options.length;
+  bar.querySelector('[data-op="reassign"]').hidden = !target.options.length;
+  bar.hidden = false;
+}
+
+async function runBulk(op) {
+  if (!bulk.range) return;
+  const part = activePart();
+  if (!part) return;
+  if (op === "delete"
+      && !confirm("Delete every note in the selected range?")) return;
+  try {
+    const res = await apiFetch(`/api/jobs/${currentJobId}/bulk_edit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        part, op,
+        from_qticks: Math.round(bulk.range.startTick),
+        // endTick points at the first tick AFTER the selection
+        to_qticks: Math.max(0, Math.round(bulk.range.endTick) - 1),
+        target: $("#bulkTarget")?.value || null,
+      }),
+    });
+    if (!res.ok) throw new Error(await errorDetail(res));
+    const data = await res.json();
+    setLog(`${op}: ${data.count} note(s) affected`);
+    exitReview();                      // positions changed — marks stale
+    reloadScore(data.song);
+  } catch (err) {
+    setLog(`Mass edit failed: ${err.message}`, true);
+  }
+}
+
+document.querySelectorAll("#bulkBar [data-op]").forEach((b) =>
+  b.addEventListener("click", () => runBulk(b.dataset.op)));
+$("#bulkClear")?.addEventListener("click", () => {
+  if (unified.api) unified.api.playbackRange = null;
+  setBulkSelection(null);
+});
+
+/* ---------- review mode (task 55): walk the disputed notes ----------- */
+
+const review = { on: false, part: null, notes: [], idx: 0 };
+const REVIEW_CONF = 0.5;
+
+async function enterReview() {
+  const part = activePart();
+  if (!part) return;
+  try {
+    const res = await apiFetch(`/api/jobs/${currentJobId}/notes/${part}`);
+    if (!res.ok) throw new Error(await errorDetail(res));
+    const data = await res.json();
+    review.notes = data.notes
+      .filter((n) => !n.dead && n.conf < REVIEW_CONF)
+      .sort((a, b) => a.qticks - b.qticks);
+  } catch (err) {
+    setLog(`Review failed: ${err.message}`, true);
+    return;
+  }
+  if (!review.notes.length) {
+    setLog(`Review: no disputed notes in ${STEM_NAMES[part] || part} — ` +
+           `everything above ${REVIEW_CONF} confidence`);
+    return;
+  }
+  review.on = true;
+  review.part = part;
+  $("#reviewBar").hidden = false;
+  drawReviewMarks();
+  gotoReview(0);
+}
+
+function exitReview() {
+  review.on = false;
+  review.notes = [];
+  const bar = $("#reviewBar");
+  if (bar) bar.hidden = true;
+  drawReviewMarks();
+}
+
+function gotoReview(i) {
+  if (!review.notes.length) return;
+  review.idx = ((i % review.notes.length) + review.notes.length)
+               % review.notes.length;
+  const n = review.notes[review.idx];
+  $("#reviewInfo").textContent =
+    `${review.idx + 1}/${review.notes.length} · conf ${n.conf.toFixed(2)}`;
+  if (unified.api) unified.api.tickPosition = n.qticks;
+}
+
+function drawReviewMarks() {
+  const atEl = $("#unifiedScore");
+  if (!atEl) return;
+  atEl.querySelectorAll(".review-mark").forEach((m) => m.remove());
+  if (!review.on || !unified.api) return;
+  const bl = unified.api.renderer?.boundsLookup || unified.api.boundsLookup;
+  if (!bl) return;
+  // one grid slot of tolerance: the collision shift can move a beat
+  const slot = 960 / 2;
+  const disputed = review.notes;
+  const isDisputed = (ticks, pitch) => disputed.some(
+    (n) => n.pitch === pitch && Math.abs(n.qticks - ticks) <= slot);
+  for (const system of bl.staffSystems || []) {
+    for (const mb of system.bars || []) {
+      for (const barBounds of mb.bars || []) {
+        if (barBounds.bar?.staff?.track?.name !== review.part) continue;
+        for (const beat of barBounds.beats || []) {
+          const ticks = beat.beat?.absolutePlaybackStart;
+          for (const nb of beat.notes || []) {
+            const pitch = nb.note?.realValue;
+            if (ticks == null || pitch == null
+                || !isDisputed(ticks, pitch)) continue;
+            const r = nb.noteHeadBounds || nb.realBounds;
+            if (!r) continue;
+            const mark = document.createElement("div");
+            mark.className = "review-mark";
+            mark.style.left = (r.x - 3) + "px";
+            mark.style.top = (r.y - 3) + "px";
+            mark.style.width = (r.w + 6) + "px";
+            mark.style.height = (r.h + 6) + "px";
+            atEl.appendChild(mark);
+          }
+        }
+      }
+    }
+  }
+}
+
+$("#reviewBtn")?.addEventListener("click", () =>
+  review.on ? exitReview() : enterReview());
+$("#reviewClose")?.addEventListener("click", exitReview);
+$("#reviewPrev")?.addEventListener("click", () => gotoReview(review.idx - 1));
+$("#reviewNext")?.addEventListener("click", () => gotoReview(review.idx + 1));
 
 $("#undoBtn")?.addEventListener("click", async () => {
   const a = editor.lastAction;

@@ -83,6 +83,8 @@
             title="Keep this position">✓ keep</button>
     <button id="undoBtn" class="transport-btn" hidden
             title="Put the note back where it was">↩ revert</button>
+    <button id="reviewBtn" class="transport-btn" hidden
+            title="Review mode: step through low-confidence notes">👁 review</button>
     <button id="transportPlay" class="transport-btn play" disabled
             title="Play the whole project">▶</button>
     <button id="backingPlay" class="backing" hidden
@@ -91,7 +93,30 @@
        title="Download the backing track">⬇</a>
     <a id="saveLink" class="backing" download hidden
        title="Save the project as one file (open it later from the start screen)">💾 save</a>
+    <a id="refLink" class="backing" download hidden
+       title="Export the corrected notes as per-instrument MIDI — your edit becomes reference truth">📐 reference</a>
   </header>
+
+  <!-- mass editor: appears when a range is drag-selected on the score -->
+  <div class="bulkbar" id="bulkBar" hidden>
+    <span id="bulkInfo"></span>
+    <button data-op="octave_up" title="Shift the selection an octave up">+8va</button>
+    <button data-op="octave_down" title="Shift the selection an octave down">−8va</button>
+    <button data-op="dedup_octaves"
+            title="Collapse octave doubles in the selection (keep the upper note)">⧉ collapse 8va</button>
+    <button data-op="delete" title="Delete every note in the selection">⌫ delete</button>
+    <select id="bulkTarget" title="Move the selection to another instrument"></select>
+    <button data-op="reassign" title="Move the selection to the chosen instrument">⇄ move</button>
+    <button id="bulkClear" title="Clear the selection">✕</button>
+  </div>
+
+  <!-- review mode: navigate the disputed (low-confidence) notes -->
+  <div class="bulkbar" id="reviewBar" hidden>
+    <button id="reviewPrev" title="Previous disputed note">‹</button>
+    <span id="reviewInfo"></span>
+    <button id="reviewNext" title="Next disputed note">›</button>
+    <button id="reviewClose" title="Leave review mode">✕</button>
+  </div>
 
   <!-- the virtual instrument: fretboard / keyboard / drum pads for the
        ACTIVE tab, right under the transport where the eyes are; lights
