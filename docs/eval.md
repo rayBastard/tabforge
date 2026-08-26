@@ -261,3 +261,109 @@ rhythm, 7-string suggestion).
 2–3 real tracks × 8 flagged bars with hand-written correct MIDI, to
 check the stand's conclusions against reality. Needs the user's ears;
 tracked in the accuracy plan.
+
+## MEASUREMENT HYGIENE — 2026-08-26 (task 52: the ruler was crooked)
+
+Before betting on specialized transcribers, the ruler itself was
+audited. Three defects found, two fixed permanently in
+`scripts/eval_golden.py`:
+
+### 52.1 The truth MIDI is time-shifted vs the audio
+
+Onset cross-correlation (10 ms bins, ±500 ms window, pooled over all
+instruments) finds a global truth↔audio offset per track: **Loken
+−220…−240 ms uniform across every instrument** (a Suno render/export
+artifact), Hero −40 ms, Fulgrim −130 ms. Per-instrument checks on
+Hero show it is NOT global there (bass −25, guitar −65, vocals
+−235 ms) — but per-instrument alignment would overfit noisy
+estimates, so the stand aligns globally per track (only when
+|shift| > 20 ms). With the old unaligned 80 ms ruler, Loken's entire
+scoreboard carried a hidden −3 to −5 points; Loken drums alone jumped
+0.24 → 0.58 once aligned.
+
+### 52.2 Strict vs pitch-only: half the "errors" are timing
+
+The stand now reports two columns: **F1** (strict: onset within
+50 ms + pitch) and **pF1** (pitch-only: 500 ms window). The gap is
+the rhythm/quantization error budget: guitar 0.22 vs 0.35, bass 0.33
+vs 0.47, vocals 0.16 vs 0.34, piano 0.26 vs 0.48. Roughly half of
+what the old table called transcription failure is timing — fixable
+by better beat tracking/quantization, not by better note models.
+
+### 52.3 Octave-split twins: real, but dedup is not a cure
+
+42–45% of est bass notes have a time-overlapping ±12 twin. The truth
+side explains why no single dedup works: **Hero's bass part is
+WRITTEN in octaves (70% of truth notes have a truth twin), Loken's is
+monophonic (1%)**. Upper-wins dedup on Loken: F1 0.306 → 0.321
+(P +0.055, R −0.025) — the first positive dedup result; the same
+operation on Hero deletes half the written part. Verdict: dedup
+cannot be automatic; it becomes a mass-editor operation ("collapse
+octave doubles in selection", task 55).
+
+### 52.4 Guitar threshold sweep on the honest ruler
+
+Loken guitar (P 0.68 / R 0.16 — right notes, most missed) responds
+massively to softer Basic Pitch thresholds; Hero (dirty stem) does
+not:
+
+```
+preset                          Hero F1   Loken F1
+current  0.5 /0.28/100ms          0.17      0.27
+soft     0.4 /0.22/100ms          0.17      0.35
+softer   0.35/0.20/ 70ms          0.18      0.40   <- new default
+floor    0.25/0.15/ 50ms          0.13      0.44
+subfloor 0.2 /0.12/ 40ms          0.10      0.35
+```
+
+`softer` shipped as the guitar preset (transcribe.py). End-to-end
+(with pipeline quantization) it lands at Loken 0.26→0.36, Hero
+0.18→0.16: +0.04 mean, the biggest single gain of the accuracy war,
+at the cost of Hero precision (0.17→0.11 — dirty stem, more ghost
+notes). Recovering that precision by validating soft guitar notes
+against the stem spectrum (the leak-filter machinery in support mode)
+is a task-53 candidate. `floor` (0.25/0.15/50) is the clean-stem
+optimum (Loken 0.44 raw) — an adaptive threshold could claim it
+later.
+
+Stand bug found on the way: `parts.json` is merge-on-write, so parts
+from an earlier run with different settings (a lead/rhythm split that
+no longer triggers) survived and were double-counted by the scorer —
+Hero guitar showed a phantom est flood. `eval_golden.py` now deletes
+the state file before each run.
+
+### 52.5 THE RECOMPUTED CEILING (honest ruler: aligned, 50 ms strict)
+
+Definitive end-to-end run — demucs stems, shipped presets (incl. the
+new softer guitar), clean state, global alignment, strict tol 50 ms:
+
+```
+inst    F1    pF1   oct   vs old   what changed
+guitar  0.26  0.41  0.20  0.24     softer preset: Loken 0.36, Hero 0.16
+bass    0.33  0.47  0.41  0.34     same ceiling, now honestly measured
+drums   0.55  0.59  0.08  0.38     the "0.38" was a ruler artifact
+vocals  0.16  0.34  0.03  0.13     Loken 0.19 once aligned
+piano   0.26  0.48  0.06  —        new row (Fulgrim now in the cache)
+synth   0.04  0.11  0.06  0.03     hopeless without a note source
+```
+
+Targets for the specialized-transcriber bets (task 53/54), rechecked:
+- **bass**: strict 0.33 / pitch-only 0.47 / octave 0.41 — the mono-f0
+  path (RMVPE/torchcrepe/pyin) still attacks the right disease
+  (octaves + ghost polyphony). Target unchanged.
+- **vocals**: 0.16 / 0.34 — the recitative rule still justified.
+- **guitar**: stays Basic Pitch; the honest gap is now TIMING
+  (F1 0.26 vs pF1 0.41) — beat/quantization work, plus precision
+  recovery on dirty stems.
+- **piano**: MT3 scores 0.57 vs our 0.26 on Fulgrim — task 54's
+  arbiter is also a piano note-source candidate.
+- **drums** at 0.55 drop out of the crisis list.
+
+### MT3 rescored with the honest ruler: role widens
+
+Alignment rescues MT3 too: **Fulgrim piano 0.57 vs our 0.26** (2×),
+Loken vocals 0.28 vs our 0.19. Still blind to Suno metal guitar/bass
+(4–14 notes of thousands); drums lose to our classifier (0.43 vs
+0.55). New verdict for task 54: MT3 is an instrument-presence arbiter
+AND a candidate note source for clean piano/vocal stems — not for
+guitar/bass/drums.

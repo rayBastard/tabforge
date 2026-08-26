@@ -195,8 +195,11 @@ PRESETS: dict[str, dict] = {
     # F#1 = 46 Hz — a 70 Hz floor silently deleted every downtuned
     # rhythm part. 38 Hz covers 8-string drop E; the bass is separated
     # away by demucs, so the floors may overlap.
-    "guitar": dict(onset_threshold=0.5, frame_threshold=0.28,
-                   min_note_length_ms=100, min_freq=38, max_freq=1400),
+    # Golden sweep (task 52): softening 0.5/0.28/100 -> 0.35/0.2/70
+    # lifts Loken guitar F1 0.27->0.40 (recall 0.17->0.30) and leaves
+    # Hero flat; going softer still trades Hero away.
+    "guitar": dict(onset_threshold=0.35, frame_threshold=0.2,
+                   min_note_length_ms=70, min_freq=38, max_freq=1400),
     "vocals": dict(onset_threshold=0.5, frame_threshold=0.3,
                    min_note_length_ms=90, min_freq=80, max_freq=1200),
     "piano":  dict(onset_threshold=0.5, frame_threshold=0.3,
