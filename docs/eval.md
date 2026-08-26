@@ -687,3 +687,26 @@ Verdicts:
   but golden says +0.02 — below the switch rule. Task 62 may route
   "other"->mt3 in SOLO MODE only (the profile supports split
   defaults).
+
+## SOLO MODE — 2026-08-26 (task 62)
+
+`PipelineOptions` / the "Solo instrument" checkbox (mutually
+exclusive with HQ separation): no demucs at all — tempo, key, the
+MT3 solo-detect ("solo track detected: guitar", one preselected
+card, other heard timbres offered unchecked) and both mix-model
+caches all come from the original file; every found card points AT
+the mix. Backing and leak spectra are meaningless without stems and
+are off.
+
+Acceptance on the solo Guitar track: end-to-end F1 0.41 — exactly
+the offline MuScriptor number, nothing lost in the chain; the
+transcribe stage took 4 SECONDS (cached mix-model + fingering);
+auto lead/rhythm split, chords and sections all alive. The demucs
+stage disappears entirely; the analyze cost that remains is the MT3
+solo-detect (~1x track length) when installed. Without MT3 solo mode
+still works: every card offered, the human picks (they know it's
+solo — they checked the box).
+
+The measured groundwork (see THE SOLO CORPUS above): separation eats
+nothing on clean material, so solo mode's value is time, card sanity
+and the cleaner mix-model routing — exactly as shipped.

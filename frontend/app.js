@@ -152,6 +152,15 @@ async function fetchLimits() {
   if (limits && limits.lyrics_available) $("#lyricsRow").hidden = false;
 })();
 
+// solo mode and HQ separation are mutually exclusive: one says "don't
+// separate at all", the other "separate better"
+$("#soloMode")?.addEventListener("change", (e) => {
+  if (e.target.checked) $("#hqSeparation").checked = false;
+});
+$("#hqSeparation")?.addEventListener("change", (e) => {
+  if (e.target.checked) $("#soloMode").checked = false;
+});
+
 async function openProjectFile() {
   goBtn.disabled = true;
   neck.hidden = false;
@@ -197,6 +206,7 @@ async function startAnalyze() {
   form.append("separator",
               $("#hqSeparation")?.checked ? "roformer" : "demucs");
   form.append("use_mt3", $("#mt3Arbiter")?.checked ? "1" : "0");
+  form.append("solo", $("#soloMode")?.checked ? "1" : "0");
   try {
     const res = await apiFetch("/api/jobs", { method: "POST", body: form });
     if (!res.ok) throw new Error(await errorDetail(res));
@@ -645,7 +655,7 @@ function initUnifiedScore(job) {
         const ci = chordAtTicks(beat.absolutePlaybackStart);
         if (ci >= 0) highlightChord(ci);
         updateLyricLine(beat.absolutePlaybackStart);
-        followCursor();
+        followCursor(beat);
       });
       // the virtual instrument lights the notes of the ACTIVE tab
       api.activeBeatsChanged.on((args) => {
@@ -860,6 +870,7 @@ function buildFretboard(bar, tuning) {
       const c = svgEl("circle", { cx: fx(f), cy: sy(row), r: 7,
                                   class: "v-dot" });
       c.dataset.s = row + 1;                    // string 1..n from the top
+      c._midi = tuning[row] + f;                // click = hear this note
       svg.appendChild(c);
       dots.push(c);
     }
@@ -878,6 +889,8 @@ function buildFretboard(bar, tuning) {
       return;
     }
     // a LIT playback dot is the natural editing entry: pause where the
+    const dot = e.target.closest(".v-dot");
+    if (dot && dot._midi != null) playTone(dot._midi);
     // note plays, click the dot itself
     const live = e.target.closest(".v-dot.live");
     if (live && live._tfNote) showNotePopover(live._tfNote);
@@ -926,6 +939,7 @@ function buildKeyboard(bar) {
   whites.forEach((m, i) => {
     const r = svgEl("rect", { x: i * kw, y: 0, width: kw, height: H,
                               class: "v-white" });
+    r._midi = m;
     svg.appendChild(r);
     virtual.keyEls[m] = r;
   });
@@ -946,12 +960,17 @@ function buildKeyboard(bar) {
       const r = svgEl("rect", { x: (i + 0.65) * kw, y: 0,
                                 width: kw * 0.7, height: H * 0.6,
                                 class: "v-black" });
+      r._midi = m + 1;
       svg.appendChild(r);
       virtual.keyEls[m + 1] = r;
     }
   });
   virtual.chordText = svgEl("text", { x: W - 6, y: 14, class: "v-chord" });
   svg.appendChild(virtual.chordText);
+  svg.addEventListener("click", (e) => {
+    const key = e.target.closest(".v-white, .v-black");
+    if (key && key._midi != null) playTone(key._midi);
+  });
   bar.replaceChildren(svg);
 }
 
@@ -968,6 +987,11 @@ function buildDrumPads(bar) {
     t.textContent = label;
     svg.appendChild(t);
     virtual.padEls.push(r);
+  });
+  svg.addEventListener("click", (e) => {
+    const pad = e.target.closest(".v-pad");
+    const idx = virtual.padEls.indexOf(pad);
+    if (idx >= 0) playDrum(DRUM_PADS[idx][1][0]);
   });
   bar.replaceChildren(svg);
 }
@@ -1150,24 +1174,87 @@ function reloadScore(songUrl) {
 
 /* ---------- follow the playback cursor ------------------------------- */
 
-function followCursor() {
+function followCursor(beat) {
   // ride along only while actually playing: a paused user scrolling
   // around must never be yanked back
   const api = unified.api;
   if (!api || api.playerState !== alphaTab.synth.PlayerState.Playing)
     return;
-  const cursor = $("#unifiedScore")?.querySelector(".at-cursor-beat");
-  if (!cursor) return;
-  const r = cursor.getBoundingClientRect();
-  if (!r.height) return;
-  // comfortable band: below the sticky bars, above the bottom tabbar
+  // geometry from the boundsLookup, NOT the DOM cursor: the cursor
+  // element blinks through 0,0 on re-renders and rests, which read as
+  // "cursor is at the top" and yanked the page up
+  const bl = api.renderer?.boundsLookup || api.boundsLookup;
+  const bb = bl?.findBeat ? bl.findBeat(beat) : null;
+  const r = bb?.visualBounds || bb?.realBounds;
+  if (!r || !r.h) return;
+  const atTop = $("#unifiedScore").getBoundingClientRect().top;
+  const yTop = atTop + r.y, yBot = yTop + r.h;
   const top = 300, bottom = window.innerHeight - 140;
-  if (r.top < top || r.bottom > bottom) {
+  if (yTop < top || yBot > bottom) {
     window.scrollTo({
-      top: window.scrollY + r.top - Math.min(360, window.innerHeight / 3),
+      top: window.scrollY + yTop - Math.min(360, window.innerHeight / 3),
       behavior: "smooth",
     });
   }
+}
+
+/* ---------- click-to-hear on the virtual instrument ------------------ */
+
+const toneBox = { ctx: null };
+
+function _audio() {
+  if (!toneBox.ctx) toneBox.ctx = new (window.AudioContext
+                                       || window.webkitAudioContext)();
+  if (toneBox.ctx.state === "suspended") toneBox.ctx.resume();
+  return toneBox.ctx;
+}
+
+function playTone(midi, dur = 0.6) {
+  const ctx = _audio();
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  osc.type = "triangle";
+  osc.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(0.35, t + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  const lp = ctx.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.frequency.value = 2400;
+  osc.connect(lp).connect(gain).connect(ctx.destination);
+  osc.start(t);
+  osc.stop(t + dur + 0.05);
+}
+
+function playDrum(gm) {
+  const ctx = _audio();
+  const t = ctx.currentTime;
+  const out = ctx.createGain();
+  out.gain.value = 0.5;
+  out.connect(ctx.destination);
+  if (gm === 35 || gm === 36) {                    // kick: falling sine
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.setValueAtTime(130, t);
+    o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+    g.gain.setValueAtTime(0.9, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    o.connect(g).connect(out); o.start(t); o.stop(t + 0.3);
+    return;
+  }
+  const len = (gm === 49 || gm === 57 || gm === 51) ? 0.9 : 0.18;
+  const buf = ctx.createBuffer(1, ctx.sampleRate * len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++)
+    d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 2);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const f = ctx.createBiquadFilter();
+  if (gm === 38 || gm === 40) { f.type = "bandpass"; f.frequency.value = 1800; }
+  else if (gm >= 41 && gm <= 47) { f.type = "bandpass"; f.frequency.value = 350; }
+  else { f.type = "highpass"; f.frequency.value = 6000; }   // hats/cymbals
+  src.connect(f).connect(out);
+  src.start(t);
 }
 
 /* ---------- note hover & click feedback ------------------------------ */

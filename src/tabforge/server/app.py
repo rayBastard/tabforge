@@ -226,7 +226,8 @@ def _progress_fn(job: Job):
 
 def _run_analyze(job: Job, audio: Path,
                  separator: str = SEPARATOR,
-                 use_mt3: bool = True) -> None:
+                 use_mt3: bool = True,
+                 solo: bool = False) -> None:
     with job.lock:
         if job.cancel.is_set():          # canceled while still queued
             job.status = "canceled"
@@ -236,7 +237,7 @@ def _run_analyze(job: Job, audio: Path,
     try:
         analyzed = run_analyze(audio, job.dir / "out", _progress_fn(job),
                                cancel_token=job.id, separator=separator,
-                               use_mt3=use_mt3)
+                               use_mt3=use_mt3, solo=solo)
         with job.lock:
             job.analyzed = analyzed
             job.bpm = analyzed.bpm
@@ -343,7 +344,8 @@ def _run_transcribe(job: Job, opts: PipelineOptions) -> None:
 @app.post("/api/jobs")
 async def create_job(file: UploadFile,
                      separator: str = Form(SEPARATOR),
-                     use_mt3: str = Form("1")) -> dict:
+                     use_mt3: str = Form("1"),
+                     solo: str = Form("0")) -> dict:
     """Step 1: upload + separation + analysis. The job stops at status
     'analyzed' with per-instrument facts; step 2 is POST .../transcribe.
     separator: 'demucs' (fast, default) or 'roformer' (BS-Roformer-SW —
@@ -399,7 +401,8 @@ async def create_job(file: UploadFile,
         POOL.submit(_run_analyze_midi_job, job, audio)
     else:
         POOL.submit(_run_analyze, job, audio, separator,
-                    use_mt3 not in ("0", "false", "off", ""))
+                    use_mt3 not in ("0", "false", "off", ""),
+                    solo not in ("0", "false", "off", ""))
     return {"id": job.id}
 
 

@@ -112,6 +112,9 @@ class AnalyzeResult:
     # set when the project came from a dropped MIDI file: notes are
     # taken from it at face value, no separation/transcription runs
     midi_source: Path | None = None
+    # solo mode (task 62): stems all point at the ORIGINAL mix — no
+    # separation ran, no leak spectra or backing make sense
+    solo: bool = False
 
 
 @dataclass(slots=True)
@@ -271,11 +274,106 @@ RMS_FOUND = 0.005      # same threshold family as stem_is_audible
 RMS_ABSENT = 0.002
 
 
+def _analyze_solo(audio: Path, out_dir: Path,
+                  progress: ProgressFn) -> AnalyzeResult:
+    """Solo mode (task 62): no separation at all — the mix IS the
+    instrument. Tempo and key come from the mix, MT3 (when installed)
+    names the dominant instrument for the "Solo track detected" card,
+    and every found card points at the ORIGINAL file: the profile's
+    own transcriber (or its mix-model route) sees clean audio."""
+    from .audio import keydetect, transcribe
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    progress("analyze", "solo mode: no separation, the mix is the "
+                        "instrument")
+    mix = transcribe.ensure_decodable_wav(audio, out_dir)
+
+    progress("analyze", "tempo and beat grid (mix)")
+    mix_data = transcribe.load_audio(mix)
+    bpm, beats, reliable = transcribe.detect_tempo(mix, audio_data=mix_data)
+    warnings = [] if reliable else ["tempo: estimated poorly"]
+    try:
+        key = keydetect.detect_key(mix, audio_data=mix_data)
+        progress("analyze", f"key: {key.name}")
+    except Exception:  # noqa: BLE001
+        key = None
+        warnings.append("key: detection failed")
+
+    # both whole-mix models cache their MIDI here for routing/verdicts
+    densities: dict[str, float] = {}
+    try:
+        from .audio import arbiter
+        if arbiter.find_mt3() is not None:
+            midi = arbiter.run_mt3(mix, out_dir, progress)
+            if midi is not None:
+                import soundfile as sf
+                info = sf.info(str(mix))
+                densities = arbiter.mt3_densities(
+                    midi, info.frames / info.samplerate / 60)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from .audio.muscriptor import find_muscriptor, run_muscriptor
+        if find_muscriptor() is not None:
+            run_muscriptor(mix, out_dir, progress)
+    except Exception:  # noqa: BLE001
+        pass
+
+    cards = (*PITCHED_STEMS, "drums")
+    analysis: dict[str, StemAnalysis] = {}
+    if densities:
+        dominant = max(densities, key=densities.get)
+        for card in cards:
+            dens = densities.get(card, 0.0)
+            heard = dens >= (60.0 if card == "drums" else 5.0)
+            if card == dominant:
+                # the ONE preselected card — this is a solo track
+                analysis[card] = StemAnalysis(card, "found", 1.0,
+                                              verdict="found")
+            elif heard:
+                # MT3 heard echoes of other timbres in the same
+                # instrument: offer the card unchecked, human decides
+                analysis[card] = StemAnalysis(card, "quiet", 0.5)
+            else:
+                analysis[card] = StemAnalysis(card, "absent", 0.0,
+                                              verdict="absent")
+        progress("analyze",
+                 f"solo track detected: {dominant}")
+        warnings.append(f"solo: detected {dominant}")
+        count, lo, hi, _ioi = _quick_note_stats(mix, dominant, out_dir)
+        a = analysis[dominant]
+        a.note_count = count
+        a.min_pitch, a.max_pitch = lo, hi
+        a.suggested_tuning = suggest_tuning(dominant, lo)
+        from .audio.tagging import tag_stem
+        a.sounds_like = tag_stem(mix)
+    else:
+        # no arbiter: the user KNOWS it's solo — offer every card,
+        # nothing preselected beyond their judgement
+        for card in cards:
+            analysis[card] = StemAnalysis(card, "quiet", 0.5)
+        progress("analyze", "solo mode without MT3: pick the "
+                            "instrument yourself")
+
+    try:
+        from .audio.sections import compute_features
+        compute_features(mix, beats, out_dir / "sections_features.npz")
+    except Exception:  # noqa: BLE001
+        pass
+
+    stems = {card: mix for card, a in analysis.items()
+             if a.status != "absent"}
+    return AnalyzeResult(stems=stems, analysis=analysis, bpm=bpm,
+                         beats=beats, tempo_reliable=reliable, key=key,
+                         warnings=warnings, solo=True)
+
+
 def run_analyze(audio: Path, out_dir: Path,
                 progress: ProgressFn = _noop,
                 cancel_token: object | None = None,
                 separator: str = "demucs",
-                use_mt3: bool = True) -> AnalyzeResult:
+                use_mt3: bool = True,
+                solo: bool = False) -> AnalyzeResult:
     """Separate + quick per-stem facts + shared tempo/key. No demucs work
     is ever repeated after this: the stems stay in out_dir/stems.
 
@@ -285,6 +383,9 @@ def run_analyze(audio: Path, out_dir: Path,
     import numpy as np
 
     from .audio import keydetect, transcribe
+
+    if solo:
+        return _analyze_solo(audio, out_dir, progress)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     progress("separate", "Separating into stems (first run downloads the model)")
@@ -502,7 +603,7 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
         key=lambda kv: part_order.get(kv[0], len(part_order))))
 
     # Everything the user did NOT pick becomes a play-along backing track.
-    if midi_classes is None:
+    if midi_classes is None and not analyzed.solo:
         backing_dir = out_dir / "backing"
         backing_dir.mkdir(parents=True, exist_ok=True)
         if transcribe.mix_backing(analyzed.stems, opts.stems,
@@ -520,7 +621,8 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
     # shared spectrogram cache for the leak filter (one STFT per stem)
     from .audio.validate import _StemSpectra, filter_leaked_notes
     spectra = (_StemSpectra(analyzed.stems)
-               if opts.leak_margin > 0 and analyzed.stems else None)
+               if opts.leak_margin > 0 and analyzed.stems
+               and not analyzed.solo else None)
 
     results: list[StemResult] = []
     song_parts: list = []          # writers.SongPart, one per produced part
