@@ -706,6 +706,7 @@ function initUnifiedScore(job) {
     unified.api.playerStateChanged.on((e) => {
       playBtn.textContent =
         e.state === alphaTab.synth.PlayerState.Playing ? "⏸" : "▶";
+      if (e.state === alphaTab.synth.PlayerState.Playing) resumeFollow();
     });
     unified.api.error.on(() => {
       if (!unified.armed) { playBtn.disabled = true; playBtn.textContent = "✕"; }
@@ -1167,6 +1168,17 @@ async function repin(part, qticks, pitch, string, btn) {
 
 function reloadScore(songUrl) {
   if (!unified.api) return;
+  // an edit must not throw the reader away: keep the scroll position
+  // and the cursor across the reload
+  const keepY = window.scrollY;
+  const keepTick = unified.api.tickPosition || 0;
+  const once = () => {
+    unified.api.renderFinished.off(once);
+    window.scrollTo({ top: keepY });
+    if (keepTick) unified.api.tickPosition = keepTick;
+    follow.lineY = null;
+  };
+  unified.api.renderFinished.on(once);
   // cache-buster: the gp5 on disk changed but the URL did not
   unified.api.load(withToken(songUrl) +
     (songUrl.includes("?") ? "&" : "?") + "v=" + Date.now());
@@ -1174,7 +1186,31 @@ function reloadScore(songUrl) {
 
 /* ---------- follow the playback cursor ------------------------------- */
 
-const follow = { lineY: null };
+const follow = { lineY: null, paused: false };
+
+// the HUMAN owns the scroll: any manual wheel/touch pauses following
+// (a floating chip brings it back; pressing play also resets it)
+["wheel", "touchmove"].forEach((ev) =>
+  window.addEventListener(ev, () => {
+    const api = unified.api;
+    if (api && api.playerState === alphaTab.synth.PlayerState.Playing
+        && !follow.paused) {
+      follow.paused = true;
+      const chip = $("#followChip");
+      if (chip) chip.hidden = false;
+    }
+  }, { passive: true }));
+
+function resumeFollow() {
+  follow.paused = false;
+  follow.lineY = null;              // re-scroll to the current line
+  const chip = $("#followChip");
+  if (chip) chip.hidden = true;
+}
+
+$("#followChip")?.addEventListener("click", () => {
+  resumeFollow();
+});
 
 function followCursor(beat) {
   // ride along only while actually playing: a paused user scrolling
@@ -1182,6 +1218,7 @@ function followCursor(beat) {
   const api = unified.api;
   if (!api || api.playerState !== alphaTab.synth.PlayerState.Playing)
     return;
+  if (follow.paused) return;
   // page-turn behavior: while the cursor stays on the SAME staff line
   // the page does not move at all; entering a new line scrolls once.
   // (Band-keeping scrolled on every beat and fought its own smooth
@@ -1195,12 +1232,8 @@ function followCursor(beat) {
   follow.lineY = line.y;
   const atAbsTop = $("#unifiedScore").getBoundingClientRect().top
                  + window.scrollY;
-  const target = atAbsTop + line.y - 320;
-  // only move if the new line is actually out of comfortable view
-  const onScreen = atAbsTop + line.y - window.scrollY;
-  if (onScreen > 280 && onScreen + line.h < window.innerHeight - 120)
-    return;
-  window.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+  window.scrollTo({ top: Math.max(0, atAbsTop + line.y - 320),
+                    behavior: "smooth" });
 }
 
 /* ---------- click-to-hear on the virtual instrument ------------------ */

@@ -547,6 +547,15 @@ select {
 .alphatab { background: #f6f1e7; border-radius: 8px; margin-top: 14px;
             position: relative; }
 
+/* resume-follow chip */
+.follow-chip {
+  position: fixed; right: 24px; bottom: 86px; z-index: 30;
+  background: var(--brass); color: var(--wood); border: 0;
+  border-radius: 999px; padding: 10px 16px; cursor: pointer;
+  font: 600 13px "Bricolage Grotesque", sans-serif;
+  box-shadow: 0 4px 14px rgba(0,0,0,.35);
+}
+
 /* keyboard note/octave labels */
 .v-key-label {
   font-size: 7px; fill: #8d7c66; text-anchor: middle;
