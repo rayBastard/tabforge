@@ -739,3 +739,32 @@ solo Bass         0.68      0.71       0.81       0.80
 - Variant selection: TABFORGE_MUSCRIPTOR_MODEL, else medium
   auto-selected the moment its gated weights exist in the HF cache,
   else small. ~2.5x the time of small, ~0.9x realtime on Metal.
+
+## GAPS / HIGH-RESOLUTION GUITAR — 2026-08-28 (task 64)
+
+Riley et al. (QMUL): ICASSP-2024 domain-adaptation model (guitar-fl,
+jazz) and the ISMIR-2024 GAPS model (guitar-gaps, 14h classical).
+License protocol passed cleanly for once: code MIT, weights MIT on
+HF (xavriley/midi-transcription-models) — fully integrable. Runs at
+~0.2x realtime on Metal via the Kong piano-CRNN architecture.
+
+Measured against our truth (solo corpus + golden guitar stems):
+
+```
+                gaps    fl    muscriptor-med   BP
+solo Guitar     0.33   0.37       0.46        0.31
+Loken stem      0.25   0.33       0.53        0.27
+Hero stem       0.21   0.18       0.33        0.19
+```
+
+**Verdict: measured, lost, not integrated.** The domain mismatch the
+plan predicted is exactly what the numbers show — precision is
+honest (0.80 on Loken: what it hears, it hears right) but recall
+0.15-0.24 on distorted Suno material buries it; MuScriptor-medium
+wins every row by more than the routing rule's margin. Two
+integration nuisances noted for the record: its from_pretrained is
+broken against current huggingface-hub (constructor + manual
+hf_hub_download works), and its resampy pin (>=0.4.3) conflicts with
+basic-pitch's (<0.4.3) — 0.4.2 runs both fine in practice. The venv
+install stays: on GuitarSet (task 65, acoustic — ITS home domain)
+GAPS becomes the literature-grade comparator for our pipeline.
