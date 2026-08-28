@@ -97,6 +97,7 @@ class StemAnalysis:
             "suggested_tuning": self.suggested_tuning,
             "sounds_like": list(self.sounds_like),
             "verdict": self.verdict,
+            "median_ioi": self.median_ioi,
         }
 
 

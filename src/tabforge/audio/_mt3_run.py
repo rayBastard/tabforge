@@ -47,7 +47,14 @@ def main() -> None:
             '-epe', 'rope', '-rp', '1']
     import os
     os.chdir(SPACE)                      # their code resolves amt/logs/
-    model = load_model_checkpoint(args=args, device="cpu")
+    # Apple Metal cuts inference roughly in half vs CPU (verified:
+    # identical note output); anything without MPS falls back
+    import torch
+    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    try:
+        model = load_model_checkpoint(args=args, device=device)
+    except Exception:
+        model = load_model_checkpoint(args=args, device="cpu")
     print("model loaded", flush=True)
     midifile = transcribe(model, {"filepath": str(MIX),
                                   "track_name": MIX.stem})

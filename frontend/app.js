@@ -387,6 +387,19 @@ function showInstruments(job) {
   setLog("Analyzed. Pick the instruments and press Transcribe.");
   goBtn.textContent = "Transcribe to tab";
   goBtn.disabled = false;
+
+  // rhythm-precision proposal (runs AFTER the selector exists): notes
+  // arriving faster than ~a third of a beat are SIXTEENTH material —
+  // the default eighth grid shoves half of them onto wrong slots
+  const beat = job.bpm > 0 ? 60 / job.bpm : 0;
+  const fastest = Math.min(...job.analysis
+    .filter((a) => a.status === "found" && a.median_ioi)
+    .map((a) => a.median_ioi), Infinity);
+  const precSel = $("#instPrecision");
+  if (precSel && beat && fastest < 0.35 * beat) {
+    precSel.value = "4";
+    setLog("sixteenth-note material detected — rhythm precision set to sixteenths (change it if you disagree)");
+  }
 }
 
 /* ---------- polling ---------- */
