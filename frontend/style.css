@@ -291,17 +291,18 @@ body {
   border: 1px solid var(--brass);
   border-radius: 10px;
   /* the right padding keeps the text clear of the ✕ button */
-  padding: 12px 30px 10px 12px;
-  max-width: 250px;
+  padding: 12px 46px 10px 12px;
+  max-width: 264px;
   display: flex;
   flex-direction: column;
   gap: 6px;
   box-shadow: 0 8px 30px rgba(0,0,0,.5);
 }
 .popover-x {
-  position: absolute; top: 4px; right: 6px;
+  position: absolute; top: 6px; right: 8px;
   background: none; border: 0; color: var(--bone-dim);
-  font-size: 15px; cursor: pointer; padding: 4px;
+  font-size: 14px; cursor: pointer; padding: 2px 4px;
+  line-height: 1;
 }
 .popover-x:hover { color: var(--bone); }
 .note-popover p { margin: 0 0 4px; font-size: 13px; color: var(--bone-dim); }
@@ -676,3 +677,22 @@ select {
 }
 .stem-play:disabled { opacity: .45; cursor: wait; }
 
+
+/* one size for every option checkbox */
+.mixrow { display: flex; align-items: flex-start; gap: 10px; }
+.mixrow input[type="checkbox"] {
+  flex: 0 0 auto; width: 18px; height: 18px; margin: 2px 0 0;
+  accent-color: var(--brass);
+}
+
+/* project-screen toast: edit results must be VISIBLE where you edit */
+.toast {
+  position: fixed; left: 50%; bottom: 76px; transform: translateX(-50%);
+  background: var(--plank-2); color: var(--bone);
+  border: 1px solid var(--wire); border-radius: 10px;
+  padding: 10px 18px; z-index: 60; opacity: 0;
+  transition: opacity .2s ease; pointer-events: none;
+  font: 600 13px "Bricolage Grotesque", sans-serif;
+}
+.toast.show { opacity: 1; }
+.toast.error { border-color: var(--danger); color: var(--danger); }

@@ -458,6 +458,12 @@ function finish(job) {
   markStage("done");
   setLog("Done. Change the selection and transcribe again if you like.");
   goBtn.disabled = false;              // re-transcribe with a new selection
+  // the editor endpoints (repin/bulk/lyrics) address THIS job: a page
+  // that lands on a finished job without passing through the analyze
+  // screen (restored project, direct poll) had currentJobId=null and
+  // every edit died with a silent 404
+  currentJobId = job.id;
+  activeJobId = job.id;
 
   const backingLink = $("#backingLink");
   if (job.backing) {
@@ -890,7 +896,7 @@ function buildFretboard(bar, tuning) {
     }
     // a LIT playback dot is the natural editing entry: pause where the
     const dot = e.target.closest(".v-dot");
-    if (dot && dot._midi != null) playTone(dot._midi);
+    if (dot && dot._midi != null) playPluck(dot._midi);
     // note plays, click the dot itself
     const live = e.target.closest(".v-dot.live");
     if (live && live._tfNote) showNotePopover(live._tfNote);
@@ -1143,6 +1149,20 @@ document.addEventListener("mousedown", (e) => {
   closePopover();
 }, true);
 
+function toast(msg, isError = false) {
+  let el = document.querySelector(".toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "toast";
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.toggle("error", isError);
+  el.classList.add("show");
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove("show"), 3200);
+}
+
 async function repin(part, qticks, pitch, string, btn) {
   if (btn) { btn.disabled = true; btn.textContent += " …"; }
   try {
@@ -1161,7 +1181,7 @@ async function repin(part, qticks, pitch, string, btn) {
     reloadScore(data.song);
   } catch (err) {
     closePopover();
-    setLog(`Repin failed: ${err.message}`, true);
+    toast(`Note edit failed: ${err.message}`, true);
   }
 }
 
@@ -1243,21 +1263,44 @@ function _audio() {
 }
 
 function playTone(midi, dur = 0.6) {
+  // keys mode: a small additive "piano-ish" voice
   const ctx = _audio();
   const t = ctx.currentTime;
-  const osc = ctx.createOscillator();
-  osc.type = "triangle";
-  osc.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
-  const gain = ctx.createGain();
-  gain.gain.setValueAtTime(0.0001, t);
-  gain.gain.exponentialRampToValueAtTime(0.35, t + 0.01);
-  gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  const lp = ctx.createBiquadFilter();
-  lp.type = "lowpass";
-  lp.frequency.value = 2400;
-  osc.connect(lp).connect(gain).connect(ctx.destination);
-  osc.start(t);
-  osc.stop(t + dur + 0.05);
+  const f0 = 440 * Math.pow(2, (midi - 69) / 12);
+  const out = ctx.createGain();
+  out.gain.value = 0.28;
+  out.connect(ctx.destination);
+  [[1, 1, 1.6], [2, 0.5, 1.0], [3, 0.25, 0.6], [4.01, 0.1, 0.4]]
+    .forEach(([mult, amp, dec]) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "sine";
+      o.frequency.value = f0 * mult;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(amp, t + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dec);
+      o.connect(g).connect(out);
+      o.start(t); o.stop(t + dec + 0.05);
+    });
+}
+
+function playPluck(midi, dur = 1.2) {
+  // fretboard mode: Karplus-Strong — an actual plucked string
+  const ctx = _audio();
+  const sr = ctx.sampleRate;
+  const f0 = 440 * Math.pow(2, (midi - 69) / 12);
+  const period = Math.max(2, Math.round(sr / f0));
+  const n = Math.floor(sr * dur);
+  const buf = ctx.createBuffer(1, n, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < period; i++) d[i] = Math.random() * 2 - 1;
+  for (let i = period; i < n; i++)
+    d[i] = 0.996 * 0.5 * (d[i - period] + d[i - period + 1]);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const g = ctx.createGain();
+  g.gain.value = 0.5;
+  src.connect(g).connect(ctx.destination);
+  src.start();
 }
 
 function playDrum(gm) {

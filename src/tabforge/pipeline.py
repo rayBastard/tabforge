@@ -403,8 +403,32 @@ def run_analyze(audio: Path, out_dir: Path,
         return _analyze_solo(audio, out_dir, progress)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    progress("separate", "Separating into stems (first run downloads the model)")
     demucs_input = transcribe.ensure_decodable_wav(audio, out_dir)
+
+    # the whole-mix models need only the MIX — warm their caches in a
+    # side thread WHILE demucs separates, instead of after it: the
+    # analyze wall time becomes max(demucs+stats, MT3) instead of the
+    # sum (MT3 alone is ~1x track length)
+    import threading
+
+    def _warm_mix_models() -> None:
+        try:
+            from .audio import arbiter as _arb
+            if use_mt3 and _arb.find_mt3() is not None:
+                _arb.run_mt3(demucs_input, out_dir, progress)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            from .audio.muscriptor import find_muscriptor, run_muscriptor
+            if find_muscriptor() is not None:
+                run_muscriptor(demucs_input, out_dir, progress)
+        except Exception:  # noqa: BLE001
+            pass
+
+    warm_thread = threading.Thread(target=_warm_mix_models, daemon=True)
+    warm_thread.start()
+
+    progress("separate", "Separating into stems (first run downloads the model)")
     all_stems = transcribe.separate(demucs_input, out_dir / "stems",
                                     backend=separator,
                                     cancel_token=cancel_token)
@@ -487,6 +511,7 @@ def run_analyze(audio: Path, out_dir: Path,
     try:
         from .audio import arbiter
         if use_mt3 and arbiter.find_mt3() is not None:
+            warm_thread.join()          # mt3.mid is (about to be) cached
             import soundfile as sf
             info = sf.info(str(demucs_input))
             duration_min = info.frames / info.samplerate / 60
@@ -502,10 +527,10 @@ def run_analyze(audio: Path, out_dir: Path,
         progress("analyze", "MT3 arbiter failed — cards keep their "
                             "RMS-based statuses")
 
-    # MuScriptor whole-mix transcription (task 57): cached once here —
-    # bass and guitar route to it when the user has an install
-    # (weights are CC BY-NC, never bundled; silently absent otherwise)
+    # MuScriptor cache: normally warmed by the side thread already;
+    # this is the safety net when the thread died early
     try:
+        warm_thread.join()
         from .audio.muscriptor import find_muscriptor, run_muscriptor
         if find_muscriptor() is not None:
             run_muscriptor(demucs_input, out_dir, progress)
