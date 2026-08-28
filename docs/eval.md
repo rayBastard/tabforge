@@ -768,3 +768,96 @@ hf_hub_download works), and its resampy pin (>=0.4.3) conflicts with
 basic-pitch's (<0.4.3) — 0.4.2 runs both fine in practice. The venv
 install stays: on GuitarSet (task 65, acoustic — ITS home domain)
 GAPS becomes the literature-grade comparator for our pipeline.
+
+## THE GUITARSET RULER — 2026-08-28 (task 65): Viterbi measured at last
+
+`scripts/eval_guitarset.py` (GuitarSet, Zenodo 3371780: 360 excerpts,
+hexaphonic per-string truth). The fingering engine had NEVER been
+measured against how guitarists actually play — now it is:
+
+```
+STRING ASSIGNMENT (truth notes -> assign_tab vs the human's string):
+overall           0.598   (62,473 notes)
+open strings      0.994
+fretted notes     0.569
+by style          Rock .650  SingerSongwriter .670  Funk .627
+                  Bossa .465  Jazz .490
+top confusions    G->B 6662   D->G 5717   B->e 5316   A->D 2951
+                  (every one of them = we pick the THINNER string)
+```
+
+The error is systematic and one-directional: the Viterbi gravitates
+to LOW FRETS near the nut, while human hands play in POSITIONS
+(frets 5-9, hand stays put) — hence position-heavy styles (bossa,
+jazz) score worst and open-position styles best. This is the user's
+"unplayable fingering" complaint turned into a number and an
+address: the fret-height penalty outweighs hand-movement cost in
+static_cost/transition_cost. Per the plan, NOT blind-fixed here —
+the histogram is the spec for a dedicated cost-tuning task, and the
+0.598 baseline is the ruler it will be measured against.
+(Literature reference: audio2guitar claims 97.8% string accuracy.)
+
+### GuitarSet transcription (task 65, part 2): GAPS resurrects at home
+
+Mono-mic audio, 30-excerpt subset (player 00, all five styles),
+strict 50 ms mir_eval:
+
+```
+GAPS (classical ckpt)   mean F1 0.858   median 0.867
+MuScriptor-medium            0.745          0.814
+Basic Pitch                  0.590          0.586
+```
+
+Yesterday's burial gets an honest amendment: GAPS loses on OUR Suno
+distortion but WINS acoustic solo guitar by +0.11 over the incumbent
+— beyond the routing rule's margin. Task 66 gets a domain route:
+solo acoustic guitar -> GAPS, distorted/mixes -> MuScriptor, with
+the PANNs distortion-family score (already computed for the arbiter
+guards) as the discriminator. The subset run is the stand's
+regression form (`--limit 30`); the full 360 stays on demand.
+
+## TASK 66 ASSEMBLY — 2026-08-28: the guitar-engine table and the routes
+
+The block's closing table — every guitar backend on every stand we
+own (strict 50 ms F1; golden = stems from mixes, solo = the no-demucs
+path, GuitarSet = acoustic solo, 30-excerpt regression subset):
+
+```
+                      BP     MuScriptor   MuScriptor    GAPS
+                             small        medium
+solo Guitar          0.31       0.41         0.46       0.33
+solo Bass            0.53       0.68         0.81        —
+solo Keyboard        0.29       0.55         0.60        —
+Loken guitar stem    0.27       0.46         0.53       0.25
+Hero guitar stem     0.19       0.28         0.33       0.21
+GuitarSet (30)       0.59        —           0.745      0.858
+```
+
+Routing that survives the >=0.05 rule, written into the product:
+
+- **Mixes** (normal mode): guitar/bass/keys ride MuScriptor-medium
+  when its cache exists (task 63), MT3 keeps keys otherwise; BP is
+  the no-install floor.
+- **Solo mode**: same, EXCEPT the auto guitar engine asks the PANNs
+  distortion-family sum (Electric guitar + Distortion + Heavy metal)
+  first: < 0.30 means acoustic-flavored -> GAPS (its home domain,
+  +0.11 over the incumbent on GuitarSet); >= 0.30 or no tagger ->
+  incumbent. Measured stems sit far from the line (Loken 0.57, Hero
+  0.49, solo Guitar ~0.5 vs GuitarSet-style material 0.11-0.21).
+- **The human outranks the router**: a "guitar engine" dropdown on
+  the instruments screen (auto | MuScriptor | GAPS | Basic Pitch);
+  the explicit pick bypasses every gate, with graceful fallback
+  (missing install/cache -> next in the gaps -> muscriptor -> stem
+  chain).
+
+### The block's graveyard (updated)
+
+- MuScriptor conditioning (task 63): max +0.03, piano −0.09 — dead.
+- GAPS on distorted/Suno material (task 64): loses every row — the
+  domain gate exists precisely to keep it off this material.
+- GAPS's guitar-fl (jazz) checkpoint: never beat gaps or the
+  incumbent anywhere — not shipped.
+- MT3 for solo-guitar notes: 0.41 vs medium's 0.46 — arbiter only.
+- Percussion solo-detect (task 62): ethnic percussion matches
+  neither MT3's kit notion nor the own-match guard — documented
+  failure, card shows unchecked.

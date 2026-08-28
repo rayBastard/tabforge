@@ -1,5 +1,59 @@
 # Changelog
 
+## v0.7.0 — 2026-08-28
+
+Solo mode and the guitar-engine war (tasks 62–66; docs/eval.md has
+every number).
+
+### Solo mode — the headline
+- A "Solo instrument" switch on the start screen: no separation at
+  all — the whole file IS the instrument. Analyze drops from ~3 min
+  to seconds of setup, and accuracy hits the offline ceiling exactly
+  (solo guitar F1 0.46, solo bass 0.81 — separation used to be pure
+  loss here).
+- Solo-detect names the instrument by merging both whole-mix models'
+  note densities (MT3 + MuScriptor), so a clean guitar one model
+  half-hears as "other" is still a guitar; one card arrives
+  preselected, the rest stay quiet.
+- Backing track and leak filtering are correctly off (there is
+  nothing to leak from).
+
+### Guitar engines
+- New backend: GAPS (QMUL, MIT code AND weights, runs in-process).
+  On acoustic solo guitar it beats everything we have — GuitarSet
+  F1 0.858 vs MuScriptor-medium 0.745 vs Basic Pitch 0.590.
+- "Guitar engine" dropdown on the instruments screen:
+  auto | MuScriptor | GAPS | Basic Pitch. Auto routes by sound —
+  acoustic-flavored solo tracks go to GAPS, distorted/electric and
+  all mixes stay on MuScriptor (on distorted material GAPS loses
+  badly: 0.25 vs 0.53 — measured both ways before routing).
+- MuScriptor-medium accepted and routed where it wins the >=0.05
+  rule: solo bass 0.68→0.81, solo guitar 0.41→0.46, keys in mixes
+  0.60→0.65 (medium's cache now outranks MT3 for keys).
+  Instrument-conditioning was measured and buried (max +0.03).
+
+### The fingering ruler
+- scripts/eval_guitarset.py: our Viterbi string assignment measured
+  against 360 human performances for the first time — 0.598 overall
+  (open strings 0.994, fretted 0.569), with a one-directional
+  thinner-string/low-fret bias as the diagnosis. Not blind-fixed:
+  the number is the baseline for a dedicated cost-tuning task.
+
+### Speed and UX (from live testing)
+- MT3 + MuScriptor warm up in parallel with demucs, and MT3 runs on
+  Metal (2× faster): analyze wall time ≈ the longest model, not the
+  sum — 192 s for a 185 s track.
+- Sixteenth-note material is detected from note spacing and the
+  rhythm-precision selector pre-set accordingly (the Heaven Burns
+  rhythm fix).
+- The scrollbar obeys the human: cursor-follow is opt-in (⤓ button),
+  any manual scroll disables it, and the chord strip no longer drags
+  the page.
+- Editing works from the project screen again (the job id was lost
+  on direct-to-done pages; editor errors now show as toasts).
+- Click-to-hear on virtual instruments: Karplus–Strong pluck for
+  frets, additive piano for keys, noise/sine drums.
+
 ## v0.6.0 — 2026-08-26
 
 The accuracy war concluded and the guitarist's convenience layer.

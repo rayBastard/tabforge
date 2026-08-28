@@ -28,7 +28,10 @@ for pkg in ("demucs", "basic_pitch", "librosa", "resampy",
             "torchlibrosa",
             # synced lyrics: faster-whisper + the CTranslate2 dylibs
             # and PyAV's bundled ffmpeg
-            "faster_whisper", "ctranslate2", "av", "tokenizers"):
+            "faster_whisper", "ctranslate2", "av", "tokenizers",
+            # GAPS acoustic-guitar engine (MIT, runs in-process) and
+            # the piano_transcription_inference package it imports
+            "hf_midi_transcription", "piano_transcription_inference"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b

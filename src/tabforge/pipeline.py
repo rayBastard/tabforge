@@ -59,6 +59,10 @@ class PipelineOptions:
     # eighth textures defeat beat-strength alternation), so the octave
     # is the USER's call — they know the piece.
     tempo_scale: float = 1.0
+    # guitar note source (task 66): "auto" = measured routing
+    # (muscriptor; GAPS on acoustic-sounding solo tracks); explicit
+    # "bp" | "muscriptor" | "gaps" is the human's override
+    guitar_engine: str = "auto"
     # the convenience layer (tasks 58-60), each optional per job
     with_chords: bool = True       # chord line + gp5 labels + sections
     with_lyrics: bool = True       # whisper over the vocal stem
@@ -687,7 +691,32 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
         from_mt3 = False
         src_profile = profile_for(opts.treat.get(name, name))
         source = src_profile.note_source
-        if midi_classes is not None:
+        # the guitar engine (task 66): auto = the measured routing —
+        # MuScriptor everywhere EXCEPT acoustic-sounding solo tracks,
+        # where GAPS wins its home domain (GuitarSet 0.858 vs 0.745);
+        # explicit bp/muscriptor/gaps overrides, the human's call
+        if name == "guitar" and opts.treat.get(name, name) == "guitar":
+            engine = opts.guitar_engine
+            if engine == "auto" and analyzed.solo:
+                from .audio.gaps import available as _gaps_ok
+                from .audio.gaps import sounds_acoustic
+                if _gaps_ok() and sounds_acoustic(wav):
+                    engine = "gaps"
+                    progress("transcribe",
+                             "guitar: sounds acoustic — GAPS engine")
+            if engine == "bp":
+                source = "stem"
+            elif engine == "muscriptor":
+                source = "muscriptor"
+            elif engine == "gaps":
+                from .audio.gaps import transcribe_gaps
+                g = transcribe_gaps(wav, progress)
+                if g:
+                    notes = g
+                    from_mt3 = True
+        if from_mt3:
+            pass
+        elif midi_classes is not None:
             notes = list(midi_classes.get(name, []))
             progress("transcribe",
                      f"{name}: {len(notes)} notes from the MIDI file")

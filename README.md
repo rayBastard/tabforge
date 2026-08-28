@@ -181,8 +181,8 @@ pip install -e ".[all]"
 
 ### Optional whole-mix models (better notes, separate installs)
 
-Two external models can take over transcription for specific
-instruments. Both are optional: without them TabForge falls back to
+Three external models can take over transcription for specific
+instruments. All are optional: without them TabForge falls back to
 its built-in per-stem transcription.
 
 **MuScriptor** (guitar + bass; the biggest accuracy win on our stand —
@@ -203,6 +203,19 @@ non-commercial weight license applies to what you do with the output.
 **YourMT3+** (keys + the instrument-presence arbiter on the analyze
 screen): see `scripts/mt3_experiment/README.md` for the install
 recipe; point `TABFORGE_MT3_DIR` at it (default `~/mt3`).
+
+**GAPS** (acoustic solo guitar; F1 0.86 vs 0.75 on GuitarSet). Code
+and weights are MIT, so it runs in the main environment — no separate
+venv:
+
+```bash
+pip install "git+https://github.com/xavriley/hf_midi_transcription.git"
+pip install "resampy==0.4.2"   # undo its pin; both libs run fine on 0.4.2
+```
+
+In solo mode the "auto" guitar engine routes acoustic-sounding tracks
+to GAPS and distorted/electric ones to MuScriptor; the "guitar
+engine" dropdown on the instruments screen overrides the router.
 
 ## Running
 

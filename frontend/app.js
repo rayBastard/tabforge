@@ -236,6 +236,7 @@ async function startTranscribe() {
         tuning: tuningSel ? tuningSel.value : "standard",
         subdivision: parseInt($("#instPrecision")?.value || "2", 10),
         tempo_scale: parseFloat($("#instTempoScale")?.value || "1"),
+        guitar_engine: $("#instGuitarEngine")?.value || "auto",
         with_chords: $("#withChords")?.checked !== false,
         with_lyrics: $("#withLyrics")?.checked !== false,
         lyrics_lang: $("#lyricsLang")?.value || null,
@@ -380,6 +381,22 @@ function showInstruments(job) {
        <option value="4">Sixteenths — max detail</option>
      </select>`;
   box.appendChild(prec);
+
+  // guitar engine (task 66): auto follows the measured routing
+  // (MuScriptor; GAPS for acoustic-sounding solo tracks) — the
+  // dropdown lets the human overrule the router
+  if (hasGuitar) {
+    const eng = document.createElement("div");
+    eng.className = "inst-tuning";
+    eng.innerHTML =
+      `guitar engine: <select id="instGuitarEngine">
+         <option value="auto" selected>Auto — pick by sound</option>
+         <option value="muscriptor">MuScriptor — electric &amp; mixes</option>
+         <option value="gaps">GAPS — acoustic solo</option>
+         <option value="bp">Basic Pitch — classic</option>
+       </select>`;
+    box.appendChild(eng);
+  }
 
   box.hidden = false;
   neck.classList.remove("playing");
