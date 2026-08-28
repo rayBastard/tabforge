@@ -696,8 +696,21 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
         elif (source in ("mt3", "muscriptor")
                 and opts.treat.get(name, name) == name):
             from .audio.arbiter import mt3_card_notes
-            cache = out_dir / f"{source}.mid"
-            mix_notes = mt3_card_notes(cache, name)
+            # keys prefer muscriptor-MEDIUM over MT3 when it produced
+            # the cache (golden piano 0.65 vs 0.57 — the >=0.05 rule)
+            sources = [source]
+            if source == "mt3":
+                marker = out_dir / "muscriptor.variant"
+                if (marker.exists()
+                        and marker.read_text().strip() == "medium"):
+                    sources.insert(0, "muscriptor")
+            mix_notes = None
+            for cand in sources:
+                cache = out_dir / f"{cand}.mid"
+                mix_notes = mt3_card_notes(cache, name)
+                if mix_notes:
+                    source = cand
+                    break
             if mix_notes:
                 progress("transcribe",
                          f"{name}: {len(mix_notes)} notes from the "

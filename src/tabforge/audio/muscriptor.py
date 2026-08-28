@@ -31,6 +31,20 @@ _DEFAULT_DIRS = ("~/muscriptor", "~/.tabforge/muscriptor")
 TIMEOUT_S = 3600
 
 
+def variant() -> str:
+    """Which MuScriptor to run. medium beats small everywhere it was
+    measured (solo bass 0.68->0.81, solo guitar 0.41->0.46, golden
+    piano 0.60->0.65) at ~2.5x the time (~0.9x realtime on Metal), so
+    it becomes the default AS SOON as its gated weights are on this
+    machine; TABFORGE_MUSCRIPTOR_MODEL overrides either way."""
+    env = os.environ.get("TABFORGE_MUSCRIPTOR_MODEL")
+    if env:
+        return env
+    hub = (Path.home() / ".cache" / "huggingface" / "hub"
+           / "models--MuScriptor--muscriptor-medium")
+    return "medium" if hub.is_dir() else "small"
+
+
 def find_muscriptor() -> Path | None:
     """The venv python of a MuScriptor install, if one is configured."""
     env = os.environ.get("TABFORGE_MUSCRIPTOR_DIR")
@@ -63,12 +77,17 @@ def run_muscriptor(mix: Path, work_dir: Path,
     env = {k: v for k, v in os.environ.items()
            if k not in ("DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH",
                         "PYTHONPATH", "PYTHONHOME", "_MEIPASS2")}
+    var = variant()
     try:
-        subprocess.run([str(python), str(runner), str(mix), str(out)],
+        subprocess.run([str(python), str(runner), str(mix), str(out),
+                        var],
                        check=True, capture_output=True,
                        timeout=TIMEOUT_S, env=env)
     except (subprocess.SubprocessError, OSError):
         progress("transcribe", "MuScriptor unavailable — stem "
                                "transcription keeps the job")
         return None
-    return out if out.exists() else None
+    if out.exists():
+        out.with_suffix(".variant").write_text(var)
+        return out
+    return None

@@ -710,3 +710,32 @@ solo — they checked the box).
 The measured groundwork (see THE SOLO CORPUS above): separation eats
 nothing on clean material, so solo mode's value is time, card sanity
 and the cleaner mix-model routing — exactly as shipped.
+
+## MUSCRIPTOR SIZE + CONDITIONING — 2026-08-28 (task 63)
+
+Frozen-ruler A/B, golden + solo corpus, times on Apple Metal:
+
+```
+                 small   small+cond   medium   medium+cond
+Loken guitar      0.51      0.50       0.53        —
+Loken bass        0.90      0.90       0.90        —
+Hero guitar       0.30      0.30       0.33        —
+Hero bass         0.35      0.35       0.37        —
+Fulgrim piano     0.60      0.51       0.65        —
+solo Guitar       0.41      0.42       0.46       0.47
+solo Bass         0.68      0.71       0.81       0.80
+66s-track time     24s        —         61s        —
+```
+
+- **Instrument conditioning is dead**: at best +0.03 (below the 0.05
+  rule), and it HURT Fulgrim piano by 0.09 — pinning the instrument
+  list steers the decoder wrong more than it helps. Graveyard.
+- **medium is real**: solo bass +0.13, solo guitar +0.05, golden
+  piano 0.60 -> 0.65 — which also beats MT3's 0.57, so KEYS reroute
+  to muscriptor-medium whenever its cache carries the medium variant
+  (a .variant marker beside the cached MIDI decides). Guitar/bass
+  golden gains (+0.02..0.03) stay under the rule, but the shared
+  cache means they ride medium anyway once it is the chosen variant.
+- Variant selection: TABFORGE_MUSCRIPTOR_MODEL, else medium
+  auto-selected the moment its gated weights exist in the HF cache,
+  else small. ~2.5x the time of small, ~0.9x realtime on Metal.
