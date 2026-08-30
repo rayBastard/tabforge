@@ -22,14 +22,9 @@ sys.path = [p for p in sys.path if Path(p or ".").resolve() != _here]
 MIX = Path(sys.argv[1]).resolve()
 OUT = Path(sys.argv[2]).resolve()
 VARIANT = sys.argv[3] if len(sys.argv) > 3 else "small"
-# optional comma-separated instrument conditioning (task 63), e.g.
-# "distorted_electric_guitar,electric_bass,drums"
-INSTRUMENTS = (sys.argv[4].split(",")
-               if len(sys.argv) > 4 and sys.argv[4] else None)
 
 from muscriptor import TranscriptionModel  # noqa: E402
 
 model = TranscriptionModel.load_model(VARIANT)
-OUT.write_bytes(model.transcribe_to_midi(str(MIX),
-                                         instruments=INSTRUMENTS))
+OUT.write_bytes(model.transcribe_to_midi(str(MIX)))
 print(f"ok {OUT}", flush=True)
