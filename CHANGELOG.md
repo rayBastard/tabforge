@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.7.6 — 2026-08-30
+
+Fingering, round two: the error anatomy after v0.7.3 showed whole
+phrases landing in the wrong box, 75% of them LOWER on the neck than
+the human played — melodies float where chords anchor. A V-shaped
+position prior (pull toward the 5th-fret region) plus a re-balanced
+cost system fixes exactly that: string-choice agreement with real
+players 0.699 → 0.768 on the full GuitarSet corpus, 0.647 → 0.743 on
+held-out players (+0.21 cumulative since hand-set weights). Rock
+style hits 0.812. Two textbook unit tests were consciously re-sided
+with the live players (docs/eval.md task 70 has the full story,
+including the two hypotheses that died on the way: beam width and
+rest-relocation).
+
 ## v0.7.5 — 2026-08-30
 
 The performance batch (docs/perf.md carries every measurement):

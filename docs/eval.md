@@ -947,3 +947,44 @@ Buried; the escape data stays here. If fast-analyze returns, the
 lever is a lighter PRESENCE model (PANNs-style tagging over windows —
 attribution-free by design), not a windowed transcriber. MT3's full
 pass remains the price of its arbiter.
+
+## TASK 70 — 2026-08-30: phrase context — two hypotheses die, a prior wins
+
+The task-67 residue (test 0.647, two-sided box ambiguity) attacked in
+three measured steps on the same ruler (train 00-03, ONE test look):
+
+1. **Beam width is innocent**: 80 -> 200 -> 400 changes nothing
+   (train frozen at 0.7220). The DP is not truncation-limited — the
+   cost model is the ceiling. 30 seconds well spent.
+2. **"When to move" is not the problem**: free hand relocation across
+   rests (move_free_gap) and a steeper in-phrase move tax
+   (time_factor_k alone) both swept to OFF/no-change. Graveyard.
+3. **Error anatomy pointed at the real term**: 75% of errors sit
+   LOWER on the neck (median 5 frets), P(err | prev err) = 0.77 with
+   66% of errors in streaks >= 4 — whole phrases in the wrong box —
+   and solo passages err 2x worse than comping (0.42 vs 0.22: chords
+   anchor the position, melodies float). The missing preference: a
+   V-shaped POSITION PRIOR pulling toward mid-neck.
+
+With the prior (center 5, weight 0.05) the descent re-balanced the
+whole system — the hand got costlier still (move 1.6 -> 3.4), the
+stretch tax came back (0.45 -> 1.2), the in-phrase decay steepened
+(k 3 -> 5):
+
+```
+                      task 67     task 70
+train (00-03)          0.722       0.779
+test  (04-05)          0.647       0.743   (from 0.531 pre-tuning)
+full corpus            0.699       0.768
+by style               rock .743->.812  SS .728->.773  funk .762
+                       bossa .733  jazz .733
+```
+
+Held-out gain +0.096; cumulative since the hand-set weights +0.21.
+The 0.75 acceptance line from task 67's spec is a hair away (0.743).
+Textbook fallout, decided consciously per the spec (live players
+win): the C3 scale test now asserts ONE coherent box instead of
+"first position", and the pin-mechanics test runs with the prior off
+(it tests pins, not layout). Opens pay again (corpus .870 -> .744) —
+the prior trades open-string agreement for phrase-box agreement, and
+the humans' own data priced that trade.

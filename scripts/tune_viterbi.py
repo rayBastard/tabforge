@@ -38,11 +38,18 @@ TEST_PLAYERS = ("04", "05")
 # hypothesis from task 65 is that high_fret_penalty is the villain
 GRIDS = {
     "high_fret_penalty": (0.0, 0.005, 0.01, 0.015, 0.03, 0.05),
-    "move_penalty": (0.8, 1.2, 1.6, 2.0, 2.6, 3.4),
+    "move_penalty": (1.6, 2.6, 3.4, 4.5, 6.0, 8.0),
     "open_string_bonus": (0.0, 0.03, 0.07, 0.15, 0.35),
     "stretch_penalty": (0.3, 0.45, 0.6, 0.9, 1.2),
     "string_change_penalty": (0.0, 0.02, 0.05, 0.1),
     "reach": (3, 4),
+    # phrase context (task 70): free relocation across rests, and the
+    # steepness of the in-phrase move tax
+    "move_free_gap": (0.4, 0.6, 0.8, 1.2, 2.0, 1e9),
+    "time_factor_k": (1.0, 2.0, 3.0, 5.0, 8.0),
+    # the V-shaped position prior (75% of errors sit lower on the neck)
+    "pos_prior_center": (4.0, 5.0, 6.0, 7.0),
+    "pos_prior_weight": (0.03, 0.05, 0.07, 0.1, 0.15),
 }
 
 

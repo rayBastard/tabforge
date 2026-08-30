@@ -95,18 +95,28 @@ class TabConfig:
     tuning: tuple[int, ...] = TUNINGS["standard"]
     max_fret: int = 22
     # Cost weights tuned against GuitarSet string-assignment truth
-    # (task 67, scripts/tune_viterbi.py): players 00-03 train, 04-05
-    # held-out test 0.531 -> 0.647. The old hand-set weights hugged the
-    # nut and hopped to thin strings; humans plant the hand in a
-    # position and work the fingers — so the hand move is EXPENSIVE
-    # (0.55 -> 1.6) and everything else nearly free.
+    # (tasks 67+70, scripts/tune_viterbi.py): players 00-03 train,
+    # 04-05 held-out test 0.531 -> 0.647 (task 67) -> 0.743 (task 70,
+    # the position prior). Humans plant the hand in a position and
+    # work the fingers, and they favor the MID-NECK for melodies —
+    # 75% of the remaining errors sat lower on the neck, whole
+    # phrases in the wrong box, until the V-prior pulled them up.
     reach: int = 3              # frets pos..pos+reach are played without stretching
     max_stretch: int = 5        # maximum stretch, with a penalty
     open_string_bonus: float = 0.0    # positions beat open strings (measured)
-    high_fret_penalty: float = 0.01   # barely pulls toward the nut
-    stretch_penalty: float = 0.45     # per fret beyond reach
-    move_penalty: float = 1.6         # per fret of hand movement
+    high_fret_penalty: float = 0.03
+    stretch_penalty: float = 1.2      # per fret beyond reach
+    move_penalty: float = 3.4         # per fret of hand movement
     string_change_penalty: float = 0.0
+    # phrase context knobs (task 70): rest relocation measured DEAD
+    # (move_free_gap swept to off), the in-phrase move tax decays as
+    # 1/(1 + time_factor_k * gap)
+    move_free_gap: float = 1e9        # seconds; 1e9 = off
+    time_factor_k: float = 5.0
+    # the V-shaped position prior: pull toward the neck region players
+    # actually favor (the task-70 win: test 0.647 -> 0.743)
+    pos_prior_center: float = 5.0
+    pos_prior_weight: float = 0.05
     legato_bonus: float = 0.8         # legato pair on one string, one position
     beam_width: int = 80
     onset_tolerance: float = 0.045    # notes closer than this = one chord
@@ -203,6 +213,8 @@ def positions_for_shape(shape: Shape, cfg: TabConfig) -> list[int]:
 
 def static_cost(shape: Shape, pos: int, cfg: TabConfig) -> float:
     cost = cfg.high_fret_penalty * pos
+    if cfg.pos_prior_weight:
+        cost += cfg.pos_prior_weight * abs(pos - cfg.pos_prior_center)
     for p in shape.placements:
         if p.fret == 0:
             cost -= cfg.open_string_bonus
@@ -219,7 +231,10 @@ def transition_cost(prev: Shape, prev_pos: int, cur: Shape, pos: int,
                     cfg: TabConfig,
                     legato_ids: frozenset | None = None) -> float:
     gap = max(cur.start - prev.start, 1e-3)
-    time_factor = 1.0 / (1.0 + 3.0 * gap)    # jumps cost more in a fast passage
+    if gap >= cfg.move_free_gap:
+        return 0.0          # a rest: the hand relocates for free
+    # jumps cost more in a fast passage
+    time_factor = 1.0 / (1.0 + cfg.time_factor_k * gap)
     cost = cfg.move_penalty * abs(pos - prev_pos) * time_factor
     prev_strings = {p.string for p in prev.placements}
     cur_strings = {p.string for p in cur.placements}

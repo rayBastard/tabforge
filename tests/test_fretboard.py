@@ -62,10 +62,15 @@ class TestAssign(unittest.TestCase):
             for p in s.placements:
                 self.assertEqual(cfg.tuning[p.string] + p.fret, p.note.pitch)
 
-    def test_c_major_stays_in_first_position(self):
+    def test_c_major_stays_in_one_position(self):
+        # The textbook said "first position"; 360 GuitarSet players
+        # said position playing wins (tasks 67+70) and the user sided
+        # with the players. The invariant that SURVIVES both worlds:
+        # the scale sits in one coherent box, the hand does not crawl.
         shapes = assign_tab(seq([48, 50, 52, 53, 55, 57, 59, 60]))
-        frets = [p.fret for s in shapes for p in s.placements]
-        self.assertLessEqual(max(frets), 4, "the C major scale should fit in first position")
+        frets = [p.fret for s in shapes for p in s.placements if p.fret > 0]
+        self.assertLessEqual(max(frets) - min(frets), 5,
+                             "the C major scale should sit in one box")
 
     def test_open_chords(self):
         # Em: should be found as 022000
@@ -115,13 +120,18 @@ class TestPins(unittest.TestCase):
         # pinning the first E4 onto the G string (fret 9) must pull the
         # NEIGHBORS up into the fret 9-12 box too — the surroundings
         # re-arrange around the pin instead of jumping back down.
+        # this test exercises PIN MECHANICS, not layout preference —
+        # the position prior (task 70) is off so the baseline lands on
+        # the open strings and the pin's pull is unambiguous
+        from dataclasses import replace
+        cfg = replace(TabConfig(), pos_prior_weight=0.0)
         notes = seq([64, 65, 67, 65, 64], step=0.3)
-        plain = assign_tab(notes)
+        plain = assign_tab(notes, cfg)
         self.assertEqual(plain[0].placements[0].fret, 0,
                          "baseline must start on the open E for the "
                          "test to be meaningful")
 
-        pinned = assign_tab(notes, pins={0: 3})
+        pinned = assign_tab(notes, cfg, pins={0: 3})
         first = pinned[0].placements[0]
         self.assertEqual(first.string, 3, "the pin is a hard constraint")
         self.assertEqual(first.fret, 9)
