@@ -45,7 +45,6 @@ class PipelineOptions:
     # no-man's land between raw and grid).
     quantize_strength: float = 0.0
     separate: bool = True          # False = transcribe the whole mix
-    split_guitars: bool = False    # split guitar into lead & rhythm parts
     # per-stem role override, e.g. {"guitar": "piano"} when the "guitar"
     # stem actually holds an orchestral line and deserves notation
     treat: dict = field(default_factory=dict)
@@ -726,7 +725,10 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
                 and opts.treat.get(name, name) == name):
             from .audio.arbiter import mt3_card_notes
             # keys prefer muscriptor-MEDIUM over MT3 when it produced
-            # the cache (golden piano 0.65 vs 0.57 — the >=0.05 rule)
+            # the cache (golden piano 0.65 vs 0.57 — the >=0.05 rule).
+            # MT3-as-note-source is KEPT even though medium beats it:
+            # see eval.md "NOTE-SOURCE ROUTING (task 57)" — it wins for
+            # every install without the gated MuScriptor weights.
             sources = [source]
             if source == "mt3":
                 marker = out_dir / "muscriptor.variant"

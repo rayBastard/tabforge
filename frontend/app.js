@@ -80,7 +80,6 @@ function setFile(f) {
   pickedFile = f;
   currentJobId = null;                 // a new file starts a new job
   $("#instruments").hidden = true;
-  $("#splitRow").hidden = true;
   goBtn.textContent = "Analyze track";
   $("#fileName").textContent = f.name;
   goBtn.disabled = false;
@@ -128,7 +127,6 @@ function resetAfterCancel() {
   currentJobId = null;
   activeJobId = null;
   $("#instruments").hidden = true;
-  $("#splitRow").hidden = true;
   goBtn.textContent = "Analyze track";
   goBtn.disabled = !pickedFile;
   setLog("Stopped. Press Analyze to start again.");

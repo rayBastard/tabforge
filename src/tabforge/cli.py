@@ -15,9 +15,9 @@ def main() -> None:
     ap.add_argument("--stems", nargs="*", default=["guitar", "bass"])
     ap.add_argument("--tuning", default="standard", choices=sorted(TUNINGS))
     ap.add_argument("--subdivision", type=int, default=4)
-    ap.add_argument("--quantize", type=float, default=0.9)
-    ap.add_argument("--split-guitars", action="store_true",
-                    help="split the guitar stem into lead and rhythm parts")
+    # 0.0 = truthful onsets; the measured product default since task 56
+    # (a pre-export snap destroyed timing everywhere: piano 0.44->0.27)
+    ap.add_argument("--quantize", type=float, default=0.0)
     ap.add_argument("--separator", default="demucs",
                     choices=("demucs", "roformer"),
                     help="separation backend (roformer = BS-Roformer-SW)")
@@ -29,7 +29,6 @@ def main() -> None:
         subdivision=args.subdivision,
         quantize_strength=args.quantize,
         separate=args.stems != ["mix"],
-        split_guitars=args.split_guitars,
         separator=args.separator,
     )
     results = run_pipeline(args.audio, args.out, opts,

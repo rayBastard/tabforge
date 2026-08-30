@@ -1,6 +1,11 @@
 """
 The low-register pit, treated at the source.
 
+kept: see eval.md "Low-register octave double-pass (task 50)" — lost
+to the mono path on our corpus (audit 2026-08-30: the low_pass flag is
+not exposed anywhere), but may win on drop-tuned guitar material where
+a mono tracker cannot apply; not live code, not dead either.
+
 Basic Pitch's frequency resolution collapses below ~100 Hz: adjacent
 semitones sit ~4 Hz apart at C2 and short notes never gather enough
 periods — hence the missed notes and octave jumps that plague bass,

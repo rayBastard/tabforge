@@ -455,7 +455,6 @@ async def transcribe_job(job_id: str, selection: dict) -> dict:
         stems=stems,
         tuning=tuning,
         subdivision=subdivision,
-        split_guitars=bool(selection.get("split_guitars", False)),
         treat={str(k): str(v) for k, v in treat.items()},
         tempo_scale=tempo_scale,
         guitar_engine=(str(selection.get("guitar_engine", "auto"))
@@ -806,7 +805,6 @@ async def export_project(job_id: str):
         "opts": {"stems": list(o.stems), "tuning": o.tuning,
                  "subdivision": o.subdivision,
                  "beats_per_measure": o.beats_per_measure,
-                 "split_guitars": o.split_guitars,
                  "treat": dict(o.treat),
                  "tempo_scale": o.tempo_scale},
         "results": results,
@@ -882,7 +880,6 @@ async def import_project(file: UploadFile) -> dict:
             stems=tuple(mo["stems"]), tuning=mo["tuning"],
             subdivision=int(mo["subdivision"]),
             beats_per_measure=int(mo.get("beats_per_measure", 4)),
-            split_guitars=bool(mo.get("split_guitars", False)),
             treat=dict(mo.get("treat", {})),
             tempo_scale=float(mo.get("tempo_scale", 1.0)))
         job.results = _remap_file_urls(meta.get("results", []), job.id)

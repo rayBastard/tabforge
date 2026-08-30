@@ -77,6 +77,10 @@ def separate_stems(audio: Path, out_dir: Path, model: str = "htdemucs_6s",
     return {p.stem: p for p in stem_dir.glob("*.wav")}
 
 
+# kept: see eval.md "Separation A/B (task 48)" — cleaner stems than
+# demucs on the stand but ~30x slower on CPU; may win when quality
+# outranks time (an offline HQ mode). Reachable via --separator /
+# TABFORGE_SEPARATOR / the HQ checkbox.
 def separate_stems_roformer(audio: Path, out_dir: Path,
                             cancel_token: object | None = None
                             ) -> dict[str, Path]:
