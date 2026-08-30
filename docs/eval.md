@@ -911,3 +911,39 @@ which is how a position player actually fingers it; the textbook
 first-position reading survives only where the register demands it.
 Open-string agreement pays for the win (.990 -> .786 on test): the
 bonus was swept at 0.03/0.07 and lost both times on train.
+
+## FAST-ANALYZE VIA WINDOWED MT3 — 2026-08-30: measured, failed, buried
+
+The plan (perf.md, task 68): with MuScriptor installed MT3 is only
+the presence arbiter, so replace its full pass (40-73% of the wall)
+with sampled windows. Three schemes tried against the gate "arbiter
+verdicts unchanged on golden", each teaching something:
+
+1. Fixed thirds (start/center/end, per the late-entry refinement) +
+   pooled density: Hero guitar AND piano flipped. Pooling was one
+   bug — presence is an OR over the song, not an average; per-window
+   MAX density fixed piano.
+2. Fixed windows, max density: Hero guitar still lost — the full
+   pass hears 663 guitar notes, the covered windows contained 0. Not
+   sampling luck: a CLEAN 34 s excerpt of a guitar-rich section also
+   yields zero guitar.
+3. Energy-guided windows (loudest 30 s per third; RMS — onset
+   strength is log-compressed and level-blind) + the plain center:
+   guitar recovered (the windows found the choruses), but piano
+   flipped to absent even though a window sat EXACTLY on the
+   full-pass piano cluster (98-128 s, 58 notes there) — the windowed
+   clip filed the same audio as other/guitar.
+
+**The real finding: YourMT3+'s instrument attribution rides on LONG
+context.** In 30 s excerpts the model re-files distorted guitar as
+"other" and band-buried piano as other/guitar — the full pass carries
+instrument identity across the song in a way excerpts cannot. The
+verdicts differ not because the sample is too small but because the
+MODEL answers a different question on short clips. Savings had also
+shrunk while chasing the gate (Hero 398 s -> 153 s with 4 windows,
+Techno 162 -> 95 s) — 2.6x at best, on top of a failing gate.
+
+Buried; the escape data stays here. If fast-analyze returns, the
+lever is a lighter PRESENCE model (PANNs-style tagging over windows —
+attribution-free by design), not a windowed transcriber. MT3's full
+pass remains the price of its arbiter.

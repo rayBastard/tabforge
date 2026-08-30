@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.7.5 — 2026-08-30
+
+The performance batch (docs/perf.md carries every measurement):
+
+- Separation runs on Metal (3.4× on its stage) with an automatic CPU
+  retry; `TABFORGE_DEMUCS_DEVICE` overrides.
+- The vocal mono-vs-BasicPitch chooser decides on a 60 s probe
+  instead of paying full-stem pyin to lose (35 s → ~10 s); bass keeps
+  the full-stem chooser — the probe measurably flips its decision the
+  wrong way there.
+- Gate: full golden eval with both changes — every instrument mean
+  identical to the scoreboard.
+- The big prize was measured and honestly declined: replacing MT3's
+  full pass with sampled windows breaks its instrument attribution
+  (long-context model; a clean excerpt of a guitar-rich section hears
+  zero guitar) — buried with the full story in docs/eval.md, MT3
+  stays the dominant cost by design.
+
 ## v0.7.4 — 2026-08-30
 
 Fixes the rhythm mess v0.7.2's adaptive grid made of transcribed

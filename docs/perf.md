@@ -89,3 +89,33 @@ sample for ~5× less.
 3. Mono chooser on a sample, not the full stem: −20–50 s/track.
 4. Leave alone: whisper (no MPS exists), PANNs (1.5 s), exports,
    fingering, chords/sections (all noise).
+
+## Post-scriptum (2026-08-30): recommendation 1 measured and buried
+
+The MT3 fast-analyze (windowed pass) FAILED its gate — arbiter
+verdicts flip on Hero however the windows are chosen, because
+YourMT3+'s instrument attribution needs long context: in 30 s
+excerpts it re-files distorted guitar and band-buried piano as other
+(full story: eval.md "FAST-ANALYZE VIA WINDOWED MT3"). MT3's full
+pass stays; recommendations 2 (demucs on MPS) and 3 (mono chooser on
+a sample) remain live.
+
+## Implemented (2026-08-30): recommendations 2 and 3, gates passed
+
+- **demucs on Metal**: auto `-d mps` when available, CPU retry on any
+  Metal hiccup (an abort is not retried), `TABFORGE_DEMUCS_DEVICE`
+  overrides. Measured 3.4x on its stage (17 s -> 5 s on Fulgrim).
+- **Mono chooser on a probe — vocals only**: the mono-vs-BP decision
+  runs on the middle 60 s and only the winner processes the full stem
+  (the task-68 waste: 35 s of pyin to lose to a 1.6 s BP run). Scoped
+  to vocals deliberately: on bass the probe FLIPS the decision
+  (track middles are pyin-friendly, full stems are not) and the flip
+  was measured to cost F1 (Hero bass: bp 0.231 vs mono 0.184) — bass
+  keeps the full-stem chooser. Vocals probe decisions matched the
+  full-stem chooser 3/3 on the corpus.
+
+Gate: full golden eval with both changes — every instrument mean
+identical to the scoreboard (bass 0.63, drums 0.55, guitar 0.41,
+piano 0.65, vocals 0.16). Net effect ~30-40 s off a 4-6 minute
+track's run; the MT3 full pass remains the dominant cost by design
+(see the fast-analyze burial above).

@@ -9,6 +9,7 @@ The chain:
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import threading
@@ -24,6 +25,7 @@ SIX_STEMS = ("drums", "bass", "other", "vocals", "guitar", "piano")
 # job must be able to kill its demucs subprocess instead of waiting
 # minutes for the next cooperative checkpoint.
 _ACTIVE: dict[object, subprocess.Popen] = {}
+_ABORTED: set[object] = set()
 _ACTIVE_LOCK = threading.Lock()
 
 
@@ -31,10 +33,28 @@ def abort_separation(cancel_token: object) -> bool:
     """Kill the demucs subprocess registered under this token, if any."""
     with _ACTIVE_LOCK:
         proc = _ACTIVE.get(cancel_token)
+        _ABORTED.add(cancel_token)
     if proc is None:
         return False
     proc.kill()
     return True
+
+
+def _demucs_device() -> str:
+    """Demucs defaults to CPU on macOS; Metal is 3.4x faster with
+    healthy stems (perf.md task 68, cpu-mps waveform correlation
+    0.986, golden F1 gate passed). TABFORGE_DEMUCS_DEVICE overrides
+    ("cpu" is the escape hatch)."""
+    env = os.environ.get("TABFORGE_DEMUCS_DEVICE")
+    if env:
+        return env
+    try:
+        import torch
+        if torch.backends.mps.is_available():
+            return "mps"
+    except Exception:  # noqa: BLE001
+        pass
+    return "cpu"
 
 
 def separate_stems(audio: Path, out_dir: Path, model: str = "htdemucs_6s",
@@ -52,26 +72,42 @@ def separate_stems(audio: Path, out_dir: Path, model: str = "htdemucs_6s",
     can kill it mid-run.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    demucs_args = ["-n", model, "-o", str(out_dir), str(audio)]
-    if getattr(sys, "frozen", False):
-        cmd = [sys.executable, "--demucs-worker", *demucs_args]
-    else:
-        cmd = [sys.executable, "-m", "demucs", *demucs_args]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, text=True)
     if cancel_token is not None:
         with _ACTIVE_LOCK:
-            _ACTIVE[cancel_token] = proc
-    try:
-        _out, err = proc.communicate()
-    finally:
+            _ABORTED.discard(cancel_token)
+
+    def _run(device: str) -> int:
+        demucs_args = ["-n", model, "-d", device,
+                       "-o", str(out_dir), str(audio)]
+        if getattr(sys, "frozen", False):
+            cmd = [sys.executable, "--demucs-worker", *demucs_args]
+        else:
+            cmd = [sys.executable, "-m", "demucs", *demucs_args]
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True)
         if cancel_token is not None:
             with _ACTIVE_LOCK:
-                _ACTIVE.pop(cancel_token, None)
-    if proc.returncode != 0:
-        tail = "\n".join((err or "").strip().splitlines()[-5:])
+                _ACTIVE[cancel_token] = proc
+        try:
+            _out, err = proc.communicate()
+        finally:
+            if cancel_token is not None:
+                with _ACTIVE_LOCK:
+                    _ACTIVE.pop(cancel_token, None)
+        _run.err = err
+        return proc.returncode
+
+    device = _demucs_device()
+    rc = _run(device)
+    if rc != 0 and device != "cpu":
+        with _ACTIVE_LOCK:
+            aborted = cancel_token in _ABORTED
+        if not aborted:                 # a Metal hiccup, not a cancel:
+            rc = _run("cpu")            # the CPU path always worked
+    if rc != 0:
+        tail = "\n".join((_run.err or "").strip().splitlines()[-5:])
         raise RuntimeError(
-            f"demucs failed with exit code {proc.returncode}:\n{tail}")
+            f"demucs failed with exit code {rc}:\n{tail}")
 
     stem_dir = out_dir / model / audio.stem
     return {p.stem: p for p in stem_dir.glob("*.wav")}

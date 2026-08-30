@@ -759,20 +759,38 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
             # 0.4 set on the golden corpus (Hero 0.21 / Loken 0.65) —
             # provisional until more references arrive.
             from .audio.mono import MONO_PRESETS, transcribe_mono
-            mono_notes = transcribe_mono(wav, **MONO_PRESETS.get(name, {}))
-            bp_notes = transcribe.cleanup(
-                transcribe.transcribe_stem(wav, **preset),
+            mono_kw = MONO_PRESETS.get(name, {})
+            # the chooser needs a RATIO, not the notes — decide on a
+            # 60 s slice instead of paying full-stem pyin (task 68:
+            # 35 s of pyin on a vocal stem that then went to Basic
+            # Pitch anyway), then run only the WINNER on the full
+            # stem. VOCALS ONLY: on bass the probe flips the decision
+            # (Techno/Hero middles are pyin-friendly, the full stems
+            # are not) and the flip was measured to COST F1 (Hero
+            # bass: bp 0.23 vs mono 0.18) — bass keeps the full-stem
+            # chooser.
+            probe = (_chooser_sample(wav, out_dir)
+                     if name == "vocals" else wav)
+            mono_probe = transcribe_mono(probe, **mono_kw)
+            bp_probe = transcribe.cleanup(
+                transcribe.transcribe_stem(probe, **preset),
                 max_polyphony=1 if name == "bass" else 6)
-            if len(mono_notes) >= 0.4 * max(len(bp_notes), 1):
+            if probe is not wav:
+                probe.unlink(missing_ok=True)
+            if len(mono_probe) >= 0.4 * max(len(bp_probe), 1):
+                notes = (mono_probe if probe is wav
+                         else transcribe_mono(wav, **mono_kw))
                 progress("transcribe", f"{name}: monophonic f0 path "
-                                       f"({len(mono_notes)} notes)")
-                notes = mono_notes
+                                       f"({len(notes)} notes)")
             else:
                 progress("transcribe",
                          f"{name}: stem too dense for the mono tracker "
-                         f"({len(mono_notes)} vs {len(bp_notes)}), "
-                         f"Basic Pitch keeps it")
-                notes = bp_notes
+                         f"({len(mono_probe)} vs {len(bp_probe)} on the "
+                         f"probe), Basic Pitch keeps it")
+                notes = (bp_probe if probe is wav
+                         else transcribe.cleanup(
+                             transcribe.transcribe_stem(wav, **preset),
+                             max_polyphony=1 if name == "bass" else 6))
         elif opts.low_pass and name in ("bass", "guitar", "vocals"):
             # the low register reads badly at native pitch — a second,
             # octave-shifted pass owns everything below ~A2
@@ -1103,6 +1121,25 @@ def _save_part_state(out_dir: Path, part_name: str, notes, legato,
         "pins": {},
     }
     path.write_text(json.dumps(state))
+
+
+def _chooser_sample(wav: Path, out_dir: Path,
+                    sample_s: float = 60.0) -> Path:
+    """The middle sample_s of a stem for the mono-vs-BP chooser.
+    Returns the stem itself when it is short enough already."""
+    import soundfile as sf
+
+    info = sf.info(str(wav))
+    total_s = info.frames / info.samplerate
+    if total_s <= sample_s * 1.5:
+        return wav
+    start = int((total_s - sample_s) / 2 * info.samplerate)
+    data, sr = sf.read(str(wav), start=start,
+                       frames=int(sample_s * info.samplerate),
+                       always_2d=True)
+    probe = out_dir / f"_chooser_{wav.stem}.wav"
+    sf.write(str(probe), data, sr)
+    return probe
 
 
 def _fine_indexer(beats: list[float], bpm: float):
