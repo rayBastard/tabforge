@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.7.8 — 2026-08-30
+
+The real culprit behind the "32nd walls" on the user's acoustic
+track: the TEMPO, not the grid. The beat tracker picked 81 BPM for a
+161.5 song, so correct notation read one level too fine (eighths as
+sixteenths, sixteenths as thirty-seconds). A tempo-truth stand built
+from Suno MIDI meta showed the detector octave-errs on 3 of 8 known
+tracks, in both directions. New octave-correction rule after the
+detector, from note evidence: material at the beat rate halves the
+tempo (generalizes the old keys-only rule, now also in solo mode),
+sixteenth-dense material doubles it — but only when the audio's own
+periodicity votes for the doubled tempo (36% on the victim vs 0-2%
+on true-tempo sixteenth songs). Benched 9/9 on every track with
+known tempo; the victim's lead flipped from 603 sixteenths + 99
+thirty-seconds to 606 eighths + 6 thirty-seconds. Full dissection in
+docs/eval.md "THE TEMPO OCTAVE".
+
 ## v0.7.7 — 2026-08-30
 
 Kills the 32nd-note walls on strummed acoustic chords (the second

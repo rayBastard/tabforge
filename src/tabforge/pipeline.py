@@ -294,7 +294,9 @@ def _analyze_solo(audio: Path, out_dir: Path,
 
     progress("analyze", "tempo and beat grid (mix)")
     mix_data = transcribe.load_audio(mix)
-    bpm, beats, reliable = transcribe.detect_tempo(mix, audio_data=mix_data)
+    tempo_extras: dict = {}
+    bpm, beats, reliable = transcribe.detect_tempo(mix, audio_data=mix_data,
+                                                   extras=tempo_extras)
     warnings = [] if reliable else ["tempo: estimated poorly"]
     try:
         key = keydetect.detect_key(mix, audio_data=mix_data)
@@ -359,11 +361,18 @@ def _analyze_solo(audio: Path, out_dir: Path,
         progress("analyze",
                  f"solo track detected: {dominant}")
         warnings.append(f"solo: detected {dominant}")
-        count, lo, hi, _ioi = _quick_note_stats(mix, dominant, out_dir)
+        count, lo, hi, ioi = _quick_note_stats(mix, dominant, out_dir)
         a = analysis[dominant]
         a.note_count = count
         a.min_pitch, a.max_pitch = lo, hi
+        a.median_ioi = ioi
         a.suggested_tuning = suggest_tuning(dominant, lo)
+        # tempo-octave correction from the solo instrument's own
+        # rhythm (the "Просто так вышло" case: detector said 81, the
+        # sixteenth-dense strumming and 36% of raw votes said 162)
+        bpm, beats = _octave_correct(bpm, beats, ioi,
+                                     tempo_extras.get("local_votes"),
+                                     progress)
         from .audio.tagging import tag_stem
         a.sounds_like = tag_stem(mix)
     else:
@@ -385,6 +394,50 @@ def _analyze_solo(audio: Path, out_dir: Path,
     return AnalyzeResult(stems=stems, analysis=analysis, bpm=bpm,
                          beats=beats, tempo_reliable=reliable, key=key,
                          warnings=warnings, solo=True)
+
+
+def _octave_correct(bpm: float, beats: list[float],
+                    median_ioi: float | None,
+                    local_votes: list[float] | None,
+                    progress: ProgressFn = _noop
+                    ) -> tuple[float, list[float]]:
+    """The tempo-octave rule (2026-08-30, benched 9/9 on every track
+    with known tempo — docs/eval.md "THE TEMPO OCTAVE"): the beat
+    tracker's family choice is right, its OCTAVE sometimes is not,
+    and note evidence settles it.
+
+    - material at the beat rate (median IOI >= 0.9 beat: nothing
+      moves between beats) -> HALF time. Generalizes the task-56
+      keys rule (Fulgrim 161.5 -> 80.8, solo Keyboard likewise).
+    - sixteenth-dense material (IOI <= 0.35 beat) whose doubled tempo
+      the audio itself VOTES for (>= 10% of raw periodicity votes
+      within 5% of 2x bpm) -> DOUBLE time. The vote condition is the
+      real guard: 16th songs at a true 96 carry ~0-2% votes at 2x
+      (Loken/Bass/Guitar) while the halved-tempo victim carried 36%.
+    """
+    if not median_ioi or len(beats) < 4:
+        return bpm, beats
+    beat = 60.0 / bpm
+    ratio = median_ioi / beat
+    if ratio >= 0.9 and bpm / 2 >= 55:
+        progress("analyze",
+                 f"tempo: material moves at the beat rate — half time "
+                 f"({bpm / 2:.0f} BPM)")
+        return bpm / 2, beats[::2]
+    if ratio <= 0.35 and bpm * 2 <= 185 and local_votes:
+        target = 2 * bpm
+        share = (sum(1 for v in local_votes
+                     if abs(v - target) <= 0.05 * target)
+                 / max(len(local_votes), 1))
+        if share >= 0.10:
+            doubled = [beats[0]]
+            for a, b in zip(beats, beats[1:]):
+                doubled += [(a + b) / 2, b]
+            progress("analyze",
+                     f"tempo: sixteenth-dense material and the audio "
+                     f"votes for {target:.0f} BPM — double time")
+            return bpm * 2, doubled
+    return bpm, beats
 
 
 def run_analyze(audio: Path, out_dir: Path,
@@ -443,8 +496,9 @@ def run_analyze(audio: Path, out_dir: Path,
     tempo_source, source_name = choose_tempo_source(
         all_stems, audio, transcribe.stem_is_audible)
     mix_data = transcribe.load_audio(audio) if tempo_source == audio else None
+    tempo_extras: dict = {}
     bpm, beats, tempo_reliable = transcribe.detect_tempo(
-        tempo_source, audio_data=mix_data)
+        tempo_source, audio_data=mix_data, extras=tempo_extras)
     if not tempo_reliable:
         warnings.append("tempo: estimated poorly")
         progress("analyze",
@@ -542,23 +596,17 @@ def run_analyze(audio: Path, out_dir: Path,
         progress("analyze", "MuScriptor failed — stem transcription "
                             "will keep its instruments")
 
-    # Half-time detector (task 56): on DRUMLESS keys-led material the
-    # beat tracker loves double time (Fulgrim: 152 vs the sheet's 76).
-    # When the confirmed lead keys move at the BEAT rate of the chosen
-    # grid — nothing between beats — the musical tempo is half. Only
-    # fires when no kit dictates the grid; the UI selector still lets
-    # the user override either way.
-    piano = analysis.get("piano")
-    keys_led = (piano is not None and piano.status == "found"
-                and piano.verdict in (None, "found", "uncertain")
-                and source_name == "mix")   # no kit passed the crest gate
-    if (keys_led and len(beats) > 3 and piano.median_ioi
-            and piano.median_ioi >= 0.9 * (60.0 / bpm)):
-        bpm /= 2
-        beats = beats[::2]
-        progress("analyze",
-                 f"tempo: keys move at the beat rate — half time "
-                 f"({bpm:.0f} BPM) suggested")
+    # Tempo-octave correction (generalizes the task-56 keys rule; the
+    # UI selector still lets the user override either way). The note
+    # evidence: the fastest FOUND card's median inter-onset interval.
+    found_iois = [a.median_ioi for a in analysis.values()
+                  if a.status == "found" and a.median_ioi]
+    if found_iois and source_name == "mix":
+        # only when no kit dictated the grid — a drum-tracked tempo
+        # already carries the band's own octave choice
+        bpm, beats = _octave_correct(bpm, beats, min(found_iois),
+                                     tempo_extras.get("local_votes"),
+                                     progress)
 
     # structure features (task 59): beat-synced chroma of the MIX —
     # cached now, while the mix is at hand; boundaries are detected at

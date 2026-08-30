@@ -1011,3 +1011,48 @@ in d2, 16th strums -> d4, true 32nd runs still escalate.
 Prices, both accepted: GuitarSet strings test 0.743 -> 0.736
 (−0.007, noise), golden guitar F1 0.41 -> 0.40 (−0.01, the moved
 tail onsets vs the 50 ms tolerance) — everything else identical.
+
+## THE TEMPO OCTAVE — 2026-08-30: the real culprit behind "32nd walls"
+
+The user's acoustic track ("Просто так вышло") kept rendering in
+32nds after TWO adaptive-grid fixes — because the grid was innocent
+this time. The score said 81 BPM; the song is 161.5. At 81 every
+eighth is notated a sixteenth and every sixteenth a thirty-second:
+the notation was CORRECT for a wrong clock.
+
+Mechanism (dissected on the track): the detector's hypothesis set
+derives 3/4 and 4/3 spins of the top families, and 107.7 (itself the
+2/3 alias of 161.5) spun off 80.75 — which INHERITED the top
+family's weight (6292 votes) despite its own family carrying just
+335, and whose sparse grid hits only the strongest strums (envelope
+5.39, the scorer's documented slow bias). Score 33886 vs the true
+161.5's 19787.
+
+A truth stand existed all along: Suno MIDIs carry tempo meta. Eight
+tracks with known tempo (golden three + solo corpus four + this one),
+current detector: **5/8**, octave errors in BOTH directions (Fulgrim
+and solo Keyboard ×2 — the task-56 keys rule papered over only the
+first, and only in mix mode; Prosto ×0.5).
+
+Scorer surgery was tried and REJECTED: replacing inherited weights
+with own-family weights breaks the 4:3 cases the inheritance was
+built for (Bass/Guitar/Synth flip to 127.6), and envelope salience
+cannot separate 107.7 from 161.5 (both grids land on onsets). The
+detector stays untouched.
+
+The fix that benched **9/9**: an octave-correction rule AFTER the
+detector, from note evidence (pipeline._octave_correct):
+
+- median material IOI >= 0.9 beat (nothing between beats) -> HALF
+  time, floor 55 BPM. Generalizes the keys rule: fixes Fulgrim
+  (161.5 -> 80.8, sheet says 73-82) and solo Keyboard alike.
+- median IOI <= 0.35 beat AND >= 10% of the raw periodicity votes
+  sit within 5% of the doubled tempo -> DOUBLE time, ceiling 185.
+  The vote share is the load-bearing guard: the halved-tempo victim
+  carried 36% at 2x, true-96 sixteenth tracks (Loken/Bass/Guitar)
+  carry 0-2%. Drum-tracked tempi are exempt (the kit already chose).
+
+Acceptance on the victim: 81 -> 161 BPM; the lead's spectrum flipped
+from {154 eighths, 603 sixteenths, 99 thirty-seconds} to
+{606 eighths, 139 sixteenths, 6 thirty-seconds} — the user's exact
+reading ("должны быть 8-е, может где-то 16-е").

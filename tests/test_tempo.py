@@ -164,3 +164,55 @@ class TestRepairBeats(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOctaveCorrect(unittest.TestCase):
+    """The tempo-octave rule, pinned to the 9/9 truth bench
+    (docs/eval.md "THE TEMPO OCTAVE")."""
+
+    def _run(self, bpm, ioi, votes):
+        from tabforge.pipeline import _octave_correct
+        beats = [i * 60.0 / bpm for i in range(40)]
+        got, new_beats = _octave_correct(bpm, beats, ioi, votes)
+        return got, new_beats
+
+    def _votes(self, bpm, share, target):
+        n = 1000
+        hit = int(n * share)
+        return [target] * hit + [bpm] * (n - hit)
+
+    def test_prosto_doubles(self):
+        # detector 80.7, 16th strumming at 189 ms, 36% votes at 161.5
+        got, beats = self._run(80.7, 0.189,
+                               self._votes(80.7, 0.36, 161.4))
+        self.assertAlmostEqual(got, 161.4, places=1)
+        self.assertAlmostEqual(beats[1] - beats[0],
+                               60.0 / 161.4, places=3)
+
+    def test_loken_16ths_stay(self):
+        # true 96 with 16th metal riffing: only ~1% of votes at 2x
+        got, _ = self._run(95.7, 0.156, self._votes(95.7, 0.01, 191.4))
+        self.assertAlmostEqual(got, 95.7)
+
+    def test_fulgrim_halves(self):
+        # keys at the beat rate of a doubled grid
+        got, beats = self._run(161.5, 0.374, [])
+        self.assertAlmostEqual(got, 80.75)
+        self.assertAlmostEqual(beats[1] - beats[0],
+                               2 * 60.0 / 161.5, places=3)
+
+    def test_normal_eighths_untouched(self):
+        # Hero/Techno shape: material at half the beat
+        got, _ = self._run(136.0, 0.219, self._votes(136, 0.3, 272))
+        self.assertAlmostEqual(got, 136.0)
+
+    def test_half_floor(self):
+        # a pad at the beat rate of a true 96 must not halve to 48
+        got, _ = self._run(96.9, 0.62, [])
+        self.assertAlmostEqual(got, 96.9)
+
+    def test_double_ceiling(self):
+        # 16ths at a true 96: doubled 194 exceeds the 185 ceiling even
+        # with faked votes
+        got, _ = self._run(96.9, 0.156, self._votes(96.9, 0.5, 193.8))
+        self.assertAlmostEqual(got, 96.9)

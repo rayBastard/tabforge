@@ -447,7 +447,9 @@ def repair_beats(beats: list[float], skip_ratio: float = 1.6,
 
 
 def detect_tempo(audio: Path,
-                 audio_data: tuple | None = None) -> tuple[float, list[float], bool]:
+                 audio_data: tuple | None = None,
+                 extras: dict | None = None
+                 ) -> tuple[float, list[float], bool]:
     """Returns (BPM, beat times in seconds, reliable).
     audio_data: optional preloaded (y, sr) from load_audio.
 
@@ -468,6 +470,11 @@ def detect_tempo(audio: Path,
     y, sr = audio_data if audio_data is not None else load_audio(audio)
     oenv = librosa.onset.onset_strength(y=y, sr=sr)
     local = librosa.feature.tempo(onset_envelope=oenv, sr=sr, aggregate=None)
+    if extras is not None:
+        # raw per-frame periodicity votes — the octave-correction rule
+        # needs to know whether 2x bpm is a tempo the audio VOTES for
+        extras["local_votes"] = [float(v) for v in
+                                 __import__("numpy").asarray(local).ravel()]
     families = collapse_tempo_candidates(local)
 
     # Top 2 families only: each extra family costs up to 3 beat_track
