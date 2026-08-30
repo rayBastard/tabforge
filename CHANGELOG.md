@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.7.10 — 2026-08-31
+
+The desync war: with the score finally readable, instruments were
+audibly drifting against each other. Four real mechanisms found and
+fixed in the score writer (docs/eval.md "BAND TIGHTNESS" has the
+dissection, including the trace hook that replaced two hours of
+metric-artifact chasing): per-model onset latency is calibrated out
+per part, attacks of different instruments within 55 ms settle on
+one consensus time before any quantization (drums anchor the pocket),
+measures share their display grid across tracks so identical moments
+round identically, and a rounded-up duration can no longer push the
+next attack a slot late. Ground truth after: 92% of shared band hits
+land written together, guitar-bass 99.2%; the residue lives in
+keys/vocal pairs on cross-family grids. Raw times stay untouched in
+parts.json and MIDI exports.
+
 ## v0.7.9 — 2026-08-31
 
 The fourth and final face of the "32nd walls": notes BEFORE the

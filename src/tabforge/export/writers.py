@@ -410,9 +410,73 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
                                 gp.BendPoint(8, v), gp.BendPoint(12, 0)])
         return apply
 
+    # Band tightness (2026-08-31, the desync report; third design —
+    # the first two patched AFTER per-part slot rounding and moved the
+    # honest same-hit-written-apart metric only 38% -> 33%): every
+    # model hears the same band hit a few tens of ms apart, so build a
+    # cross-part CONSENSUS in seconds BEFORE any slotting. Steps:
+    # 1. de-bias each part by its median offset to the 16th grid
+    #    (inter-model latency calibration: bass −27 ms, piano −22,
+    #    guitar +4 on one mix — the groove around the median stays);
+    # 2. cluster de-biased attacks of DIFFERENT parts within 55 ms;
+    # 3. every cluster plays at ONE time — the drum member's (the kit
+    #    defines the pocket) or the median. Identical times then land
+    #    on identical fine slots at any grid, which no post-rounding
+    #    repair could guarantee. parts.json/MIDI keep raw times.
+    def _part_bias(shapes) -> float:
+        import statistics
+        sixteenth = FINE // 4
+        res = []
+        for shape in shapes:
+            if not shape.placements:
+                continue
+            f = fine_of(shape.start)
+            near = round(f / sixteenth) * sixteenth
+            res.append((f - near) * (60.0 / max(bpm, 1e-6)) / FINE)
+        if len(res) < 8:
+            return 0.0
+        return max(-0.08, min(0.08, statistics.median(res)))
+
+    part_bias = [_part_bias(part.shapes) for part in parts]
+    adjusted: dict[int, float] = {}          # id(shape) -> consensus time
+    events = []                              # (debiased start, pi, shape)
+    for pi, part in enumerate(parts):
+        for shape in part.shapes:
+            if shape.placements:
+                events.append((shape.start - part_bias[pi], pi, shape))
+    events.sort(key=lambda e: e[0])
+    drum_parts = {pi for pi, part in enumerate(parts)
+                  if part.profile.percussion}
+
+    def _settle(cl) -> None:
+        for tstar, _pi, shape in cl:
+            adjusted[id(shape)] = tstar
+        if len(cl) < 2 or len({pi for _t, pi, _s in cl}) < 2:
+            return
+        drum_ts = [t for t, pi, _s in cl if pi in drum_parts]
+        target = drum_ts[0] if drum_ts else             sorted(t for t, _pi, _s in cl)[len(cl) // 2]
+        seen_parts: set[int] = set()
+        multi = {pi for _t, pi, _s in cl
+                 if pi in seen_parts or seen_parts.add(pi)}
+        for t, pi, shape in cl:
+            # a part with several attacks in one cluster keeps its own
+            # rhythm (a real flam/run must not collapse); drums anchor
+            if pi not in multi and pi not in drum_parts:
+                adjusted[id(shape)] = target
+
+    cluster: list = []
+    for ev in events:
+        if cluster and ev[0] - cluster[0][0] > 0.055:
+            _settle(cluster)
+            cluster = []
+        cluster.append(ev)
+    _settle(cluster)
+
     # Events land on absolute FINE slots; a collision (two events within
     # a 32nd of each other) pushes the later one a 32nd to the right so
     # neither note is silently swallowed.
+    import os as _os
+    _trace = ([] if _os.environ.get("TABFORGE_WRITER_TRACE") else None)
     placed_per_part: list[dict[int, Shape]] = []
     for part in parts:
         placed: dict[int, Shape] = {}
@@ -420,11 +484,17 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
         for shape in part.shapes:
             if not shape.placements:
                 continue
-            slot = fine_of(shape.start)
+            raw_slot = fine_of(adjusted[id(shape)])
+            slot = raw_slot
             while slot // 3 in cells:
                 slot += 3
             cells.add(slot // 3)
             placed[slot] = shape
+            if _trace is not None:
+                _trace.append({"part": part.name,
+                               "raw": round(shape.start, 3),
+                               "adj": round(adjusted[id(shape)], 3),
+                               "fine": raw_slot, "pushed": slot})
         placed_per_part.append(placed)
 
     # Each event becomes a SPAN (start, sounded length — fine units):
@@ -447,7 +517,8 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
                 dur = 1                         # a hit is a transient
             else:
                 longest = max(p.note.duration for p in shape.placements)
-                dur = max(1, fine_of(shape.start + longest) - slot)
+                dur = max(1, fine_of(adjusted[id(shape)] + longest)
+                          - slot)
                 if nxt is not None:
                     if dur < nxt - slot <= dur + gap_fill:
                         dur = nxt - slot        # absorb the small gap
@@ -482,9 +553,11 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
     # in those slots. A span longer than one notatable duration
     # continues as TIED beats — across beat divisions and barlines —
     # so long notes are held, not truncated.
-    for track, part, spans in zip(song.tracks, parts, spans_per_part):
-        apply_fx = _effects_for(part)
-        n_strings = len(part.cfg.tuning)
+    # Pass 1: split spans into per-measure segments and pick each
+    # (track, measure)'s own display grid.
+    all_segs: list[list[list[tuple[int, int, Shape, bool]]]] = []
+    own_d: list[list[int | None]] = []
+    for spans in spans_per_part:
         segs_per_measure: list[list[tuple[int, int, Shape, bool]]] = \
             [[] for _ in range(n_measures)]
         for slot, dur, shape in spans:
@@ -498,25 +571,68 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
                 first = False
                 pos += in_measure
                 remaining -= in_measure
-        for m_idx, segs in enumerate(segs_per_measure):
+        for segs in segs_per_measure:
+            segs.sort(key=lambda s: s[0])
+        all_segs.append(segs_per_measure)
+        own_d.append([(_pick_subdivision([s[0] for s in segs])
+                       if segs else None)
+                      for segs in segs_per_measure])
+
+    # Pass 2: SHARE the grid across tracks per measure (the last leg
+    # of band tightness): an identical consensus fine slot still split
+    # across tracks when their measures rounded on different grids
+    # (slot 50: d2/d4 -> 48, d8 -> 51). Within a family the grids nest
+    # (2|4|8, 3|6), so every track adopts the measure's finest choice
+    # of the MAJORITY family; a coarse part on a finer grid renders
+    # identically, and same-slot attacks now round identically too.
+    shared_d: list[list[int]] = []
+    for pi in range(len(parts)):
+        shared_d.append(list(own_d[pi]))
+    for m_idx in range(n_measures):
+        chosen = [d[m_idx] for d in own_d if d[m_idx] is not None]
+        if not chosen:
+            continue
+        straight = [d for d in chosen if d in (2, 4, 8)]
+        triplet = [d for d in chosen if d in (3, 6)]
+        family = straight if len(straight) >= len(triplet) else triplet
+        target = max(family) if family else max(chosen)
+        for pi in range(len(parts)):
+            if own_d[pi][m_idx] is not None and \
+                    own_d[pi][m_idx] in (2, 4, 8, 3, 6) and \
+                    ((target in (2, 4, 8)) == (own_d[pi][m_idx] in (2, 4, 8))):
+                shared_d[pi][m_idx] = target
+
+    for pi, (track, part) in enumerate(zip(song.tracks, parts)):
+        apply_fx = _effects_for(part)
+        n_strings = len(part.cfg.tuning)
+        for m_idx, segs in enumerate(all_segs[pi]):
             if not segs:
                 continue                        # _pad_empty_voices covers it
-            segs.sort(key=lambda s: s[0])
-            d = _pick_subdivision([s[0] for s in segs])
+            d = shared_d[pi][m_idx]
             menu = MENUS[d]
             width = FINE // d
             spm = beats_per_measure * d
             voice = track.measures[m_idx].voices[0]
             cursor = 0
-            for local, flen, shape, tie in segs:
-                s = int(round(local / width))
-                # post-rounding safety: never before the cursor, never
-                # past the barline (a shape that cannot fit is dropped
-                # rather than corrupting the measure)
-                s = max(s, cursor)
+            # rounded slot of every segment FIRST: a duration that
+            # rounds up must never overrun the next attack's slot (the
+            # cursor would push that attack a slot late — measured as
+            # a chief cross-track desync source: each track slipped
+            # independently)
+            slots_r = [int(round(local / width)) for local, *_ in segs]
+            for si, (local, flen, shape, tie) in enumerate(segs):
+                s = max(slots_r[si], cursor)
                 if s >= spm:
                     continue
+                if _trace is not None and not tie:
+                    _trace.append({"part": part.name, "final": True,
+                                   "raw": round(shape.start, 3),
+                                   "m": m_idx, "d": d, "s": s,
+                                   "cursor_push": s - slots_r[si]})
                 units = min(max(1, int(round(flen / width))), spm - s)
+                if si + 1 < len(segs):
+                    next_s = max(slots_r[si + 1], s + 1)
+                    units = min(units, max(1, next_s - s))
                 _fill_rests(voice, s - cursor, menu)
                 pos2, remaining2, first2 = s, units, True
                 while remaining2 > 0:
@@ -549,6 +665,10 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
             idx = min(len(headers) - 1,
                       max(0, round(qticks / ticks_per_measure)))
             headers[idx].marker = gp.Marker(title=str(label)[:40])
+    if _trace is not None:
+        import json as _json
+        Path(_os.environ["TABFORGE_WRITER_TRACE"]).write_text(
+            _json.dumps(_trace))
     _write_atomic(gp, song, path)
 
 

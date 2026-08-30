@@ -1100,3 +1100,33 @@ tempo — the writer, chords, sections and the editor's addressing all
 inherit coverage. On the track: zero 32nds anywhere, bars 1-2 become
 honest rests, the intro renders as clean eighths in bar 3. Golden
 gate: means identical.
+
+## BAND TIGHTNESS — 2026-08-31: the desync war, in four mechanisms
+
+With the score finally readable the user heard the next layer:
+instruments drifting against each other. Ground truth came from a
+writer trace hook (TABFORGE_WRITER_TRACE), which also exposed that
+naive gp5-level metrics overcount by mismatching repeated pitches —
+two hours were spent chasing a metric artifact before instrumenting
+the writer itself. The real divergence sources, each fixed:
+
+1. Inter-model onset latency (bass −27 ms, piano −22, guitar +4 on
+   one mix): per-part median offset to the 16th grid is now
+   subtracted before slotting (the groove around the median stays).
+2. Same band hit heard tens of ms apart by different models: attacks
+   of different parts within 55 ms now settle on ONE consensus time
+   (the drum member anchors — the kit defines the pocket) BEFORE any
+   slotting; post-rounding repairs could never guarantee this.
+3. Identical fine slots still rounding apart in measures with
+   different display grids (slot 50: d2/d4 -> 48, d8 -> 51): each
+   measure now SHARES the finest grid of the majority family across
+   tracks — nested grids render coarse parts identically.
+4. A duration rounding UP could overrun the next attack's slot and
+   cursor-push it a slot late, per track independently: durations are
+   now clipped at the next segment's slot.
+
+Writer ground truth after all four: same-hit attacks written apart
+8.0% overall, guitar x bass 3/390 (0.8%); the residue sits in
+keys/vocals pairs (11-21%) where cross-family grids (straight vs
+triplet measures) cannot share — the named next lever if ears still
+ask. parts.json and MIDI keep raw times; only the score aligns.
