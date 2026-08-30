@@ -17,9 +17,6 @@ eval = ["mir_eval>=0.7"]
 # High-quality separation backend (BS-Roformer-SW): measurably cleaner
 # stems on the eval stand, ~30x slower than demucs on CPU
 roformer = ["bs-roformer-infer>=0.1.5"]
-# Optional f0 tracker for the monophonic path (MIT code AND weights,
-# bundled in the wheel — no runtime downloads); pyin is the free base
-crepe = ["torchcrepe>=0.0.24"]
 # Synced lyrics from the vocal stem (faster-whisper, MIT; the model
 # downloads from HF on first use, ~460 MB for "small")
 lyrics = ["faster-whisper>=1.2"]

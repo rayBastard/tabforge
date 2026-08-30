@@ -64,38 +64,6 @@ def _f0_pyin(y: np.ndarray, fmin: float, fmax: float
     return f0, vprob
 
 
-def _f0_torchcrepe(y: np.ndarray, fmin: float, fmax: float
-                   ) -> tuple[np.ndarray, np.ndarray]:
-    import librosa
-    import torch
-    import torchcrepe
-
-    # torchcrepe wants 16 kHz; hop in ITS samples keeps the frame grid
-    # aligned with ours at SR/HOP frames per second
-    sr16 = 16000
-    y16 = librosa.resample(y, orig_sr=SR, target_sr=sr16)
-    audio = torch.from_numpy(y16).float().unsqueeze(0)
-    hop16 = int(round(HOP * sr16 / SR))
-    f0, periodicity = torchcrepe.predict(
-        audio, sr16, hop16, fmin=max(fmin, 50.0), fmax=fmax,
-        model="full", batch_size=512, device="cpu",
-        return_periodicity=True)
-    f0 = f0[0].numpy().astype(float)
-    per = periodicity[0].numpy().astype(float)
-    f0[per < 0.21] = np.nan     # torchcrepe's customary voicing gate
-    return f0, per
-
-
-def _f0_track(y: np.ndarray, fmin: float, fmax: float,
-              backend: str) -> tuple[np.ndarray, np.ndarray]:
-    if backend == "torchcrepe":
-        try:
-            return _f0_torchcrepe(y, fmin, fmax)
-        except ImportError:
-            pass
-    return _f0_pyin(y, fmin, fmax)
-
-
 def transcribe_mono(
     audio: Path,
     *,
@@ -104,7 +72,6 @@ def transcribe_mono(
     recitative: bool = False,
     stable_ms: float = 50.0,
     min_note_ms: float = 60.0,
-    backend: str = "pyin",
 ) -> list[NoteEvent]:
     """One monophonic stem -> notes (plus dead notes in recitative mode)."""
     import librosa
@@ -112,7 +79,7 @@ def transcribe_mono(
     y, _sr = librosa.load(str(audio), sr=SR, mono=True)
     if not len(y):
         return []
-    f0, _conf = _f0_track(y, fmin, fmax, backend)
+    f0, _conf = _f0_pyin(y, fmin, fmax)
     rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=HOP)[0]
     n = min(len(f0), len(rms))
     f0, rms = f0[:n], rms[:n]
