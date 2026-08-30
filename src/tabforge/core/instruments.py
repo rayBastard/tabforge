@@ -58,6 +58,12 @@ _GUITAR = InstrumentProfile(
     name="guitar", midi_program=25, tablature=True,   # 25 = steel guitar
     allow_bends=True, allow_vibrato=True, allow_slides=True,
     allow_hammer=True, legato_as_slur=False, tuning=None,
+    # 0.08: a STRUM spreads a chord's onsets past the 45 ms event
+    # window; ungathered, the tail notes read as 32nd clusters and the
+    # adaptive grid escalates whole measures into junk (the acoustic
+    # strumming regression, 2026-08-30). gather_chords only joins
+    # notes that still SOUND together, so fast runs stay runs.
+    chord_gather_window=0.08,
     note_source="muscriptor")
 
 _BASS = InstrumentProfile(

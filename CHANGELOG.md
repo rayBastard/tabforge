@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.7.7 — 2026-08-30
+
+Kills the 32nd-note walls on strummed acoustic chords (the second
+face of the durations war). A strum spreads a chord's attacks wider
+than the chord-grouping window; the stray tail notes then read as
+real 32nd structure and whole measures escalated to junk fine grids —
+Suno mixes barely strum, which is why the earlier calibration never
+saw it. The guitar now gathers strummed chords the way the piano
+always has (notes join only while the first still rings, so fast
+runs never gather): strummed eighths render as eighths, real 32nd
+solo runs still get their 32nds. Measured prices within noise
+(GuitarSet fingering −0.007, golden guitar F1 −0.01); full story in
+docs/eval.md.
+
 ## v0.7.6 — 2026-08-30
 
 Fingering, round two: the error anatomy after v0.7.3 showed whole

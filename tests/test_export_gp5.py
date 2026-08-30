@@ -580,6 +580,33 @@ class TestAdaptiveSubdivision(unittest.TestCase):
         # clean sixteenths (IOI = 6)
         self.assertEqual(pick_subdivision(list(range(0, 96, 6))), 4)
 
+    def test_strummed_chords_do_not_escalate(self):
+        # the acoustic strumming regression (2026-08-30): a strum
+        # spreads a chord's onsets past the 45 ms event window; the
+        # tail notes used to read as 32nd clusters and whole measures
+        # escalated. The product path gathers them (guitar profile
+        # chord_gather_window) — verify gather+picker end to end.
+        import random
+
+        from tabforge.core.quantize import gather_chords
+        from tabforge.export.writers import pick_subdivision
+
+        rng = random.Random(5)
+        fine_s = 0.5 / 24                    # 120 BPM
+        notes = []
+        t = 0.0
+        while t < 96:                        # eighth-note strums
+            base = (t + rng.uniform(-1.5, 1.5)) * fine_s
+            for k, off in enumerate((0, 3, 5)):
+                notes.append(NoteEvent(52 + 5 * k,
+                                       base + off * fine_s, 0.4))
+            t += 12
+        gathered = gather_chords(notes, window=0.08)
+        onsets = sorted({int(round(n.start / fine_s))
+                         for n in gathered})
+        self.assertEqual(pick_subdivision(onsets), 2,
+                         "strummed eighths must stay eighths")
+
     def test_thirtysecond_run_keeps_every_note(self):
         # the user's solo complaint: on a coarse grid consecutive 32nds
         # collapsed/pushed and the passage sounded slowed — every attack

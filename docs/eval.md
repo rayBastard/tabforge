@@ -988,3 +988,26 @@ win): the C3 scale test now asserts ONE coherent box instead of
 (it tests pins, not layout). Opens pay again (corpus .870 -> .744) —
 the prior trades open-string agreement for phrase-box agreement, and
 the humans' own data priced that trade.
+
+## THE STRUMMING REGRESSION — 2026-08-30: 32nd walls on acoustic chords
+
+The user's acoustic track (solo mode) rendered strummed chord bars as
+walls of 32nds again — v0.7.4's calibration had missed the mechanism.
+Synthetic reproduction nailed it: a STRUM spreads a chord's onsets
+past the 45 ms event-grouping window, the split shapes get pushed
+into separate 32nd cells by the collision rule, and the picker sees
+"real" fine structure (8th strums + 2 tail notes: 149/200 measures
+escalated to d8). Suno mixes barely strum (2-65 tail pairs per
+track — why Techno never showed it); GAPS on acoustic strumming
+writes every string separately.
+
+Fix at the ROOT, not in the picker: the guitar profile now gathers
+chords (chord_gather_window 0.08 — the same anchored
+"joins-only-if-the-first-note-still-sounds" gather the piano has had
+since task 56). Fast runs never gather (their notes do not ring
+together); measured end to end: 8th strums 149/200-in-d8 -> 200/200
+in d2, 16th strums -> d4, true 32nd runs still escalate.
+
+Prices, both accepted: GuitarSet strings test 0.743 -> 0.736
+(−0.007, noise), golden guitar F1 0.41 -> 0.40 (−0.01, the moved
+tail onsets vs the 50 ms tolerance) — everything else identical.
