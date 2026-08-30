@@ -601,9 +601,14 @@ def run_analyze(audio: Path, out_dir: Path,
     # evidence: the fastest FOUND card's median inter-onset interval.
     found_iois = [a.median_ioi for a in analysis.values()
                   if a.status == "found" and a.median_ioi]
-    if found_iois and source_name == "mix":
-        # only when no kit dictated the grid — a drum-tracked tempo
-        # already carries the band's own octave choice
+    if found_iois:
+        # drum-tracked tempi get NO exemption: the tracker octave-errs
+        # on real kits too (the user's mix: drums said 80.7 while the
+        # drum stem itself votes 14% for 161.5 and the guitar moves at
+        # 106 ms). The three guards — IOI ratio, the 185 ceiling and
+        # the raw-vote share — are what actually protect true tempos
+        # (benched: Techno/Hero blocked by ratio, Loken by the ceiling
+        # with 0.6% votes to spare).
         bpm, beats = _octave_correct(bpm, beats, min(found_iois),
                                      tempo_extras.get("local_votes"),
                                      progress)

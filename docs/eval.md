@@ -1056,3 +1056,16 @@ Acceptance on the victim: 81 -> 161 BPM; the lead's spectrum flipped
 from {154 eighths, 603 sixteenths, 99 thirty-seconds} to
 {606 eighths, 139 sixteenths, 6 thirty-seconds} — the user's exact
 reading ("должны быть 8-е, может где-то 16-е").
+
+### Amendment (same day): the drum exemption was wrong too
+
+The first wiring exempted drum-tracked tempi ("the kit already chose
+the octave") — and the user's track promptly proved the kit chooses
+WRONG octaves as happily as the mix does: real drums, arbiter-
+confirmed, beat-tracked at 80.7 while the drum stem's own envelope
+votes 14.4% for 161.5 and the guitar moves at 106 ms. Exemption
+removed; the three guards (IOI ratio, the 185 ceiling, the raw-vote
+share) are the actual protection — re-benched: Techno/Hero blocked
+by ratio, Loken by the ceiling with 0.6% votes to spare, golden
+means identical, and the victim finally corrects in the NORMAL mode
+the user actually runs (80.7 -> 161.5, "double time" in the log).

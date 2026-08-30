@@ -14,7 +14,9 @@ sixteenth-dense material doubles it — but only when the audio's own
 periodicity votes for the doubled tempo (36% on the victim vs 0-2%
 on true-tempo sixteenth songs). Benched 9/9 on every track with
 known tempo; the victim's lead flipped from 603 sixteenths + 99
-thirty-seconds to 606 eighths + 6 thirty-seconds. Full dissection in
+thirty-seconds to 606 eighths + 6 thirty-seconds. Drum-tracked tempi
+get no exemption — the tracker octave-errs on real kits too, and the
+three guards are the actual protection. Full dissection in
 docs/eval.md "THE TEMPO OCTAVE".
 
 ## v0.7.7 — 2026-08-30
