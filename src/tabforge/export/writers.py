@@ -103,6 +103,54 @@ class SongPart:
     legato: Sequence[tuple] | None = None
 
 
+# ---------------------------------------------------------------------------
+# The adaptive display grid (the durations war, 2026-08-30).
+# FINE = 24 units per beat — the LCM of every display grid we can
+# notate: 32nds (3 units), 16th triplets (4), 16ths (6), 8th triplets
+# (8), 8ths (12).
+# ---------------------------------------------------------------------------
+
+FINE = 24
+CANDIDATES = (2, 3, 4, 6, 8)      # 8ths .. 32nds, triplet families
+
+
+# The rents and the merge price are CALIBRATED, not guessed
+# (scratchpad grid_bench, 2026-08-30, the rhythm-mess regression):
+# clean Suno truth MIDI must keep its real 16ths (Loken: 74 measures
+# of d4, 0% junk) while noisy transcription onsets must NOT escalate —
+# the first shipped version had hard escalate-on-any-conflict rules
+# and turned 37-66% of transcribed measures into junk triplets/32nds
+# ("каша с ритмом"). A merge is CHEAP (1.2 — a lone flam gets pushed
+# one slot, the pre-adaptive behavior) so only a RUN of fine notes,
+# where merges pile up, pays for a finer grid; triplet grids rent
+# higher than straight ones so jitter can't masquerade as shuffle.
+_GRID_RENT = {2: 0.0, 3: 2.0, 4: 1.2, 6: 3.2, 8: 3.5}
+_MERGE_PRICE = 1.2
+
+
+def pick_subdivision(onsets_fine: list[int], fine: int = FINE) -> int:
+    """The display grid a measure's own notes ask for: the score is
+    mean onset displacement + the price of merged attacks + the grid's
+    rent; the cheapest grid wins, coarse by default."""
+    if not onsets_fine:
+        return CANDIDATES[0]
+    onsets = sorted(set(onsets_fine))
+    n = len(onsets)
+    best_d, best_score = CANDIDATES[0], None
+    for d in CANDIDATES:
+        width = fine // d
+        slots = [int(round(o / width)) for o in onsets]
+        merges = sum(1 for i in range(1, n)
+                     if slots[i] == slots[i - 1]
+                     and onsets[i] - onsets[i - 1] >= 3)
+        disp = sum(abs(o - s * width)
+                   for o, s in zip(onsets, slots)) / n
+        score = disp + _MERGE_PRICE * merges + _GRID_RENT[d]
+        if best_score is None or score < best_score - 1e-9:
+            best_d, best_score = d, score
+    return best_d
+
+
 def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
                bpm: float = 120.0, beats_per_measure: int = 4,
                subdivision: int = 4,
@@ -226,7 +274,6 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
     # a 32nd run in ANY measure gets real 32nds — no global "precision"
     # choice, the notes themselves decide (the legacy `subdivision`
     # argument is accepted and ignored).
-    FINE = 24
     if grid is not None and len(grid.beats) > 1:
         from bisect import bisect_left
         beats_t = grid.beats
@@ -259,8 +306,6 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
     # subdivision d (slots per beat), in slot units, largest first:
     # binary values a whole number of slots long, their dotted variants,
     # and — for triplet subdivisions — the single-slot tuplet note.
-    CANDIDATES = (2, 3, 4, 6, 8)      # 8ths .. 32nds, triplet families
-
     def _duration_menu(d: int) -> tuple[tuple[int, int, bool, bool], ...]:
         menu: list[tuple[int, int, bool, bool]] = []
         per_whole = 4 * d
@@ -288,37 +333,7 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
         u, value, dotted, tuplet = menu[-1]
         return value, dotted, tuplet, u
 
-    def _pick_subdivision(onsets_fine: list[int]) -> int:
-        """The coarsest display grid this measure survives. A candidate
-        is out when it MERGES two notes that are distinguishable on the
-        finest grid (>= a 32nd apart), or displaces an onset by more
-        than 4 fine units (1/6 beat — anything worse is not this note's
-        slot). Among survivors: least displacement wins, finer grids pay
-        a small rent so noisy 8ths don't masquerade as triplets."""
-        if not onsets_fine:
-            return CANDIDATES[0]
-        onsets = sorted(set(onsets_fine))
-        best_d, best_score = 8, None
-        for d in CANDIDATES:
-            width = FINE // d
-            slots = [int(round(o / width)) for o in onsets]
-            ok = True
-            disp = 0.0
-            for i, (o, s) in enumerate(zip(onsets, slots)):
-                if abs(o - s * width) > 4:
-                    ok = False
-                    break
-                if i and s == slots[i - 1] and onsets[i] - onsets[i - 1] >= 3:
-                    ok = False               # merged a real distinction
-                    break
-                disp += abs(o - s * width)
-            if not ok:
-                continue
-            score = disp / len(onsets) + {2: 1.0, 3: 1.6, 4: 2.0,
-                                          6: 2.6, 8: 3.0}[d]
-            if best_score is None or score < best_score:
-                best_d, best_score = d, score
-        return best_d
+    _pick_subdivision = pick_subdivision
 
     def _add_beat(voice, units: int, menu, shape: Shape | None,
                   n_strings: int = 6, apply_fx=None, tie: bool = False) -> int:

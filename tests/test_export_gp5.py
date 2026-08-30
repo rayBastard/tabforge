@@ -557,6 +557,29 @@ class TestAdaptiveSubdivision(unittest.TestCase):
                         [(b.duration.value, b.duration.tuplet.enters)
                          for b in m3])
 
+    def test_noisy_eighths_stay_coarse(self):
+        # the rhythm-mess regression (2026-08-30): transcription onsets
+        # jitter by ±2 fine units; that must NOT escalate the measure
+        # into junk 32nds or fake triplets — the coarse grid absorbs it
+        from tabforge.export.writers import pick_subdivision
+        jittered = [0, 14, 22, 37, 49, 58, 74, 83]     # 8ths ± jitter
+        self.assertEqual(pick_subdivision(jittered), 2)
+
+    def test_lone_flam_does_not_escalate(self):
+        # one pair of near-simultaneous attacks amid quarters: a 16th
+        # pickup at worst — never a reason for 32nds or fake triplets
+        from tabforge.export.writers import pick_subdivision
+        self.assertIn(pick_subdivision([0, 4, 24, 48, 72]), (2, 4))
+
+    def test_real_fine_material_still_escalates(self):
+        from tabforge.export.writers import pick_subdivision
+        # a 32nd run (IOI = 3 fine units)
+        self.assertEqual(pick_subdivision(list(range(0, 48, 3))), 8)
+        # eighth-note triplets (IOI = 8)
+        self.assertEqual(pick_subdivision(list(range(0, 48, 8))), 3)
+        # clean sixteenths (IOI = 6)
+        self.assertEqual(pick_subdivision(list(range(0, 96, 6))), 4)
+
     def test_thirtysecond_run_keeps_every_note(self):
         # the user's solo complaint: on a coarse grid consecutive 32nds
         # collapsed/pushed and the passage sounded slowed — every attack

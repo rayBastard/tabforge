@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.7.4 — 2026-08-30
+
+Fixes the rhythm mess v0.7.2's adaptive grid made of transcribed
+tracks. The per-measure grid picker had hard escalate-on-any-conflict
+rules, and transcription onset noise (±50 ms) was enough conflict:
+37–66% of transcribed measures escalated into junk 32nds and fake
+triplets — rhythm and tempo read as mush. The picker is now
+calibrated on data (clean Suno truth MIDI vs our noisy transcriptions
+of the same songs): merged attacks are cheap (a lone flam is pushed a
+slot, the old behavior) so only a real RUN of fine notes pays for a
+finer grid, and triplet grids rent higher than straight ones so
+jitter can't masquerade as shuffle. After calibration: junk share on
+noisy material 3–17% (what remains is the solo runs that ARE fine
+material), clean 16ths still render as 16ths, real 32nd runs and
+triplets still escalate (unit-tested).
+
 ## v0.7.3 — 2026-08-30
 
 Playable fingering: the Viterbi cost weights were tuned against 360
