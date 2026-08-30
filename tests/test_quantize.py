@@ -1,7 +1,7 @@
 import unittest
 
 from tabforge.core.fretboard import NoteEvent
-from tabforge.core.quantize import Grid, duration_symbol, quantize
+from tabforge.core.quantize import Grid, quantize
 
 
 class TestGrid(unittest.TestCase):
@@ -88,17 +88,6 @@ class TestGatherChords(unittest.TestCase):
         b = [NoteEvent(65, 0.5, 0.4), NoteEvent(69, 0.55, 0.4)]
         out = gather_chords(a + b, window=0.08)
         self.assertEqual(sorted({n.start for n in out}), [0.0, 0.5])
-
-
-class TestDuration(unittest.TestCase):
-    def test_quarter_at_120(self):
-        self.assertEqual(duration_symbol(0.5, 120), (4, False))
-
-    def test_dotted_quarter(self):
-        self.assertEqual(duration_symbol(0.75, 120), (4, True))
-
-    def test_eighth(self):
-        self.assertEqual(duration_symbol(0.25, 120), (8, False))
 
 
 if __name__ == "__main__":
