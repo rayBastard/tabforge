@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.7.9 — 2026-08-31
+
+The fourth and final face of the "32nd walls": notes BEFORE the
+first tracked beat. On a track whose drums enter late the beat grid
+started with them (14 s in), every intro note was clamped onto slot
+zero and spread one 32nd apiece — a wall on the first screen,
+identical at any tempo, immune to every earlier fix (whose diseases
+were real, but different). The beat grid now extends backward to the
+start of the audio at the opening tempo; the victim's intro renders
+as clean eighths after two honest bars of rest, zero 32nds anywhere,
+golden means identical. The dissection that found it (pristine model
+notes -> clean venv runs -> the frozen app driven headless over its
+own API -> all 55 thirty-seconds in bars 1-2) is in docs/eval.md
+"THE INTRO CRUSH".
+
 ## v0.7.8 — 2026-08-30
 
 The real culprit behind the "32nd walls" on the user's acoustic

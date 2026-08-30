@@ -1069,3 +1069,34 @@ share) are the actual protection — re-benched: Techno/Hero blocked
 by ratio, Loken by the ceiling with 0.6% votes to spare, golden
 means identical, and the victim finally corrects in the NORMAL mode
 the user actually runs (80.7 -> 161.5, "double time" in the log).
+
+## THE INTRO CRUSH — 2026-08-31: the fourth and true face of the walls
+
+After the tempo octave was fixed the user reported the same walls at
+161 — and the played rhythm had been wrong at BOTH tempos ("звучат
+так же, только быстрее"), which finally pointed away from the clock
+and the grid entirely. The full dissection chain, each step
+eliminating a suspect with data:
+
+- MuScriptor's raw notes for the track: PRISTINE (gaps 150-220 ms =
+  clean eighths at 161.5, chords at zero, no fine structure at all).
+- My venv runs of the identical code path: clean scores.
+- The frozen app itself, driven headless over its own HTTP API on
+  the user's exact file and settings: ALSO clean — except bars 1-2,
+  which held all 55 thirty-seconds of the whole score.
+
+Root cause: **the beat grid starts where the drums enter**
+(beats[0] = 14.1 s) while the guitar intro starts at 3.3 s. Every
+intro note mapped to a negative fine tick, the writer's indexer
+clamped them all onto slot ZERO, and the collision spread laid them
+out one 32nd apiece — a wall, on the FIRST screen the user sees,
+identical at 81 and at 161 and immune to every grid/tempo fix.
+Four layers of the same complaint, four different diseases; this
+one had been underneath from the first screenshot.
+
+Fix at the root: detect_tempo now extends the beat grid BACKWARD
+from the first tracked beat to the start of the audio at the opening
+tempo — the writer, chords, sections and the editor's addressing all
+inherit coverage. On the track: zero 32nds anywhere, bars 1-2 become
+honest rests, the intro renders as clean eighths in bar 3. Golden
+gate: means identical.

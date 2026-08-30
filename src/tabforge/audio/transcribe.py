@@ -488,7 +488,20 @@ def detect_tempo(audio: Path,
     def _finish(bpm: float, beats: list[float], ok: bool):
         if not ok:
             return bpm, beats, ok
-        return bpm, smooth_beats(repair_beats(beats)), ok
+        beats = smooth_beats(repair_beats(beats))
+        # The grid must cover the music BEFORE the first tracked beat:
+        # on a track whose drums enter late the tracker starts there
+        # (Просто так вышло: beats[0]=14.1 s, the guitar intro at
+        # 3.3 s), and every earlier note used to be clamped onto slot
+        # zero — the writer then spread them one 32nd apiece, the
+        # "wall of 32nds" that survived every other fix. Extend the
+        # grid backward at the opening tempo instead.
+        if len(beats) > 1:
+            step = beats[1] - beats[0]
+            if step > 0:
+                while beats[0] >= step * 0.75:
+                    beats.insert(0, beats[0] - step)
+        return bpm, beats, ok
 
     if not hypotheses:
         tempo, beats = librosa.beat.beat_track(onset_envelope=oenv, sr=sr,
