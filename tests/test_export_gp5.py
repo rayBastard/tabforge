@@ -488,15 +488,86 @@ class TestGp5Roundtrip(unittest.TestCase):
         cfg = TabConfig()
         notes = [NoteEvent(60, 0.0, 0.4)]
         shapes = assign_tab(notes, cfg)
+        # NINE parts: the real Techno roster (two guitars, bass, piano
+        # split in two hands, vocals, other split, drums) exhausted the
+        # single-port 16-channel range and killed song.gp5 — the gp5
+        # channel table has 64 slots, use them
         parts = [SongPart(f"m{i}", shapes, cfg, profile_for("guitar"))
-                 for i in range(6)]
+                 for i in range(9)]
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "song.gp5"
             export_song_gp5(parts, path, bpm=120.0)
             song = gp.parse(str(path))
-        used = [t.channel.channel for t in song.tracks[:6]]
-        self.assertNotIn(9, used, "channel 9 is reserved for drums")
+        used = [t.channel.channel for t in song.tracks[:9]]
+        self.assertTrue(all(c % 16 != 9 for c in used),
+                        "channel 9 of every port is percussion")
         self.assertEqual(len(used), len(set(used)))
+
+
+@unittest.skipUnless(HAVE_GP, "PyGuitarPro is not installed")
+class TestAdaptiveSubdivision(unittest.TestCase):
+    """The durations war (2026-08-30): each measure picks the coarsest
+    display grid that keeps its notes distinct — a verse of eighths must
+    not shatter, a 32nd solo run must not drag, triplets stay triplets,
+    all inside ONE track with no global precision choice."""
+
+    def _render(self, notes):
+        import guitarpro as gp
+        from tabforge.export.writers import export_gp5
+        cfg = TabConfig()
+        shapes = assign_tab(notes, cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test.gp5"
+            export_gp5(shapes, path, cfg, bpm=120.0)
+            return gp.parse(str(path))
+
+    def test_mixed_material_gets_per_measure_grids(self):
+        import guitarpro as gp
+        beat = 0.5                              # 120 BPM
+        notes = []
+        # measure 1: four quarters — must stay COARSE (no junk 32nds)
+        for k in range(4):
+            notes.append(NoteEvent(60 + k, k * beat, 0.4))
+        # measure 2: a 32nd-note run — must get REAL 32nds
+        for k in range(16):
+            notes.append(NoteEvent(52 + k, 4 * beat + k * beat / 8,
+                                   beat / 10))
+        # measure 3: eighth-note triplets — must come out as tuplets
+        for k in range(6):
+            notes.append(NoteEvent(60 + k, 8 * beat + k * beat / 3,
+                                   beat / 4))
+        song = self._render(notes)
+        measures = song.tracks[0].measures
+
+        m1 = [b for b in measures[0].voices[0].beats
+              if b.status == gp.BeatStatus.normal]
+        self.assertTrue(all(b.duration.value <= 8 for b in m1),
+                        [b.duration.value for b in m1])
+
+        m2 = [b for b in measures[1].voices[0].beats
+              if b.status == gp.BeatStatus.normal]
+        self.assertEqual(len(m2), 16)
+        self.assertTrue(any(b.duration.value == 32 for b in m2),
+                        [b.duration.value for b in m2])
+
+        m3 = [b for b in measures[2].voices[0].beats
+              if b.status == gp.BeatStatus.normal]
+        self.assertEqual(len(m3), 6)
+        self.assertTrue(all(b.duration.tuplet.enters == 3 for b in m3),
+                        [(b.duration.value, b.duration.tuplet.enters)
+                         for b in m3])
+
+    def test_thirtysecond_run_keeps_every_note(self):
+        # the user's solo complaint: on a coarse grid consecutive 32nds
+        # collapsed/pushed and the passage sounded slowed — every attack
+        # must survive at its own position now
+        beat = 0.5
+        notes = [NoteEvent(52 + k, k * beat / 8, beat / 10)
+                 for k in range(16)]
+        cfg = TabConfig()
+        shapes = assign_tab(notes, cfg)
+        _, _, pitches = _roundtrip(shapes, cfg, bpm=120.0)
+        self.assertEqual(sorted(pitches), [52 + k for k in range(16)])
 
 
 if __name__ == "__main__":

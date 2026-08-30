@@ -987,7 +987,8 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
                 sections=section_marks,
                 lyrics=_lyrics_for_export(out_dir, opts))
         except Exception as e:
-            progress("export", f"project score failed to build ({e})")
+            # repr, not str: a bare StopIteration once hid here as "()"
+            progress("export", f"project score failed to build ({e!r})")
     return results
 
 
@@ -1102,6 +1103,16 @@ def _save_part_state(out_dir: Path, part_name: str, notes, legato,
     path.write_text(json.dumps(state))
 
 
+def _fine_indexer(beats: list[float], bpm: float):
+    """Time -> fine tick (24 units per beat), the editor's addressing
+    grid — the same base the adaptive gp5 writer slots notes on."""
+    if len(beats) > 1:
+        fine_grid = Grid(beats, subdivision=24)
+        return fine_grid.tick_index
+    fine_len = 60.0 / max(bpm, 1e-6) / 24
+    return lambda t: int(round(t / fine_len))
+
+
 def apply_repin(out_dir: Path, part_name: str, tick: int, pitch: int,
                 string: int | None, shared: AnalyzeResult,
                 opts: PipelineOptions) -> dict:
@@ -1121,6 +1132,7 @@ def apply_repin(out_dir: Path, part_name: str, tick: int, pitch: int,
              if opts.tempo_scale != 1.0 else shared.beats)
     grid = (Grid(beats, subdivision=opts.subdivision)
             if len(beats) > 1 else None)
+    fine = _fine_indexer(beats, shared.bpm * opts.tempo_scale)
 
     def revive(part):
         return [NoteEvent(n["pitch"], n["start"], n["duration"],
@@ -1128,18 +1140,16 @@ def apply_repin(out_dir: Path, part_name: str, tick: int, pitch: int,
                           n.get("dead", False))
                 for n in part["notes"]]
 
-    # locate the clicked note: same tick (the collision shift allows ±1)
-    # and the same pitch
+    # locate the clicked note: same FINE position (24 units per beat —
+    # matches the adaptive score grid, so a 32nd run cannot alias onto
+    # a neighbor; the collision shift allows a 32nd of slack) and pitch
     part = state[part_name]
     notes = revive(part)
     target = None
     for i, n in enumerate(notes):
         if n.pitch != pitch:
             continue
-        t = grid.tick_index(n.start) if grid else round(
-            n.start / (60.0 / (shared.bpm * opts.tempo_scale)
-                       / opts.subdivision))
-        if abs(t - tick) <= 1:
+        if abs(fine(n.start) - tick) <= 3:
             target = i
             break
     if target is None:
@@ -1157,6 +1167,75 @@ def apply_repin(out_dir: Path, part_name: str, tick: int, pitch: int,
     edited_ascii = _rebuild_outputs(out_dir, state, {part_name},
                                     shared, opts, grid)
     return {"prev": prev, "ascii": edited_ascii.get(part_name, "")}
+
+
+def apply_repin_group(out_dir: Path, part_name: str,
+                      shared: AnalyzeResult, opts: PipelineOptions,
+                      pitch: int | None = None,
+                      string: int | None = None,
+                      from_tick: int | None = None,
+                      to_tick: int | None = None,
+                      restore: dict | None = None) -> dict:
+    """Group edit (2026-08-30, the user's ask): pin EVERY note of one
+    pitch to a string in one stroke — across the whole part, or only
+    inside [from_tick, to_tick] (fine units, 24/beat) when a range is
+    given. string=None removes those pins instead.
+
+    restore={note_index: pin_or_None} is the undo path: it puts the
+    previous pins back verbatim and ignores the other arguments.
+    Returns {'count', 'prev_pins', 'ascii'}."""
+    import json
+
+    path = _parts_file(out_dir)
+    state = json.loads(path.read_text())
+    if part_name not in state:
+        raise ValueError(f"unknown part: {part_name}")
+    part = state[part_name]
+    pins = {int(k): v for k, v in part["pins"].items()}
+    prev_pins: dict[int, int | None] = {}
+
+    if restore is not None:
+        for k, v in restore.items():
+            i = int(k)
+            prev_pins[i] = pins.get(i)
+            if v is None:
+                pins.pop(i, None)
+            else:
+                pins[i] = int(v)
+    else:
+        if pitch is None:
+            raise ValueError("group repin needs a pitch")
+        beats = (scale_beats(shared.beats, opts.tempo_scale)
+                 if opts.tempo_scale != 1.0 else shared.beats)
+        fine = _fine_indexer(beats, shared.bpm * opts.tempo_scale)
+        for i, n in enumerate(part["notes"]):
+            if n["pitch"] != pitch or n.get("dead"):
+                continue
+            t = fine(n["start"])
+            if from_tick is not None and t < from_tick - 3:
+                continue
+            if to_tick is not None and t > to_tick + 3:
+                continue
+            prev_pins[i] = pins.get(i)
+            if string is None:
+                pins.pop(i, None)
+            else:
+                pins[i] = int(string)
+        if not prev_pins:
+            raise ValueError("no notes of that pitch in the range")
+
+    part["pins"] = {str(k): v for k, v in pins.items()}
+    path.write_text(json.dumps(state))
+
+    beats = (scale_beats(shared.beats, opts.tempo_scale)
+             if opts.tempo_scale != 1.0 else shared.beats)
+    grid = (Grid(beats, subdivision=opts.subdivision)
+            if len(beats) > 1 else None)
+    edited_ascii = _rebuild_outputs(out_dir, state, {part_name},
+                                    shared, opts, grid)
+    return {"count": len(prev_pins),
+            "prev_pins": {str(k): v for k, v in prev_pins.items()},
+            "ascii": edited_ascii.get(part_name, "")}
 
 
 def _revive_notes(part: dict) -> list[NoteEvent]:

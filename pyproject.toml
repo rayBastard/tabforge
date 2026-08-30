@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tabforge"
-version = "0.7.1"
+version = "0.7.2"
 description = "Audio (Suno and beyond) -> tablature and sheet music"
 requires-python = ">=3.10"
 readme = "README.md"

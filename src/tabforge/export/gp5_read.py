@@ -51,6 +51,8 @@ def read_gp5(source) -> Gp5Contents:
                 if beat.notes:
                     note_beats.append(beat)
                 for note in beat.notes:
+                    if note.type == gp.NoteType.tie:
+                        continue    # a held note, not a new attack
                     t = (beat.start - origin) / quarter_time
                     notes.append((t, string_value[note.string] + note.value))
                     if note.effect.hammer:

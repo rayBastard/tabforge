@@ -175,7 +175,11 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
     # channel 9 (GM percussion), so melodic pairs are dealt around it
     while len(song.tracks) < len(parts):
         song.tracks.append(gp.Track(song))
-    melodic_channels = (c for c in range(16) if c != 9)
+    # gp5 carries a 64-slot channel table (4 MIDI ports); channel 9 of
+    # EVERY port is percussion by GM convention. 16 channels ran out at
+    # 8 melodic parts (piano split doubled the roster) and the bare
+    # StopIteration killed the whole song.gp5 with an empty error.
+    melodic_channels = (c for c in range(64) if c % 16 != 9)
     for i, (track, part) in enumerate(zip(song.tracks, parts)):
         track.number = i + 1
         track.name = part.name or part.profile.name
@@ -202,7 +206,7 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
             for measure in tr.measures:
                 voice0, voice1 = measure.voices[0], measure.voices[1]
                 if not voice0.beats:
-                    _fill_rests(voice0, slots_per_measure)
+                    _fill_rests(voice0, beats_per_measure * 2, MENUS[2])
                 if not voice1.beats:
                     pad = gp.Beat(voice1)
                     pad.status = gp.BeatStatus.empty
@@ -213,24 +217,53 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
         header.timeSignature = gp.TimeSignature(
             numerator=beats_per_measure, denominator=gp.Duration(value=4))
 
-    if grid is not None:
-        subdivision = grid.subdivision          # the grids must never differ
-        def slot_of(t: float) -> int:
-            return max(0, grid.tick_index(t))
+    # ---- the fine timeline (the durations war, 2026-08-30) ----
+    # Notes land on a grid of FINE=24 units per beat — the LCM of every
+    # display grid we can notate: 32nds (3 units), 16th triplets (4),
+    # 16ths (6), 8th triplets (8), 8ths (12). The DISPLAY subdivision is
+    # then chosen PER MEASURE per track: the coarsest one that keeps
+    # distinguishable notes distinct. A verse of 8ths stays clean 8ths,
+    # a 32nd run in ANY measure gets real 32nds — no global "precision"
+    # choice, the notes themselves decide (the legacy `subdivision`
+    # argument is accepted and ignored).
+    FINE = 24
+    if grid is not None and len(grid.beats) > 1:
+        from bisect import bisect_left
+        beats_t = grid.beats
+        fine_ticks: list[float] = []
+        for bi in range(len(beats_t) - 1):
+            a, b = beats_t[bi], beats_t[bi + 1]
+            for k in range(FINE):
+                fine_ticks.append(a + (b - a) * k / FINE)
+        fine_ticks.append(beats_t[-1])
+        avg_fine = ((fine_ticks[-1] - fine_ticks[0])
+                    / max(1, len(fine_ticks) - 1)) or 1e-6
+
+        def fine_of(t: float) -> int:
+            if t <= fine_ticks[0]:
+                return max(0, -int(round((fine_ticks[0] - t) / avg_fine)))
+            if t >= fine_ticks[-1]:
+                return (len(fine_ticks) - 1
+                        + int(round((t - fine_ticks[-1]) / avg_fine)))
+            i = bisect_left(fine_ticks, t)
+            return i if (fine_ticks[i] - t) <= (t - fine_ticks[i - 1]) \
+                else i - 1
     else:
         quarter = 60.0 / bpm
-        slot_len = quarter / subdivision        # one uniform slot, seconds
-        def slot_of(t: float) -> int:
-            return max(0, int(round((t - origin) / slot_len)))
-    slots_per_measure = beats_per_measure * subdivision
+        fine_len = quarter / FINE
+        def fine_of(t: float) -> int:
+            return max(0, int(round((t - origin) / fine_len)))
+    fine_per_measure = beats_per_measure * FINE
 
-    # Durations expressible as one gp5 Duration, in slot units, largest
-    # first. Binary values whose length is a whole number of slots, their
-    # dotted variants, and — for triplet subdivisions — the single-slot
-    # tuplet note (e.g. subdivision 3: an eighth-note triplet).
-    def _duration_menu() -> tuple[tuple[int, int, bool, bool], ...]:
+    # Durations expressible as one gp5 Duration for a given display
+    # subdivision d (slots per beat), in slot units, largest first:
+    # binary values a whole number of slots long, their dotted variants,
+    # and — for triplet subdivisions — the single-slot tuplet note.
+    CANDIDATES = (2, 3, 4, 6, 8)      # 8ths .. 32nds, triplet families
+
+    def _duration_menu(d: int) -> tuple[tuple[int, int, bool, bool], ...]:
         menu: list[tuple[int, int, bool, bool]] = []
-        per_whole = 4 * subdivision
+        per_whole = 4 * d
         for value in (1, 2, 4, 8, 16, 32):
             if per_whole % value == 0:
                 menu.append((per_whole // value, value, False, False))
@@ -238,29 +271,61 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
                 if dotted_units % (2 * value) == 0:
                     u = dotted_units // (2 * value)
                     menu.append((u, value, True, False))
-        if subdivision % 3 == 0:
-            menu.append((1, 8 * (subdivision // 3), False, True))
+        if d % 3 == 0:
+            menu.append((1, 8 * (d // 3), False, True))
         best: dict[int, tuple[int, int, bool, bool]] = {}
         for entry in menu:
             if entry[0] not in best or not entry[2]:   # prefer undotted
                 best.setdefault(entry[0], entry)
         return tuple(sorted(best.values(), reverse=True))
 
-    DURATIONS = _duration_menu()
+    MENUS = {d: _duration_menu(d) for d in CANDIDATES}
 
-    def _largest_fit(units: int) -> tuple[int, bool, bool, int]:
-        for u, value, dotted, tuplet in DURATIONS:
+    def _largest_fit(units: int, menu) -> tuple[int, bool, bool, int]:
+        for u, value, dotted, tuplet in menu:
             if u <= units:
                 return value, dotted, tuplet, u
-        u, value, dotted, tuplet = DURATIONS[-1]
+        u, value, dotted, tuplet = menu[-1]
         return value, dotted, tuplet, u
 
-    def _add_beat(voice, units: int, shape: Shape | None,
+    def _pick_subdivision(onsets_fine: list[int]) -> int:
+        """The coarsest display grid this measure survives. A candidate
+        is out when it MERGES two notes that are distinguishable on the
+        finest grid (>= a 32nd apart), or displaces an onset by more
+        than 4 fine units (1/6 beat — anything worse is not this note's
+        slot). Among survivors: least displacement wins, finer grids pay
+        a small rent so noisy 8ths don't masquerade as triplets."""
+        if not onsets_fine:
+            return CANDIDATES[0]
+        onsets = sorted(set(onsets_fine))
+        best_d, best_score = 8, None
+        for d in CANDIDATES:
+            width = FINE // d
+            slots = [int(round(o / width)) for o in onsets]
+            ok = True
+            disp = 0.0
+            for i, (o, s) in enumerate(zip(onsets, slots)):
+                if abs(o - s * width) > 4:
+                    ok = False
+                    break
+                if i and s == slots[i - 1] and onsets[i] - onsets[i - 1] >= 3:
+                    ok = False               # merged a real distinction
+                    break
+                disp += abs(o - s * width)
+            if not ok:
+                continue
+            score = disp / len(onsets) + {2: 1.0, 3: 1.6, 4: 2.0,
+                                          6: 2.6, 8: 3.0}[d]
+            if best_score is None or score < best_score:
+                best_d, best_score = d, score
+        return best_d
+
+    def _add_beat(voice, units: int, menu, shape: Shape | None,
                   n_strings: int = 6, apply_fx=None, tie: bool = False) -> int:
         """One beat (notes or rest) of the largest duration <= units.
         Returns the slots consumed. tie=True marks the notes as a tie
         continuation — the same pitch held over, not restruck."""
-        value, dotted, tuplet, used = _largest_fit(units)
+        value, dotted, tuplet, used = _largest_fit(units, menu)
         beat = gp.Beat(voice)
         # Beat.status defaults to empty; empty beats don't advance the
         # reader's time cursor, so positions would collapse.
@@ -283,9 +348,9 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
         voice.beats.append(beat)
         return used
 
-    def _fill_rests(voice, units: int) -> None:
+    def _fill_rests(voice, units: int, menu) -> None:
         while units > 0:
-            units -= _add_beat(voice, units, None)
+            units -= _add_beat(voice, units, menu, None)
 
     def _effects_for(part: SongPart):
         """Per-part articulation writer.
@@ -330,29 +395,32 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
                                 gp.BendPoint(8, v), gp.BendPoint(12, 0)])
         return apply
 
-    # Events land on absolute slots; a collision (two events quantized
-    # onto one slot) pushes the later one to the next free slot.
+    # Events land on absolute FINE slots; a collision (two events within
+    # a 32nd of each other) pushes the later one a 32nd to the right so
+    # neither note is silently swallowed.
     placed_per_part: list[dict[int, Shape]] = []
     for part in parts:
         placed: dict[int, Shape] = {}
+        cells: set[int] = set()             # occupied 32nd-wide cells
         for shape in part.shapes:
             if not shape.placements:
                 continue
-            slot = slot_of(shape.start)
-            while slot in placed:
-                slot += 1
+            slot = fine_of(shape.start)
+            while slot // 3 in cells:
+                slot += 3
+            cells.add(slot // 3)
             placed[slot] = shape
         placed_per_part.append(placed)
 
-    # Each event becomes a SPAN (start slot, sounded slots): the sounded
-    # length comes from the transcription (same grid as the position, so
-    # a breathing tempo cannot stretch values), is clipped at the next
-    # event of the track, and — the anti-staccato rule — a small gap to
-    # the next note (up to one beat) is absorbed into the note instead
-    # of becoming a rest: transcription offsets systematically end early
-    # and a score of sixteenths-plus-rests plays as chopped typewriter.
-    # Real silence (a gap longer than a beat) stays a rest.
-    gap_fill = subdivision                      # one beat, in slots
+    # Each event becomes a SPAN (start, sounded length — fine units):
+    # the sounded length comes from the transcription (same grid as the
+    # position, so a breathing tempo cannot stretch values), is clipped
+    # at the next event of the track, and — the anti-staccato rule — a
+    # small gap to the next note (up to one beat) is absorbed into the
+    # note instead of becoming a rest: transcription offsets
+    # systematically end early and a score of sixteenths-plus-rests
+    # plays as chopped typewriter. Real silence (longer) stays a rest.
+    gap_fill = FINE                             # one beat, fine units
     spans_per_part: list[list[tuple[int, int, Shape]]] = []
     for part, placed in zip(parts, placed_per_part):
         spans: list[tuple[int, int, Shape]] = []
@@ -364,7 +432,7 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
                 dur = 1                         # a hit is a transient
             else:
                 longest = max(p.note.duration for p in shape.placements)
-                dur = max(1, slot_of(shape.start + longest) - slot)
+                dur = max(1, fine_of(shape.start + longest) - slot)
                 if nxt is not None:
                     if dur < nxt - slot <= dur + gap_fill:
                         dur = nxt - slot        # absorb the small gap
@@ -381,7 +449,7 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
         _write_atomic(gp, song, path)
         return
 
-    n_measures = last_slot // slots_per_measure + 1
+    n_measures = last_slot // fine_per_measure + 1
     while len(song.measureHeaders) < n_measures:
         header = gp.MeasureHeader()
         if signature is not None:
@@ -393,41 +461,58 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
         while len(tr.measures) < n_measures:
             tr.measures.append(gp.Measure(tr, song.measureHeaders[len(tr.measures)]))
 
-    # Assemble each track's measures as gapless timelines. A span longer
-    # than one notatable duration continues as TIED beats — across beat
-    # divisions and across barlines — so long notes are held, not
-    # truncated at the next slot boundary.
+    # Assemble each track's measures as gapless timelines. Spans split
+    # at barlines into per-measure SEGMENTS (fine units); each measure
+    # then picks its own display subdivision and renders its segments
+    # in those slots. A span longer than one notatable duration
+    # continues as TIED beats — across beat divisions and barlines —
+    # so long notes are held, not truncated.
     for track, part, spans in zip(song.tracks, parts, spans_per_part):
         apply_fx = _effects_for(part)
         n_strings = len(part.cfg.tuning)
-        # split every span into menu-sized chunks per measure
-        chunks_per_measure: list[list[tuple[int, int, Shape, bool]]] = \
+        segs_per_measure: list[list[tuple[int, int, Shape, bool]]] = \
             [[] for _ in range(n_measures)]
         for slot, dur, shape in spans:
             pos, remaining, first = slot, dur, True
-            while remaining > 0 and pos // slots_per_measure < n_measures:
-                m_idx = pos // slots_per_measure
-                local = pos % slots_per_measure
-                in_measure = min(remaining, slots_per_measure - local)
-                while in_measure > 0:
-                    _v, _d, _t, used = _largest_fit(in_measure)
-                    chunks_per_measure[m_idx].append(
-                        (local, used, shape, not first))
-                    first = False
-                    local += used
-                    pos += used
-                    in_measure -= used
-                    remaining -= used
-        for m_idx, chunks in enumerate(chunks_per_measure):
-            if not chunks:
+            while remaining > 0 and pos // fine_per_measure < n_measures:
+                m_idx = pos // fine_per_measure
+                local = pos % fine_per_measure
+                in_measure = min(remaining, fine_per_measure - local)
+                segs_per_measure[m_idx].append(
+                    (local, in_measure, shape, not first))
+                first = False
+                pos += in_measure
+                remaining -= in_measure
+        for m_idx, segs in enumerate(segs_per_measure):
+            if not segs:
                 continue                        # _pad_empty_voices covers it
+            segs.sort(key=lambda s: s[0])
+            d = _pick_subdivision([s[0] for s in segs])
+            menu = MENUS[d]
+            width = FINE // d
+            spm = beats_per_measure * d
             voice = track.measures[m_idx].voices[0]
             cursor = 0
-            for local, units, shape, tie in chunks:
-                _fill_rests(voice, local - cursor)
-                _add_beat(voice, units, shape, n_strings, apply_fx, tie=tie)
-                cursor = local + units
-            _fill_rests(voice, slots_per_measure - cursor)
+            for local, flen, shape, tie in segs:
+                s = int(round(local / width))
+                # post-rounding safety: never before the cursor, never
+                # past the barline (a shape that cannot fit is dropped
+                # rather than corrupting the measure)
+                s = max(s, cursor)
+                if s >= spm:
+                    continue
+                units = min(max(1, int(round(flen / width))), spm - s)
+                _fill_rests(voice, s - cursor, menu)
+                pos2, remaining2, first2 = s, units, True
+                while remaining2 > 0:
+                    _v, _dt, _tp, used = _largest_fit(remaining2, menu)
+                    _add_beat(voice, used, menu, shape, n_strings,
+                              apply_fx, tie=tie or not first2)
+                    first2 = False
+                    pos2 += used
+                    remaining2 -= used
+                cursor = s + units
+            _fill_rests(voice, spm - cursor, menu)
 
     _pad_empty_voices()
     if chords:

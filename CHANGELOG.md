@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.7.2 — 2026-08-30
+
+The durations war and the editor batch (all four from live feedback).
+
+- **Every note length, everywhere.** The score grid is no longer a
+  global choice: each measure of each track now picks the coarsest
+  grid that keeps its notes distinct — eighths stay clean eighths, a
+  32nd solo run gets real 32nds (it used to collapse onto the coarse
+  grid and sound slowed), triplets come out as actual tuplets, in any
+  measure, verse or solo. The "rhythm precision" selector is gone —
+  it was a crutch around the rigid grid.
+- **Group editing.** The note popover grew an "apply to every X"
+  checkbox: one stroke moves ALL notes of that pitch to the chosen
+  string — across the whole part, or only inside the drag-selected
+  bars when a selection is active. Undo restores the previous pins
+  verbatim.
+- **The screen stays put after an edit.** The score reload used to
+  restore the scroll position once, before alphaTab finished its lazy
+  render — the page was still short and the position clamped to the
+  top. A keeper now holds the position through the whole re-render
+  (and hands the wheel back on the first real user gesture).
+- Editor note addressing moved to the fine grid (24 units per beat):
+  in fast runs a click could land on a neighboring same-pitch note.
+- Percussion detection in the player hardened (stave flag, GM channel
+  9, part name) — a drums track never shows a tab staff.
+
 ## v0.7.1 — 2026-08-30
 
 Two bugs from live testing, both verified in the browser:

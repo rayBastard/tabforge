@@ -234,7 +234,6 @@ async function startTranscribe() {
       body: JSON.stringify({
         stems: picked,
         tuning: tuningSel ? tuningSel.value : "standard",
-        subdivision: parseInt($("#instPrecision")?.value || "2", 10),
         tempo_scale: parseFloat($("#instTempoScale")?.value || "1"),
         guitar_engine: $("#instGuitarEngine")?.value || "auto",
         with_chords: $("#withChords")?.checked !== false,
@@ -370,18 +369,6 @@ function showInstruments(job) {
     box.appendChild(t);
   }
 
-  // rhythm precision: eighths are steady, sixteenths catch fast runs
-  // but amplify transcription timing noise
-  const prec = document.createElement("div");
-  prec.className = "inst-tuning";
-  prec.innerHTML =
-    `rhythm precision: <select id="instPrecision">
-       <option value="2" selected>Eighth notes — steady</option>
-       <option value="3">Triplets — shuffle feel</option>
-       <option value="4">Sixteenths — max detail</option>
-     </select>`;
-  box.appendChild(prec);
-
   // guitar engine (task 66): auto follows the measured routing
   // (MuScriptor; GAPS for acoustic-sounding solo tracks) — the
   // dropdown lets the human overrule the router
@@ -404,19 +391,6 @@ function showInstruments(job) {
   setLog("Analyzed. Pick the instruments and press Transcribe.");
   goBtn.textContent = "Transcribe to tab";
   goBtn.disabled = false;
-
-  // rhythm-precision proposal (runs AFTER the selector exists): notes
-  // arriving faster than ~a third of a beat are SIXTEENTH material —
-  // the default eighth grid shoves half of them onto wrong slots
-  const beat = job.bpm > 0 ? 60 / job.bpm : 0;
-  const fastest = Math.min(...job.analysis
-    .filter((a) => a.status === "found" && a.median_ioi)
-    .map((a) => a.median_ioi), Infinity);
-  const precSel = $("#instPrecision");
-  if (precSel && beat && fastest < 0.35 * beat) {
-    precSel.value = "4";
-    setLog("sixteenth-note material detected — rhythm precision set to sixteenths (change it if you disagree)");
-  }
 }
 
 /* ---------- polling ---------- */
@@ -668,7 +642,11 @@ function initUnifiedScore(job) {
       // fretted instruments read TAB, keys/vocals read notation —
       // nobody needs both staves at once
       for (const t of score.tracks) {
-        const percussion = t.staves[0]?.isPercussion;
+        // belt and braces: the stave flag, the GM drum channel and the
+        // part name — a drums track must NEVER show a tab staff
+        const percussion = t.staves.some((s) => s.isPercussion)
+          || t.playbackInfo?.primaryChannel === 9
+          || t.name === "drums";
         for (const stave of t.staves) {
           if (percussion) {
             stave.showTablature = false;
@@ -1149,10 +1127,23 @@ function showNotePopover(note) {
       (s === currentS ? "  ← now" : "");
     if (s === currentS) b.classList.add("current");
     else alternatives += 1;
-    b.addEventListener("click", () =>
-      repin(track.name, qticks, pitch, n - s, b));   // server counts from low E
+    b.addEventListener("click", () => {
+      if (pop.querySelector("#repinAll")?.checked) {
+        repinGroup(track.name, pitch, n - s, b);     // every same note
+      } else {
+        repin(track.name, qticks, pitch, n - s, b);  // server counts from low E
+      }
+    });
     pop.appendChild(b);
   }
+  // group edit: one stroke moves EVERY note of this pitch — inside the
+  // drag-selected bars when a selection is active, else the whole part
+  const scopeLabel = document.createElement("label");
+  scopeLabel.className = "popover-note repin-all";
+  scopeLabel.innerHTML =
+    `<input type="checkbox" id="repinAll"> apply to every ${noteName(pitch)}` +
+    (bulk.range ? " in the selection" : " in this part");
+  pop.appendChild(scopeLabel);
   if (!alternatives) {           // honesty beats a silent dead end
     const p = document.createElement("p");
     p.className = "popover-note";
@@ -1202,6 +1193,33 @@ function toast(msg, isError = false) {
   el._t = setTimeout(() => el.classList.remove("show"), 3200);
 }
 
+async function repinGroup(part, pitch, string, btn) {
+  if (btn) { btn.disabled = true; btn.textContent += " …"; }
+  try {
+    const body = { part, pitch, string };
+    if (bulk.range) {
+      body.from_qticks = bulk.range.startTick;
+      body.to_qticks = bulk.range.endTick;
+    }
+    const res = await apiFetch(`/api/jobs/${currentJobId}/repin_group`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await errorDetail(res));
+    const data = await res.json();
+    editor.lastAction = { type: "group", part, restore: data.prev_pins };
+    $("#undoBtn").hidden = false;
+    $("#approveBtn").hidden = false;
+    closePopover();
+    toast(`${data.count} note${data.count === 1 ? "" : "s"} moved`);
+    reloadScore(data.song);
+  } catch (err) {
+    closePopover();
+    toast(`Group edit failed: ${err.message}`, true);
+  }
+}
+
 async function repin(part, qticks, pitch, string, btn) {
   if (btn) { btn.disabled = true; btn.textContent += " …"; }
   try {
@@ -1227,16 +1245,40 @@ async function repin(part, qticks, pitch, string, btn) {
 function reloadScore(songUrl) {
   if (!unified.api) return;
   // an edit must not throw the reader away: keep the scroll position
-  // and the cursor across the reload
+  // and the cursor across the reload. alphaTab renders LAZILY — after
+  // load the page is momentarily short, a single scroll restore gets
+  // clamped to the top and later render chunks finish the job of
+  // losing the place. So the keeper re-asserts the position on every
+  // renderFinished (and once more at the end) for a short window.
   const keepY = window.scrollY;
   const keepTick = unified.api.tickPosition || 0;
-  const once = () => {
-    unified.api.renderFinished.off(once);
-    window.scrollTo({ top: keepY });
+  const until = Date.now() + 4000;
+  let done = false;
+  const stop = () => {
+    done = true;
+    unified.api.renderFinished.off(restore);
+    window.removeEventListener("wheel", onManual);
+    window.removeEventListener("touchmove", onManual);
+  };
+  // a real user GESTURE hands the wheel back (plain scroll events also
+  // fire when the shrinking page clamps the position — those must not
+  // cancel the keeper, they are exactly what it fights)
+  const onManual = () => stop();
+  const restore = () => {
+    if (done) return;
+    if (Math.abs(window.scrollY - keepY) > 4) {
+      follow.ours += 1;                  // our scroll, not the human's
+      window.scrollTo({ top: keepY });
+      setTimeout(() => { follow.ours -= 1; }, 50);
+    }
     if (keepTick) unified.api.tickPosition = keepTick;
     follow.lineY = null;
+    if (Date.now() > until) stop();
   };
-  unified.api.renderFinished.on(once);
+  unified.api.renderFinished.on(restore);
+  window.addEventListener("wheel", onManual, { passive: true });
+  window.addEventListener("touchmove", onManual, { passive: true });
+  setTimeout(() => { restore(); stop(); }, 4200);
   // cache-buster: the gp5 on disk changed but the URL did not
   unified.api.load(withToken(songUrl) +
     (songUrl.includes("?") ? "&" : "?") + "v=" + Date.now());
@@ -1921,7 +1963,21 @@ $("#reviewNext")?.addEventListener("click", () => gotoReview(review.idx + 1));
 $("#undoBtn")?.addEventListener("click", async () => {
   const a = editor.lastAction;
   if (!a) return;
-  await repin(a.part, a.qticks, a.pitch, a.prev ?? null, null);
+  if (a.type === "group") {
+    try {
+      const res = await apiFetch(`/api/jobs/${currentJobId}/repin_group`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ part: a.part, restore: a.restore }),
+      });
+      if (!res.ok) throw new Error(await errorDetail(res));
+      reloadScore((await res.json()).song);
+    } catch (err) {
+      toast(`Undo failed: ${err.message}`, true);
+    }
+  } else {
+    await repin(a.part, a.qticks, a.pitch, a.prev ?? null, null);
+  }
   editor.lastAction = null;
   $("#undoBtn").hidden = true;
   $("#approveBtn").hidden = true;

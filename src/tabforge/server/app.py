@@ -503,8 +503,9 @@ async def repin_note(job_id: str, req: dict) -> dict:
     part = req.get("part")
     try:
         # the UI sends the beat position in alphaTab's quarter ticks
-        # (960/quarter); the grid tick depends on our subdivision
-        tick = round(int(req["qticks"]) * job.opts.subdivision / 960)
+        # (960/quarter); the editor addresses notes on the fine grid
+        # (24 units per beat) that the adaptive score is written on
+        tick = round(int(req["qticks"]) * 24 / 960)
         result = apply_repin(
             job.dir / "out", part,
             tick=tick, pitch=int(req["pitch"]),
@@ -521,6 +522,46 @@ async def repin_note(job_id: str, req: dict) -> dict:
             if r.get("stem") == part and result["ascii"]:
                 r["ascii"] = result["ascii"]
     return {"prev": result["prev"], "song": job.song}
+
+
+@app.post("/api/jobs/{job_id}/repin_group")
+async def repin_group(job_id: str, req: dict) -> dict:
+    """Group edit: pin every note of one pitch (optionally only inside
+    a selected range, qticks) to a string in one stroke. Passing
+    `restore` (note_index -> previous pin) is the undo path."""
+    from ..pipeline import apply_repin_group
+
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if job.status != "done" or job.opts is None:
+        raise HTTPException(409, "Transcribe first, then edit")
+    part = req.get("part")
+    try:
+        def fine(field):
+            v = req.get(field)
+            return None if v is None else round(int(v) * 24 / 960)
+        result = apply_repin_group(
+            job.dir / "out", part,
+            shared=job.analyzed, opts=job.opts,
+            pitch=(None if req.get("pitch") is None
+                   else int(req["pitch"])),
+            string=(None if req.get("string") is None
+                    else int(req["string"])),
+            from_tick=fine("from_qticks"), to_tick=fine("to_qticks"),
+            restore=req.get("restore"))
+    except (KeyError, TypeError):
+        raise HTTPException(400, "repin_group needs part and pitch "
+                                 "(or restore)")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    with job.lock:
+        for r in job.results:
+            if r.get("stem") == part and result["ascii"]:
+                r["ascii"] = result["ascii"]
+    return {"count": result["count"], "prev_pins": result["prev_pins"],
+            "song": job.song}
 
 
 @app.post("/api/jobs/{job_id}/bulk_edit")

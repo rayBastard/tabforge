@@ -266,6 +266,48 @@ class TestRepin(ServerTestCase):
                                  opts=PipelineOptions())
             self.assertEqual(result["prev"], 3)
 
+    def test_repin_group_pins_every_same_pitch_and_restores(self):
+        import json
+        import tempfile
+
+        from tabforge.core.fretboard import NoteEvent
+        from tabforge.pipeline import (AnalyzeResult, PipelineOptions,
+                                       _save_part_state,
+                                       apply_repin_group)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / "guitar").mkdir()
+            (out / "song").mkdir()
+            # the SAME pitch three times plus a bystander
+            notes = [NoteEvent(64, 0.0, 0.4), NoteEvent(67, 0.5, 0.4),
+                     NoteEvent(64, 1.0, 0.4), NoteEvent(64, 1.5, 0.4)]
+            _save_part_state(out, "guitar", notes, [], "standard",
+                             "guitar")
+            shared = AnalyzeResult(stems={}, analysis={}, bpm=120.0,
+                                   beats=[], tempo_reliable=True,
+                                   key=None)
+            result = apply_repin_group(out, "guitar", shared=shared,
+                                       opts=PipelineOptions(),
+                                       pitch=64, string=3)
+            self.assertEqual(result["count"], 3)
+            state = json.loads((out / "parts.json").read_text())
+            self.assertEqual(state["guitar"]["pins"],
+                             {"0": 3, "2": 3, "3": 3})
+            # a range narrows the stroke: only the first note (fine
+            # ticks, 24/beat at 120 BPM -> note at 1.0s = tick 48)
+            apply_repin_group(out, "guitar", shared=shared,
+                              opts=PipelineOptions(), pitch=64,
+                              string=None, from_tick=0, to_tick=10)
+            state = json.loads((out / "parts.json").read_text())
+            self.assertEqual(state["guitar"]["pins"], {"2": 3, "3": 3})
+            # undo puts the recorded pins back verbatim
+            apply_repin_group(out, "guitar", shared=shared,
+                              opts=PipelineOptions(),
+                              restore=result["prev_pins"])
+            state = json.loads((out / "parts.json").read_text())
+            self.assertEqual(state["guitar"]["pins"], {})
+
     def test_repin_unknown_note_is_400_shaped(self):
         import tempfile
 
