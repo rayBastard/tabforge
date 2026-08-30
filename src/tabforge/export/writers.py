@@ -585,11 +585,35 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
     # (2|4|8, 3|6), so every track adopts the measure's finest choice
     # of the MAJORITY family; a coarse part on a finer grid renders
     # identically, and same-slot attacks now round identically too.
+    # The SONG BASE grid (2026-08-31, the user's crispness report):
+    # the old fixed precision selector felt CRISPER because the whole
+    # song breathed one grid; per-measure adaptivity lets neighboring
+    # bars flip between 8ths and 16ths on jitter and the rhythm reads
+    # loose. Compute the grid the user would have picked by hand —
+    # 16ths when at least a quarter of the note mass asks for them —
+    # and render nothing coarser than that (a coarse bar on a finer
+    # nested grid is exact); escalation ABOVE the base (32nd solos,
+    # triplet bars) still needs the picker's evidence, so the
+    # adaptive win survives inside the fixed-choice feel.
+    weight_fine = weight_all = 0
+    for pi in range(len(parts)):
+        for m_idx, d in enumerate(own_d[pi]):
+            if d is None or d in (3, 6):
+                continue
+            w = len(all_segs[pi][m_idx])
+            weight_all += w
+            if d >= 4:
+                weight_fine += w
+    song_base = 4 if (weight_all and weight_fine / weight_all >= 0.25) \
+        else 2
+
     shared_d: list[list[int]] = []
     for pi in range(len(parts)):
-        shared_d.append(list(own_d[pi]))
+        shared_d.append([(max(d, song_base) if d in (2, 4, 8) else d)
+                         if d is not None else None
+                         for d in own_d[pi]])
     for m_idx in range(n_measures):
-        chosen = [d[m_idx] for d in own_d if d[m_idx] is not None]
+        chosen = [d[m_idx] for d in shared_d if d[m_idx] is not None]
         if not chosen:
             continue
         straight = [d for d in chosen if d in (2, 4, 8)]
@@ -597,9 +621,9 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
         family = straight if len(straight) >= len(triplet) else triplet
         target = max(family) if family else max(chosen)
         for pi in range(len(parts)):
-            if own_d[pi][m_idx] is not None and \
-                    own_d[pi][m_idx] in (2, 4, 8, 3, 6) and \
-                    ((target in (2, 4, 8)) == (own_d[pi][m_idx] in (2, 4, 8))):
+            cur = shared_d[pi][m_idx]
+            if cur is not None and cur in (2, 4, 8, 3, 6) and \
+                    ((target in (2, 4, 8)) == (cur in (2, 4, 8))):
                 shared_d[pi][m_idx] = target
 
     for pi, (track, part) in enumerate(zip(song.tracks, parts)):

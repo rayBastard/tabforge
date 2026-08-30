@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.7.12 — 2026-08-31
+
+The crispness of the old fixed precision selector, kept together
+with the adaptive grid's wins. The user's ear was right: a whole
+song breathing ONE grid reads tighter than bars that flip between
+eighths and sixteenths on transcription jitter. The writer now
+computes the base grid the user would have picked by hand (sixteenths
+when at least a quarter of the note mass asks for them) and renders
+nothing coarser — a coarse bar on the finer nested grid is exact —
+while escalation above the base (32nd solo runs, triplet bars) still
+demands the picker's evidence. On the user's track the guitar's
+stray triplets disappeared entirely and the bar-to-bar grid became
+uniform; the 16th-heavy Techno regression stayed healthy.
+
 ## v0.7.11 — 2026-08-31
 
 Vocals are out of the score (a product decision): no vocal card, no
