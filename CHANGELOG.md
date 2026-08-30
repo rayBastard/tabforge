@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.7.11 — 2026-08-31
+
+Vocals are out of the score (a product decision): no vocal card, no
+vocal note track — vocal transcription fought tonality and
+recitative for months and nobody wanted the result. The vocal stem
+is still separated (the backing track needs it) and synced lyrics
+still run over it — that pair is the seed of a future karaoke mode.
+Old saved projects with a vocal part still open and rebuild.
+
 ## v0.7.10 — 2026-08-31
 
 The desync war: with the score finally readable, instruments were

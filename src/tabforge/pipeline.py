@@ -28,7 +28,12 @@ ProgressFn = Callable[[str, str], None]  # (stage, message)
 STAGES = ("separate", "analyze", "transcribe", "fingering", "export")
 
 # stems that can carry pitched notes worth analyzing
-PITCHED_STEMS = ("guitar", "bass", "piano", "vocals", "other")
+# vocals are deliberately NOT here (user decision, 2026-08-31): the
+# vocal stem is still separated (the backing needs it) and synced
+# lyrics still run over it (the future karaoke seed), but no vocal
+# NOTE track is analyzed or transcribed — vocal transcription fought
+# tonality and recitative for months and nobody wanted the result
+PITCHED_STEMS = ("guitar", "bass", "piano", "other")
 
 
 @dataclass(slots=True)
@@ -334,6 +339,7 @@ def _analyze_solo(audio: Path, out_dir: Path,
 
     cards = (*PITCHED_STEMS, "drums")
     analysis: dict[str, StemAnalysis] = {}
+    densities.pop("vocals", None)     # no vocal note track (see PITCHED_STEMS)
     if densities:
         dominant = max(densities, key=densities.get)
         if dominant == "other":
@@ -696,7 +702,8 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
     source_map = (analyzed.stems if midi_classes is None
                   else {k: analyzed.midi_source for k in midi_classes})
     stems = dict(sorted(
-        ((k, v) for k, v in source_map.items() if k in opts.stems),
+        ((k, v) for k, v in source_map.items()
+         if k in opts.stems and k != "vocals"),
         key=lambda kv: part_order.get(kv[0], len(part_order))))
 
     # Everything the user did NOT pick becomes a play-along backing track.
@@ -1001,10 +1008,11 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
 
     # synced lyrics (task 60): whisper over the vocal stem — optional,
     # attaches the .lrc to the vocals card and feeds the gp5 channel
-    if ("vocals" in stems and opts.with_lyrics
+    vocal_wav = analyzed.stems.get("vocals")
+    if (vocal_wav is not None and opts.with_lyrics
             and analyzed.midi_source is None):
         try:
-            _run_lyrics(out_dir, stems["vocals"], grid, opts, progress)
+            _run_lyrics(out_dir, vocal_wav, grid, opts, progress)
             lrc = out_dir / "vocals" / "lyrics.lrc"
             if lrc.exists():
                 for r in results:
