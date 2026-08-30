@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.7.1 — 2026-08-30
+
+Two bugs from live testing, both verified in the browser:
+
+- Cyrillic lyrics (or a section renamed in Cyrillic) killed the
+  multi-track song.gp5 — the app then showed download cards with no
+  score at all. The gp5 writer now falls back cp1252 → cp1251 →
+  replace-unencodable; the .lrc keeps the exact text in UTF-8 either
+  way. Verified on the failing track: score builds, alphaTab reads
+  it (7 tracks, 131 bars), lyrics round-trip intact.
+- Loading a second track showed the previous track's score with dead
+  clicks: the player was created over the old one without destroying
+  it, and the old score kept catching clicks. The player is now torn
+  down before every rebuild (two-track browser test passes).
+
 ## v0.7.0 — 2026-08-28
 
 Solo mode and the guitar-engine war (tasks 62–66; docs/eval.md has

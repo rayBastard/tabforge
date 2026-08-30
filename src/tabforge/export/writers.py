@@ -45,14 +45,52 @@ def export_midi(shapes: Sequence[Shape], path: Path, program: int = 25,
 def _write_atomic(gp, song, path: Path) -> None:
     """gp.write raises MID-FILE on bad input, leaving a truncated score
     that the player silently chokes on — write a sibling temp file and
-    rename only on success, so a failed export leaves nothing behind."""
+    rename only on success, so a failed export leaves nothing behind.
+
+    Encoding: the gp5 format stores strings in a single-byte codepage
+    (PyGuitarPro defaults to cp1252). Whisper lyrics and user-renamed
+    section markers are routinely Cyrillic — that used to kill the
+    WHOLE song.gp5 ('charmap' codec error) and the app showed download
+    cards with no score. Fallback chain: cp1252 -> cp1251 (ASCII-
+    compatible, what Guitar Pro on Russian systems reads) -> cp1252
+    with unencodable characters replaced by '?' (a lossy lyric beats
+    a missing score; the .lrc keeps the true text in UTF-8)."""
     tmp = path.with_suffix(path.suffix + ".tmp")
-    try:
-        gp.write(song, str(tmp))
-    except Exception:
-        tmp.unlink(missing_ok=True)
-        raise
-    tmp.replace(path)
+    last_err = None
+    for encoding in ("cp1252", "cp1251", None):
+        try:
+            if encoding is None:
+                _replace_unencodable(gp, song, "cp1252")
+                gp.write(song, str(tmp))
+            else:
+                gp.write(song, str(tmp), encoding=encoding)
+            tmp.replace(path)
+            return
+        except UnicodeEncodeError as e:
+            last_err = e
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
+    raise last_err
+
+
+def _replace_unencodable(gp, song, encoding: str) -> None:
+    """Last-resort sanitizer: rewrite every string field that cannot
+    survive the target codepage with '?' placeholders."""
+    def fix(s):
+        return s.encode(encoding, errors="replace").decode(encoding)
+
+    song.title = fix(song.title or "")
+    if getattr(song, "lyrics", None):
+        for line in song.lyrics.lines:
+            line.lyrics = fix(line.lyrics or "")
+    for track in song.tracks:
+        track.name = fix(track.name or "")
+        for measure in track.measures:
+            marker = measure.header.marker
+            if marker:
+                marker.title = fix(marker.title or "")
 
 
 @dataclass(slots=True)

@@ -623,6 +623,15 @@ function initUnifiedScore(job) {
   const atEl = $("#unifiedScore");
   const playBtn = $("#transportPlay");
   const posEl = $("#transportPos");
+  // a SECOND track must not inherit the first one's score: the old api
+  // keeps its DOM listeners on the same container, so without destroy
+  // it kept catching clicks and showing the previous track's notes
+  if (unified.api) {
+    try { unified.api.destroy(); } catch { /* half-armed player */ }
+    unified.api = null;
+    unified.armed = false;
+    atEl.innerHTML = "";
+  }
   if (!job.song || !window.alphaTab) {
     atEl.hidden = true;
     playBtn.disabled = true;
