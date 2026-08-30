@@ -94,13 +94,19 @@ class Shape:
 class TabConfig:
     tuning: tuple[int, ...] = TUNINGS["standard"]
     max_fret: int = 22
+    # Cost weights tuned against GuitarSet string-assignment truth
+    # (task 67, scripts/tune_viterbi.py): players 00-03 train, 04-05
+    # held-out test 0.531 -> 0.647. The old hand-set weights hugged the
+    # nut and hopped to thin strings; humans plant the hand in a
+    # position and work the fingers — so the hand move is EXPENSIVE
+    # (0.55 -> 1.6) and everything else nearly free.
     reach: int = 3              # frets pos..pos+reach are played without stretching
     max_stretch: int = 5        # maximum stretch, with a penalty
-    open_string_bonus: float = 0.35
-    high_fret_penalty: float = 0.05   # pulls playing closer to the nut
-    stretch_penalty: float = 1.2      # per fret beyond reach
-    move_penalty: float = 0.55        # per fret of hand movement
-    string_change_penalty: float = 0.10
+    open_string_bonus: float = 0.0    # positions beat open strings (measured)
+    high_fret_penalty: float = 0.01   # barely pulls toward the nut
+    stretch_penalty: float = 0.45     # per fret beyond reach
+    move_penalty: float = 1.6         # per fret of hand movement
+    string_change_penalty: float = 0.0
     legato_bonus: float = 0.8         # legato pair on one string, one position
     beam_width: int = 80
     onset_tolerance: float = 0.045    # notes closer than this = one chord

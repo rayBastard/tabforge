@@ -861,3 +861,53 @@ Routing that survives the >=0.05 rule, written into the product:
 - Percussion solo-detect (task 62): ethnic percussion matches
   neither MT3's kit notion nor the own-match guard — documented
   failure, card shows unchecked.
+
+## TASK 67 — 2026-08-30: the Viterbi costs meet the humans
+
+`scripts/tune_viterbi.py`: coordinate descent over the six cost
+coefficients against GuitarSet string-assignment truth. Protocol per
+the plan: split BY PLAYER (00-03 train / 04-05 test — style leaks
+across a player's takes), truth notes in (the LAYOUT is tuned, not
+transcription), one look at the test set at the end.
+
+```
+                         old        tuned
+high_fret_penalty        0.05       0.01
+move_penalty             0.55       1.6
+open_string_bonus        0.35       0.0
+stretch_penalty          1.2        0.45
+string_change_penalty    0.10       0.0
+reach                    3          3
+
+train (00-03)            0.627  ->  0.722
+test  (04-05, one look)  0.531  ->  0.647   (+0.116 held-out)
+full corpus              0.598  ->  0.699   (fretted .569 -> .687)
+by style                 bossa .465->.639  jazz .490->.656
+                         rock .650->.743   SS .670->.728
+```
+
+The tuning says one thing, loudly: the old weights modeled a guitarist
+who hugs the nut and grabs open strings; real hands PLANT in a
+position and work the fingers. Hand movement got 3x more expensive,
+everything else nearly free. Position-heavy styles gained the most —
+the exact mechanism task 65 diagnosed.
+
+The after-histogram is the important part: the one-directional
+thinner-string bias is GONE (G->B 6662 -> 3933, and reverse
+confusions B->G/e->B appeared at ~1.2k). What remains is two-sided
+ambiguity — several boxes fit the same phrase and the human picked
+one for reasons our pairwise beam cannot see. That is the plan's
+item 6: PHRASE CONTEXT (a human chooses the position for the whole
+phrase ahead) — the named lever for the next attack on this ruler.
+The 0.75 acceptance line was not reached (0.647 on the hardest
+players); the honest reading is that weights alone buy +0.10-0.12
+and the rest is a modeling problem, not a tuning problem.
+
+Textbook check (item 4): all 253 unit tests pass with the tuned
+defaults — Em stays 022000, the C3 scale stays low (the register
+forces it), the solo box holds. The one textbook casualty found by
+hand: a C4-C5 scale now lays in 5th position instead of open first —
+which is how a position player actually fingers it; the textbook
+first-position reading survives only where the register demands it.
+Open-string agreement pays for the win (.990 -> .786 on test): the
+bonus was swept at 0.03/0.07 and lost both times on train.

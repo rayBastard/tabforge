@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.7.3 — 2026-08-30
+
+Playable fingering: the Viterbi cost weights were tuned against 360
+human GuitarSet performances (the task-65 ruler) instead of being
+hand-set. String-choice agreement with real guitarists: 0.598 → 0.699
+overall, held-out players 0.531 → 0.647, bossa/jazz (position-heavy
+styles) +0.17. The mechanism: the old weights hugged the nut and
+hopped to thin strings; the tuned ones make the hand move expensive
+and let it PLANT in a position, the way humans play. Full protocol,
+weights and the remaining error analysis (phrase context is the next
+lever): docs/eval.md, scripts/tune_viterbi.py.
+
 ## v0.7.2 — 2026-08-30
 
 The durations war and the editor batch (all four from live feedback).
