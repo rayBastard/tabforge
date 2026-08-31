@@ -1386,3 +1386,51 @@ The script fails on GPL (non-LGPL) or new UNKNOWNs.
 **Synth pads** documented in README Honest limitations: all measured
 sources half-blind, 61% octave twins are a property of the patches;
 the recommended source for pad lines is the Suno MIDI drop.
+
+## DEFERRED ITEMS TRIAGE — 2026-08-31 (measured, two buried, one resolved)
+
+**Cross-family grid unification: RESOLVED without code.** The
+v0.7.10 residue (11-21% of keys/vocal same-hit pairs written apart on
+cross-family grids) was re-measured on the current writer: Prosto
+8.5% apart / Hero 0.7%, and cross-family pairs = **0** in both. The
+disease died of natural causes: vocals left the product (v0.7.11)
+and task 72 moved the triple axis to per-beat families. The remaining
+90 Prosto pairs are all cursor_push (two same-part attacks in one d2
+slot, the never-swallow-notes rule) — the merge-price economy working
+as calibrated. Closed.
+
+**Guitar count / voice split: ruler built, two refinements buried.**
+scripts/eval_guitar_split.py scores the splitter against the only
+two-guitar truth we own (Loken's Guitar 1/2 MIDIs): a transcribed
+note matching exactly one truth guitar (60ms at best shift, pitch
+class) is uniquely attributable; VOICE ACCURACY = consistent share
+under the best part<->guitar mapping. Baseline: 0.73 accuracy, lead
+purity 0.57. Two refinement attempts measured and buried: (1)
+EM+Viterbi register continuity with an overlap penalty — accuracy
+flat at 0.72 (the switch price fights the genuine alternation of
+overlapped voices); (2) pure register-EM nearest-voice — broke Loken
+entirely (split=None). TWO honest findings: (a) our split is by ROLE
+(chords->rhythm) while the truth is by INSTRUMENT, and Loken's
+guitars each play both roles — 0.73 is near the definitional ceiling
+for note-only separation; (b) the user's actual case (fingerpicked
+acoustic + a solo entering ON TOP) INVERTS in the current heuristic
+(the arpeggio labels lead — no chord anchors, and the voice states
+carry no identity); fixture preserved in the ruler discussion. NAMED
+NEXT LEVER: timbre — PANNs windows over the guitar stem (the GAPS
+gate already discriminates acoustic vs distorted); two timbre
+classes over time + overlapping note streams = two instruments.
+Note-only surgery is done trying.
+
+**Missed bends: the models are structurally silent.** Measured:
+muscriptor.mid and mt3.mid carry ZERO pitch-bend events on both real
+tracks — a bent note either flattens or vanishes (the user's "куски
+с бендами упущены" is the vanish case). And the phenomenon is huge:
+42% of GuitarSet solo notes carry a >=quartertone pitch inflection
+(bends/slides/deep vibrato, from the hexaphonic contour
+annotations). DESIGNED RULER (needs the GuitarSet audio download,
+~2GB): bend-note recall vs plain-note recall per engine — the gap IS
+the user's complaint, quantified. REMEDY CANDIDATE: an f0-glide
+rescue pass — in transcription gaps where the guitar stem shows a
+strong monophonic pitch glide, insert the note with its bend curve
+(NoteEvent.bends and the gp5 bend writer already exist; only
+Basic Pitch ever populates them today). Deferred as a designed task.
