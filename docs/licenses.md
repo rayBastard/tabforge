@@ -19,9 +19,11 @@ gracefully without them.
 | pretty_midi, mido, soundfile, FastAPI, uvicorn, pywebview, numpy, scipy, music21, torch, onnxruntime | MIT / BSD / ISC / Apache | standard |
 | **PyGuitarPro** | **LGPL-3.0** | pure-python, unmodified, source public — distribution with attribution is fine, but flag it in release notes before "показать людям" |
 
-MuseScore_General.sf3 (player SoundFont) — MIT; lazy-downloaded from
-the OSUOSL MuseScore mirror on first playback, cached in
-~/.cache/tabforge, never bundled.
+GeneralUser GS (player SoundFont) — S. Christian Collins' license
+(free to use and redistribute); lazy-downloaded from the official
+GitHub repo on first playback, cached in ~/.cache/tabforge, never
+bundled. (MuseScore_General.sf3 and FluidR3 were measured and
+rejected: alphaTab 1.4's synth skips Vorbis and stereo samples.)
 
 ## Yellow — NEVER bundled, external installs (subprocess pattern)
 

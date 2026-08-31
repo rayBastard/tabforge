@@ -639,26 +639,32 @@ async def part_notes(job_id: str, part: str) -> dict:
 # served locally afterwards; the frontend falls back to the CDN
 # sonivox until the download lands.
 # ---------------------------------------------------------------------------
-SOUNDFONT_URL = ("https://ftp.osuosl.org/pub/musescore/soundfont/"
-                 "MuseScore_General/MuseScore_General.sf3")
-SOUNDFONT_PATH = Path.home() / ".cache" / "tabforge" / "MuseScore_General.sf3"
+# GeneralUser GS — the ONE bank alphaTab 1.4's synth can actually
+# play in full: measured in real WebKit drives, the synth skips
+# Vorbis samples (sf3: "type 20 not supported" — silence with
+# soundFontLoaded still firing) AND stereo samples (FluidR3: "type
+# 4/2 not supported", 1310 skips). GeneralUser GS is designed mono
+# (that is WHY it is 30MB) and its license permits redistribution.
+SOUNDFONT_URL = ("https://raw.githubusercontent.com/mrbumpy409/"
+                 "GeneralUser-GS/main/GeneralUser-GS.sf2")
+SOUNDFONT_PATH = Path.home() / ".cache" / "tabforge" / "GeneralUser-GS.sf2"
 _sf_lock = threading.Lock()
 _sf_downloading = False
 
 
 def _fetch_soundfont() -> None:
     global _sf_downloading
+    tmp = SOUNDFONT_PATH.with_suffix(".part")
     try:
         import urllib.request
         SOUNDFONT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp = SOUNDFONT_PATH.with_suffix(".part")
         urllib.request.urlretrieve(SOUNDFONT_URL, tmp)
-        if tmp.stat().st_size > 10_000_000:      # sanity: a real sf3
+        if tmp.stat().st_size > 10_000_000:      # sanity: a real sf2
             tmp.replace(SOUNDFONT_PATH)
         else:
             tmp.unlink(missing_ok=True)
     except Exception:  # noqa: BLE001 — playback falls back to the CDN
-        pass
+        tmp.unlink(missing_ok=True)
     finally:
         _sf_downloading = False
 

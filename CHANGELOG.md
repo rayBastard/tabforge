@@ -2,16 +2,15 @@
 
 ## v0.7.26 — 2026-09-01
 
-Playback you can trust your ears to (task 80): the player now uses
-MuseScore_General (MIT, ~40MB) instead of alphaTab's tiny default
-synth bank. It lazy-downloads on first use — the same pattern as the
-model weights, nothing added to the bundle — is cached and served
-locally from then on, and the player quietly falls back to the old
-CDN bank until the download lands (or when offline). Verified in a
-real browser: alphaTab loads the SF3 and reports soundFontLoaded.
-By-ear verification of notes and octaves is now a fair judge, which
-is exactly what the calibration sessions needed.
-
+Playback you can trust your ears to (task 80) — after two honest
+burials in a real WebKit drive: alphaTab 1.4's synth silently skips
+Vorbis samples (MuseScore_General.sf3 "loaded" and played silence —
+the bug the first build of this feature shipped) AND stereo samples
+(FluidR3: 1310 skips), so the winner is GeneralUser GS — designed
+mono, 30 MB, redistribution-friendly, zero skipped samples, verified
+end-to-end in WebKit with the real UI. It lazy-downloads on first
+use like the model weights, is cached and served locally, and the
+player falls back to the CDN bank until it lands or when offline.
 
 ## v0.7.25 — 2026-09-01
 
