@@ -1434,3 +1434,36 @@ rescue pass — in transcription gaps where the guitar stem shows a
 strong monophonic pitch glide, insert the note with its bend curve
 (NoteEvent.bends and the gp5 bend writer already exist; only
 Basic Pitch ever populates them today). Deferred as a designed task.
+
+## METER CHANGES WITHIN A TRACK — 2026-08-31 (task 74, block closed)
+
+TRUTH FINDING first: no corpus track changes meter, so the fixture is
+a splice — 60 s of Prosto (4/4) + the waltz (3/4), both near 81 BPM.
+On it, madmom's ONE DBN decode kept 4/4 for 37 seconds of waltz and
+flipped only on the final bar: the decoder commits to a bar length
+nearly globally, and no amount of post-processing of its single
+timeline can see a change.
+
+DETECTOR: the runner reuses the (expensive) RNN activation and
+decodes 20 s windows at a 5 s hop; each window's max bar position is
+its meter vote. On the splice the votes read 4,4,...,4,3,3,...,3
+with the flip exactly at the boundary window. meter_segments() keeps
+only runs of >=4 windows (~35 s of stable meter) and reports changes
+at the midpoint of the boundary windows' centers (+-2.5 s). False
+positives: pure waltz votes 3 across all windows, Prosto votes 4 —
+zero changes on uniform tracks. The dominant-window vote also
+replaced the fragile max() global meter vote.
+
+WRITER: export_song_gp5 takes meters[m] (beats in measure m) and ALL
+measure arithmetic — bar carving, per-beat family indexing, compound
+TS, section markers — runs through prefix-bound helpers; uniform
+songs are the meters=None special case, verified byte-identical on
+the regression suite. E2E on the splice: change detected at 62.5 s,
+bars flip 4/4 -> 3/4 at bar 21 (62.2 s, true 60.0 — one bar late,
+inside the detector's stated precision). The change threads
+analyze -> AnalyzeResult.meter_changes -> _measure_meters (snap to
+barline) -> every gp5 export incl. repin rebuilds; a user meter
+override disables the changes (they chose a signature). 9 new tests.
+
+BLOCK 70-74 CLOSED: stand -> downbeat/meter -> swing/triples ->
+durations -> meter changes, every step measured, every burial named.

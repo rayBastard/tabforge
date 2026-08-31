@@ -792,5 +792,54 @@ class TestDurationEconomy(unittest.TestCase):
         self.assertEqual(len(ties), 0, "half note split into ties")
 
 
+@unittest.skipUnless(HAVE_GP, "PyGuitarPro is not installed")
+class TestVariableMeter(unittest.TestCase):
+    """Task 74: a meter change mid-song carves the bars correctly."""
+
+    def test_meter_change_writes_per_measure_signatures(self):
+        from tabforge.export.writers import SongPart, export_song_gp5
+        from tabforge.core.instruments import profile_for
+        import tempfile
+        # 2 bars of 4/4 (8 quarters) then 2 bars of 3/4 (6 quarters)
+        notes = [NoteEvent(60 + k % 4, k * 0.5, 0.4) for k in range(14)]
+        cfg = TabConfig()
+        part = SongPart(name="g", shapes=assign_tab(notes, cfg),
+                        cfg=cfg, profile=profile_for("guitar"))
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "x.gp5"
+            export_song_gp5([part], path, bpm=120.0,
+                            meters=[4, 4, 3, 3])
+            song = gp.parse(str(path))
+        got = []
+        for m in song.tracks[0].measures:
+            ts = m.header.timeSignature
+            n = sum(1 for b in m.voices[0].beats
+                    if b.status == gp.BeatStatus.normal)
+            got.append((ts.numerator, n))
+        self.assertEqual(got, [(4, 4), (4, 4), (3, 3), (3, 3)])
+
+    def test_uniform_meters_match_constant(self):
+        # meters=[4]*n must render exactly like beats_per_measure=4
+        from tabforge.export.writers import SongPart, export_song_gp5
+        from tabforge.core.instruments import profile_for
+        import tempfile
+        notes = [NoteEvent(60 + k % 5, k * 0.25, 0.2) for k in range(32)]
+        cfg = TabConfig()
+        outs = []
+        for meters in (None, [4, 4]):
+            part = SongPart(name="g", shapes=assign_tab(notes, cfg),
+                            cfg=cfg, profile=profile_for("guitar"))
+            with tempfile.TemporaryDirectory() as td:
+                path = Path(td) / "x.gp5"
+                export_song_gp5([part], path, bpm=120.0, meters=meters)
+                song = gp.parse(str(path))
+            outs.append([
+                (m.header.timeSignature.numerator,
+                 tuple((b.duration.value, b.status.name)
+                       for b in m.voices[0].beats))
+                for m in song.tracks[0].measures])
+        self.assertEqual(outs[0], outs[1])
+
+
 if __name__ == "__main__":
     unittest.main()

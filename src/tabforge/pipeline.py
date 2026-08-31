@@ -127,6 +127,9 @@ class AnalyzeResult:
     # bars per measure (task 71: madmom's DBN votes 3 vs 4 when the
     # optional install is present — 8/8 on the stand; 4 otherwise)
     meter: int = 4
+    # meter CHANGES within the track (task 74): [(time_s, meter), ...]
+    # for every stable segment after the first; empty = uniform meter
+    meter_changes: list = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -343,6 +346,7 @@ def _analyze_solo(audio: Path, out_dir: Path,
     cards = (*PITCHED_STEMS, "drums")
     analysis: dict[str, StemAnalysis] = {}
     solo_meter = 4
+    solo_changes: list = []
     densities.pop("vocals", None)     # no vocal note track (see PITCHED_STEMS)
     if densities:
         dominant = max(densities, key=densities.get)
@@ -383,7 +387,8 @@ def _analyze_solo(audio: Path, out_dir: Path,
         bpm, beats = _octave_correct(bpm, beats, ioi,
                                      tempo_extras.get("local_votes"),
                                      progress)
-        beats, solo_meter = _select_beat_grid(mix, out_dir, beats, bpm,
+        beats, solo_meter, solo_changes = _select_beat_grid(
+            mix, out_dir, beats, bpm,
                                               progress)
         beats = _elect_bar_phase(mix, mix_data, beats, solo_meter,
                                  progress)
@@ -408,7 +413,8 @@ def _analyze_solo(audio: Path, out_dir: Path,
     return AnalyzeResult(stems=stems, analysis=analysis, bpm=bpm,
                          beats=beats, tempo_reliable=reliable, key=key,
                          warnings=warnings, solo=True,
-                         meter=solo_meter)
+                         meter=solo_meter,
+                         meter_changes=solo_changes)
 
 
 def _find_madmom_python() -> Path | None:
@@ -449,10 +455,26 @@ def _run_madmom(mix: Path, out_dir: Path, bpm: float,
         progress("analyze", "beat grid: consulting madmom (alt grid)")
         y, sr = librosa.load(str(mix), sr=44100, mono=True)
         act = RNNDownBeatProcessor()(Signal(y, sample_rate=sr))
-        res = DBNDownBeatTrackingProcessor(
+        proc = DBNDownBeatTrackingProcessor(
             beats_per_bar=[3, 4], fps=100,
-            min_bpm=bpm * 0.9, max_bpm=bpm * 1.1)(act)
-        return [[float(a), int(b)] for a, b in res]
+            min_bpm=bpm * 0.9, max_bpm=bpm * 1.1)
+        res = proc(act)
+        windows = []
+        fps, win, hop = 100, 2000, 500
+        pos = 0
+        while pos < len(act):
+            chunk = act[pos:pos + win]
+            if len(chunk) < 8 * fps:
+                break
+            try:
+                vote = max((int(b) for _t, b in proc(chunk)), default=0)
+            except Exception:  # noqa: BLE001
+                vote = 0
+            windows.append([pos / fps, min(len(act), pos + win) / fps,
+                            vote])
+            pos += hop
+        return {"rows": [[float(a), int(b)] for a, b in res],
+                "windows": windows}
     except ImportError:
         pass
     except Exception as e:  # noqa: BLE001 — broken in-process install:
@@ -509,6 +531,40 @@ def _run_madmom(mix: Path, out_dir: Path, bpm: float,
         out.unlink(missing_ok=True)
 
 
+def meter_segments(windows: list) -> list[tuple[float, int]]:
+    """Task 74: stable meter runs from the runner's per-window votes
+    ([[t0, t1, vote], ...], 20 s windows, 5 s hop). ONE DBN decode
+    commits to a single bar length nearly globally (measured), so
+    changes are visible only across windows. Conservative: a run
+    counts only at >=4 windows (~35 s of stable material); fewer than
+    two distinct runs = uniform song, no changes reported. A change's
+    time = midpoint of the neighboring runs' boundary window centers
+    (+-2.5 s, the export snaps it to a barline)."""
+    votes = [(w[0], w[1], int(w[2])) for w in windows if w[2] in (3, 4)]
+    runs: list[list] = []            # [vote, first_i, last_i]
+    for i, (_t0, _t1, v) in enumerate(votes):
+        if runs and runs[-1][0] == v:
+            runs[-1][2] = i
+        else:
+            runs.append([v, i, i])
+    runs = [r for r in runs if r[2] - r[1] + 1 >= 4]
+    merged: list[list] = []
+    for r in runs:
+        if merged and merged[-1][0] == r[0]:
+            merged[-1][2] = r[2]
+        else:
+            merged.append(r)
+    if len(merged) < 2:
+        return []
+    out: list[tuple[float, int]] = []
+    for prev, cur in zip(merged, merged[1:]):
+        lo = votes[prev[2]]
+        hi = votes[cur[1]]
+        c = ((lo[0] + lo[1]) / 2 + (hi[0] + hi[1]) / 2) / 2
+        out.append((round(c, 2), cur[0]))
+    return out
+
+
 def _select_beat_grid(mix: Path, out_dir: Path, beats: list[float],
                       bpm: float,
                       progress: ProgressFn = _noop
@@ -526,7 +582,7 @@ def _select_beat_grid(mix: Path, out_dir: Path, beats: list[float],
     the current grid simply stays."""
     import numpy as np
     if len(beats) < 8:
-        return beats, 4
+        return beats, 4, []
     from .audio.arbiter import mt3_card_notes
 
     mus = out_dir / "muscriptor.mid"
@@ -540,20 +596,33 @@ def _select_beat_grid(mix: Path, out_dir: Path, beats: list[float],
     import json
     cache = out_dir / "madmom_grid.json"
     if cache.exists():
-        rows = json.loads(cache.read_text())
+        data = json.loads(cache.read_text())
     else:
-        rows = _run_madmom(mix, out_dir, bpm, progress)
-        if rows is None:
-            return beats, 4          # no madmom anywhere — no ensemble
-        cache.write_text(json.dumps(rows))
+        data = _run_madmom(mix, out_dir, bpm, progress)
+        if data is None:
+            return beats, 4, []      # no madmom anywhere — no ensemble
+        cache.write_text(json.dumps(data))
+    if isinstance(data, list):       # legacy cache: bare rows
+        data = {"rows": data, "windows": []}
+    rows = data["rows"]
+    windows = data.get("windows", [])
+    changes = meter_segments(windows)
+    if changes:
+        progress("analyze",
+                 "meter: changes detected — "
+                 + ", ".join(f"{m}/4 from {t0:.0f}s"
+                             for t0, m in changes))
     mm = [a for a, _b in rows]
-    # the DBN's bar-length vote IS the meter detector: 8/8 on the
-    # stand (3 on the user's waltz, 4 on every 4/4 track)
-    meter = max((b for _a, b in rows), default=4)
+    if windows:
+        from collections import Counter
+        c = Counter(int(w[2]) for w in windows if w[2] in (3, 4))
+        meter = max(c, key=c.get) if c else 4
+    else:
+        meter = max((b for _a, b in rows), default=4)
     if meter == 3:
         progress("analyze", "meter: madmom votes 3/4 (waltz time)")
     if len(mm) < 8 or len(notes) < 50:
-        return beats, meter
+        return beats, meter, changes
 
     def fit(grid):
         b = np.array(grid)
@@ -582,7 +651,7 @@ def _select_beat_grid(mix: Path, out_dir: Path, beats: list[float],
                  f"decisively better ({f_mm:.3f} vs {f_ours:.3f}) — "
                  f"switching")
         return mm, meter
-    return beats, meter
+    return beats, meter, changes
 
 
 def _elect_bar_phase(mix: Path, mix_data, beats: list[float],
@@ -860,8 +929,8 @@ def run_analyze(audio: Path, out_dir: Path,
         bpm, beats = _octave_correct(bpm, beats, min(found_iois),
                                      tempo_extras.get("local_votes"),
                                      progress)
-    beats, meter = _select_beat_grid(demucs_input, out_dir, beats, bpm,
-                                     progress)
+    beats, meter, meter_changes = _select_beat_grid(
+        demucs_input, out_dir, beats, bpm, progress)
     beats = _elect_bar_phase(audio, mix_data, beats, meter, progress)
 
     # structure features (task 59): beat-synced chroma of the MIX —
@@ -877,7 +946,7 @@ def run_analyze(audio: Path, out_dir: Path,
     return AnalyzeResult(stems=all_stems, analysis=analysis,
                          bpm=bpm, beats=beats,
                          tempo_reliable=tempo_reliable, key=key,
-                         meter=meter,
+                         meter=meter, meter_changes=meter_changes,
                          warnings=warnings)
 
 
@@ -1218,7 +1287,10 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
                                    subdivision=opts.subdivision,
                                    title=part_name, key=key,
                                    legato=legato, grid=grid,
-                                   profile=profile)
+                                   profile=profile,
+                                   meters=(_measure_meters(analyzed)
+                                           if opts.beats_per_measure
+                                           == analyzed.meter else None))
                 files["gp5"] = gp5
             except Exception as e:
                 progress("export", f"{part_name}: gp5 failed to build ({e})")
@@ -1317,7 +1389,12 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
                 subdivision=opts.subdivision, title="TabForge project",
                 key=key, grid=grid, chords=chord_labels,
                 sections=section_marks,
-                lyrics=_lyrics_for_export(out_dir, opts))
+                lyrics=_lyrics_for_export(out_dir, opts),
+                # meter changes only when the user kept the detected
+                # meter (an override means they chose a signature)
+                meters=(_measure_meters(analyzed)
+                        if opts.beats_per_measure == analyzed.meter
+                        else None))
         except Exception as e:
             # repr, not str: a bare StopIteration once hid here as "()"
             progress("export", f"project score failed to build ({e!r})")
@@ -1630,7 +1707,10 @@ def _rebuild_outputs(out_dir: Path, state: dict, edited: set[str],
                                beats_per_measure=opts.beats_per_measure,
                                subdivision=opts.subdivision,
                                title=name, key=shared.key,
-                               legato=p_legato, grid=grid, profile=profile)
+                               legato=p_legato, grid=grid, profile=profile,
+                               meters=(_measure_meters(shared)
+                                       if opts.beats_per_measure
+                                       == shared.meter else None))
             writers.export_midi(shapes, stem_dir / f"{name}.mid",
                                 program=profile.midi_program)
             ascii_out[name] = ""
@@ -1661,7 +1741,10 @@ def _rebuild_outputs(out_dir: Path, state: dict, edited: set[str],
                             title="TabForge project", key=shared.key,
                             grid=grid, chords=chord_labels,
                             sections=section_marks,
-                            lyrics=_lyrics_for_export(out_dir, opts))
+                            lyrics=_lyrics_for_export(out_dir, opts),
+                            meters=(_measure_meters(shared)
+                                    if opts.beats_per_measure
+                                    == shared.meter else None))
     return ascii_out
 
 
@@ -2040,6 +2123,30 @@ def _analyze_mix_only(audio: Path, opts: PipelineOptions,
     return AnalyzeResult(stems={"mix": audio}, analysis={},
                          bpm=bpm, beats=beats, tempo_reliable=reliable,
                          key=key, warnings=warnings)
+
+
+def _measure_meters(analyzed) -> list | None:
+    """Task 74: the per-measure meter list for the writer, built from
+    the detected in-track changes. None = uniform song. A change point
+    snaps to the nearest barline (the detector's boundary is only
+    ~+-2.5 s)."""
+    changes = sorted(getattr(analyzed, "meter_changes", None) or [])
+    beats = analyzed.beats
+    if not changes or len(beats) < 2:
+        return None
+    meters: list[int] = []
+    cur = int(analyzed.meter)
+    bi = 0
+    while bi < len(beats) and len(meters) < 4096:
+        t0 = beats[bi]
+        step = (beats[bi + 1] - beats[bi]
+                if bi + 1 < len(beats)
+                else beats[-1] - beats[-2])
+        while changes and t0 >= changes[0][0] - cur * step / 2:
+            cur = int(changes.pop(0)[1])
+        meters.append(cur)
+        bi += cur
+    return meters
 
 
 def _apply_meter(opts: PipelineOptions, analyzed) -> PipelineOptions:

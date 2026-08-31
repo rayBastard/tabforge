@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.7.20 — 2026-08-31
+
+Meter changes within a track (task 74, the block-70 finale). One
+madmom DBN decode commits to a single bar length almost globally —
+measured: 37 seconds of waltz spliced onto a 4/4 track stayed 4/4
+until the last bar — so the meter is now ALSO voted per 20-second
+window over the same activation, stable runs of votes become meter
+segments, and the score writer carves bars by a per-measure meter
+list: the time signature changes mid-song exactly where the music
+does (snapped to a barline; the detector's boundary is ±2.5 s). The
+whole writer moved to variable-measure arithmetic with the uniform
+song as a special case — byte-identical output on every existing
+test. Conservative by design: a change needs ~35 s of stable new
+meter, so straight tracks and the waltz report none (verified). The
+window votes also replaced the old max-position meter vote with a
+time-share vote — a single noisy bar can no longer flip a track's
+signature.
+
+
 ## v0.7.19 — 2026-08-31
 
 The block-70 tails. Review mode works again: note confidence had

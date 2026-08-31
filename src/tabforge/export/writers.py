@@ -355,14 +355,15 @@ def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
                key: Key | None = None, origin: float = 0.0,
                legato: Sequence[tuple] | None = None,
                grid=None,
-               profile: InstrumentProfile | None = None) -> None:
+               profile: InstrumentProfile | None = None,
+               meters=None) -> None:
     """Single-track .gp5 — a thin wrapper over export_song_gp5."""
     part = SongPart(name=title, shapes=shapes, cfg=cfg,
                     profile=profile or profile_for("guitar"), legato=legato)
     export_song_gp5([part], path, bpm=bpm,
                     beats_per_measure=beats_per_measure,
                     subdivision=subdivision, title=title, artist=artist,
-                    key=key, origin=origin, grid=grid)
+                    key=key, origin=origin, grid=grid, meters=meters)
 
 
 def export_song_gp5(parts: Sequence[SongPart], path: Path,
@@ -371,7 +372,7 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
                     title: str = "TabForge", artist: str = "",
                     key: Key | None = None, origin: float = 0.0,
                     grid=None, chords=None, sections=None,
-                    lyrics=None) -> None:
+                    lyrics=None, meters=None) -> None:
     """
     Builds a .gp5 where every part is a track of ONE score — the project
     player plays them together, mutes and solos per track.
@@ -448,19 +449,19 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
         # carry rests filling the whole time signature (voice 1) or an
         # empty beat (voice 2). alphaTab crashes on truly empty voices.
         for tr in song.tracks:
-            for measure in tr.measures:
+            for m_idx, measure in enumerate(tr.measures):
                 voice0, voice1 = measure.voices[0], measure.voices[1]
                 if not voice0.beats:
-                    _fill_rests(voice0, beats_per_measure * 2, MENUS[2])
+                    _fill_rests(voice0, _meter_of(m_idx) * 2, MENUS[2])
                 if not voice1.beats:
                     pad = gp.Beat(voice1)
                     pad.status = gp.BeatStatus.empty
                     pad.duration = gp.Duration(value=1)
                     voice1.beats.append(pad)
 
-    def _apply_time_signature(header) -> None:
+    def _apply_time_signature(header, m_idx: int) -> None:
         header.timeSignature = gp.TimeSignature(
-            numerator=beats_per_measure, denominator=gp.Duration(value=4))
+            numerator=_meter_of(m_idx), denominator=gp.Duration(value=4))
 
     # ---- the fine timeline (the durations war, 2026-08-30) ----
     # Notes land on a grid of FINE=24 units per beat — the LCM of every
@@ -497,7 +498,30 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
         fine_len = quarter / FINE
         def fine_of(t: float) -> int:
             return max(0, int(round((t - origin) / fine_len)))
-    fine_per_measure = beats_per_measure * FINE
+    # ---- variable meter (task 74): meters[m] = beats in measure m --
+    # None/[] = uniform beats_per_measure; a short list extends with
+    # its last value. ALL measure arithmetic goes through these
+    # helpers, so a meter change mid-song carves the bars correctly.
+    _meters = [int(x) for x in meters] if meters else []
+
+    def _meter_of(m: int) -> int:
+        if m < len(_meters):
+            return _meters[m]
+        return _meters[-1] if _meters else beats_per_measure
+
+    from bisect import bisect_right as _bisect_right
+    _F = [0]                       # fine-unit start of each measure
+
+    def _fine_start(m: int) -> int:
+        while len(_F) <= m:
+            _F.append(_F[-1] + _meter_of(len(_F) - 1) * FINE)
+        return _F[m]
+
+    def _measure_of(pos: int) -> tuple[int, int]:
+        while _F[-1] <= pos:
+            _fine_start(len(_F))
+        m = _bisect_right(_F, pos) - 1
+        return m, pos - _F[m]
 
     # Durations expressible as one gp5 Duration for a given display
     # subdivision d (slots per beat), in slot units, largest first:
@@ -760,20 +784,20 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
     last_slot = max((s + d - 1 for spans in spans_per_part
                      for s, d, _ in spans), default=None)
     if last_slot is None:
-        for header in song.measureHeaders:
-            _apply_time_signature(header)
+        for _mi, header in enumerate(song.measureHeaders):
+            _apply_time_signature(header, _mi)
         _pad_empty_voices()
         _write_atomic(gp, song, path)
         return
 
-    n_measures = last_slot // fine_per_measure + 1
+    n_measures = _measure_of(last_slot)[0] + 1
     while len(song.measureHeaders) < n_measures:
         header = gp.MeasureHeader()
         if signature is not None:
             header.keySignature = signature
         song.addMeasureHeader(header)
-    for header in song.measureHeaders:
-        _apply_time_signature(header)
+    for _mi, header in enumerate(song.measureHeaders):
+        _apply_time_signature(header, _mi)
     for tr in song.tracks:
         while len(tr.measures) < n_measures:
             tr.measures.append(gp.Measure(tr, song.measureHeaders[len(tr.measures)]))
@@ -793,10 +817,12 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
             [[] for _ in range(n_measures)]
         for slot, dur, shape in spans:
             pos, remaining, first = slot, dur, True
-            while remaining > 0 and pos // fine_per_measure < n_measures:
-                m_idx = pos // fine_per_measure
-                local = pos % fine_per_measure
-                in_measure = min(remaining, fine_per_measure - local)
+            while remaining > 0:
+                m_idx, local = _measure_of(pos)
+                if m_idx >= n_measures:
+                    break
+                in_measure = min(remaining,
+                                 _meter_of(m_idx) * FINE - local)
                 segs_per_measure[m_idx].append(
                     (local, in_measure, shape, not first))
                 first = False
@@ -858,7 +884,10 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
     # switch price), so ONE real triplet inside a 16ths bar renders as
     # a tuplet beat instead of being crushed — and a jittered straight
     # bar cannot flip wholesale into triplets any more.
-    n_beats = n_measures * beats_per_measure
+    _bstart = [0]
+    for _m in range(n_measures):
+        _bstart.append(_bstart[-1] + _meter_of(_m))
+    n_beats = _bstart[-1]
     fams_per_part: list[list[str]] = []
     triple_d_per_part: list[dict[int, int]] = []
     for pi in range(len(parts)):
@@ -867,8 +896,8 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
             for local, _flen, _shape, tie in segs:
                 if tie:
                     continue
-                b = min(local // FINE, beats_per_measure - 1)
-                beats_rel[m_idx * beats_per_measure + b].append(
+                b = min(local // FINE, _meter_of(m_idx) - 1)
+                beats_rel[_bstart[m_idx] + b].append(
                     local % FINE if local // FINE == b else FINE - 1)
         fams = plan_beat_families(beats_rel)
         td: dict[int, int] = {}
@@ -889,19 +918,19 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
     nonempty = triple = 0
     for pi in range(len(parts)):
         for m_idx, segs in enumerate(all_segs[pi]):
-            seen = {min(local // FINE, beats_per_measure - 1)
+            seen = {min(local // FINE, _meter_of(m_idx) - 1)
                     for local, _f, _s, tie in segs if not tie}
             for b in seen:
                 nonempty += 1
-                if fams_per_part[pi][m_idx * beats_per_measure + b] == "t":
+                if fams_per_part[pi][_bstart[m_idx] + b] == "t":
                     triple += 1
     compound = nonempty >= 16 and triple >= 0.8 * nonempty
     if compound:
         for pi in range(len(parts)):
             fams_per_part[pi] = ["t"] * n_beats
-        for header in song.measureHeaders:
+        for _mi, header in enumerate(song.measureHeaders):
             header.timeSignature = gp.TimeSignature(
-                numerator=3 * beats_per_measure,
+                numerator=3 * _meter_of(_mi),
                 denominator=gp.Duration(value=8))
     render_menus = COMPOUND_MENUS if compound else MENUS
 
@@ -914,10 +943,9 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
             d = shared_d[pi][m_idx]
             fams = fams_per_part[pi]
             beat_ds = [
-                (triple_d_per_part[pi].get(
-                    m_idx * beats_per_measure + b, 3)
-                 if fams[m_idx * beats_per_measure + b] == "t" else d)
-                for b in range(beats_per_measure)]
+                (triple_d_per_part[pi].get(_bstart[m_idx] + b, 3)
+                 if fams[_bstart[m_idx] + b] == "t" else d)
+                for b in range(_meter_of(m_idx))]
             voice = track.measures[m_idx].voices[0]
             if any(x != d for x in beat_ds):
                 _render_mixed_measure(voice, segs, beat_ds, part,
@@ -927,7 +955,7 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
                 continue
             menu = MENUS[d]
             width = FINE // d
-            spm = beats_per_measure * d
+            spm = _meter_of(m_idx) * d
             cursor = 0
             # rounded slot of every segment FIRST: a duration that
             # rounds up must never overrun the next attack's slot (the
@@ -974,11 +1002,17 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
                 break
     if sections:
         # section markers on the measure headers (task 59)
-        ticks_per_measure = 960 * beats_per_measure
         headers = [m.header for m in song.tracks[0].measures]
+        qstart = [0]
+        for m in range(len(headers)):
+            qstart.append(qstart[-1] + 960 * _meter_of(m))
         for qticks, label in sections:
-            idx = min(len(headers) - 1,
-                      max(0, round(qticks / ticks_per_measure)))
+            i = _bisect_right(qstart, qticks) - 1
+            if (i + 1 < len(qstart)
+                    and abs(qstart[i + 1] - qticks)
+                    < abs(qticks - qstart[i])):
+                i += 1                       # round to nearer barline
+            idx = min(len(headers) - 1, max(0, i))
             headers[idx].marker = gp.Marker(title=str(label)[:40])
     if swing_peak:
         # the human convention: straight 8ths + a shuffle marking
