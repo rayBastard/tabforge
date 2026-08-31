@@ -1130,3 +1130,45 @@ Writer ground truth after all four: same-hit attacks written apart
 keys/vocals pairs (11-21%) where cross-family grids (straight vs
 triplet measures) cannot share — the named next lever if ears still
 ask. parts.json and MIDI keep raw times; only the score aligns.
+
+## THE RHYTHM STAND — 2026-08-31 (task 70, block 70-74 opens)
+
+`scripts/eval_meter.py` — the ruler for the meter/downbeat block.
+Truth findings first: Suno MIDIs carry NO time-signature meta
+(pretty_midi derives bars from the default 4/4 over the real tempo
+grid), so meter truth on this corpus is trivially 4/4 — a 3/4 track
+is wanted for the meter-accuracy metric to mean anything. The PHASE
+truth (where bars start) is solid and is what the block targets.
+
+Two protocol lessons paid for in the building:
+- MPS separation is not bit-stable, so a fresh analyze wiggles the
+  beat grid run to run — Hero's downbeat F1 flipped 0.86 -> 0.01
+  between two runs of the same code. The stand caches each track's
+  grid (beats.json; --fresh re-measures deliberately). The flip
+  itself is a finding: bar phase under "4/4 from the first tracked
+  beat" is a coin toss.
+- Beat-grid offset sweeps DEGENERATE modulo the beat period when the
+  grid is noisy (Fulgrim calibrated to -0.31 and +0.51 on two runs —
+  exactly one beat apart). Offsets are therefore estimated by
+  cross-correlating the truth note-onset train with the audio onset
+  envelope: unique, sub-beat, and they came out coherent (+0.07 to
+  +0.25 s across all seven tracks).
+
+BASELINE of the current state (beats_per_measure=4 constant, phase
+from the first grid beat), 70 ms windows:
+
+```
+track         beatF1  downbeatF1
+fulgrim        0.62      0.62
+hero           0.93      0.86
+loken          0.27      0.14     <- metal: the beat grid itself
+solo-bass      0.48      0.26
+solo-guitar    0.38      0.04     <- phase pure luck
+solo-keys      0.94      0.93
+solo-synth     0.68      0.68
+MEAN           0.61      0.50     meter acc 1.00 (trivial)
+```
+
+Exactly the bad phase numbers the block predicted. Task 71's A/B
+(madmom DBN / BeatNet / All-In-One, drum-stem informed) swings at
+these; Fulgrim and Loken are the named regressions.
