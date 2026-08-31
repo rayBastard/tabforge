@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.7.18 — 2026-08-31
+
+Durations became an optimization with positions first (task 73).
+Measured on real runs before changing anything: positions and
+durations were already independent, and most ties turned out to be
+correct barline notation — the real clutter was the new mixed-bar
+renderer splitting every duration at every beat line. It now splits
+only where the grid family actually changes, which on identical
+inputs cut tied beats by a fifth to a quarter and tuplet beats by up
+to half while leaving every position bit-identical. The song's base
+grid (8ths vs 16ths) is now elected by an explicit cost balance —
+each bar's displacement+rent against a price for flipping grids
+between neighboring bars — replacing the note-mass threshold; it
+reproduces every previously blessed choice on fixtures and both real
+tracks. New permanent metrics script (scripts/eval_notation.py):
+position error and notation complexity of any finished run.
+
+
 ## v0.7.17 — 2026-08-31
 
 Swing and triplets became a property of the beat (task 72). A

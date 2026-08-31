@@ -128,28 +128,71 @@ _GRID_RENT = {2: 0.0, 3: 2.0, 4: 1.2, 6: 3.2, 8: 3.5}
 _MERGE_PRICE = 1.2
 
 
+def measure_cost(onsets_fine: list[int], d: int,
+                 fine: int = FINE) -> float:
+    """One measure's price on one display grid: mean onset
+    displacement + the price of merged attacks + the grid's rent."""
+    onsets = sorted(set(onsets_fine))
+    if not onsets:
+        return 0.0
+    width = fine // d
+    slots = [int(round(o / width)) for o in onsets]
+    merges = sum(1 for i in range(1, len(onsets))
+                 if slots[i] == slots[i - 1]
+                 and onsets[i] - onsets[i - 1] >= 3)
+    disp = sum(abs(o - s * width)
+               for o, s in zip(onsets, slots)) / len(onsets)
+    return disp + _MERGE_PRICE * merges + _GRID_RENT[d]
+
+
 def pick_subdivision(onsets_fine: list[int], fine: int = FINE,
                      candidates: tuple = CANDIDATES) -> int:
-    """The display grid a measure's own notes ask for: the score is
-    mean onset displacement + the price of merged attacks + the grid's
-    rent; the cheapest grid wins, coarse by default."""
+    """The display grid a measure's own notes ask for: the cheapest
+    grid by measure_cost wins, coarse by default."""
     if not onsets_fine:
         return candidates[0]
-    onsets = sorted(set(onsets_fine))
-    n = len(onsets)
     best_d, best_score = candidates[0], None
     for d in candidates:
-        width = fine // d
-        slots = [int(round(o / width)) for o in onsets]
-        merges = sum(1 for i in range(1, n)
-                     if slots[i] == slots[i - 1]
-                     and onsets[i] - onsets[i - 1] >= 3)
-        disp = sum(abs(o - s * width)
-                   for o, s in zip(onsets, slots)) / n
-        score = disp + _MERGE_PRICE * merges + _GRID_RENT[d]
+        score = measure_cost(onsets_fine, d, fine)
         if best_score is None or score < best_score - 1e-9:
             best_d, best_score = d, score
     return best_d
+
+
+# The song base grid as a COST BALANCE (task 73, replacing the 25%-
+# note-mass heuristic of v0.7.12): a base of 16ths lifts every 8th
+# measure onto the finer grid (paying its rent) but removes the
+# 8th<->16th grid flips between neighboring bars that made the score
+# read loose. The flip price is charged per transition; the balance
+# reproduces the crispness the user asked for from first principles —
+# a song whose fine material is scattered enough that flips dominate
+# elects base 16ths, a plain-8ths song (even a jittered one, rents
+# unchanged) stays coarse, a lone 32nd solo stays a local escalation.
+_SONG_SWITCH = 4.5
+
+
+def elect_song_base(measure_onsets: list[list[list[int] | None]],
+                    fine: int = FINE) -> int:
+    """measure_onsets[track][measure] = attack slots (fine units,
+    measure-local) of that track's straight measures, None where the
+    measure is empty. Returns the song base grid: 2 or 4."""
+    best_base, best_cost = 2, None
+    for base in (2, 4):
+        total = 0.0
+        for track in measure_onsets:
+            prev = None
+            for onsets in track:
+                if onsets is None:
+                    continue
+                d = max(pick_subdivision(onsets, fine,
+                                         candidates=(2, 4, 8)), base)
+                total += measure_cost(onsets, d, fine)
+                if prev is not None and d != prev:
+                    total += _SONG_SWITCH
+                prev = d
+        if best_cost is None or total < best_cost - 1e-9:
+            best_base, best_cost = base, total
+    return best_base
 
 
 def detect_swing(offsets: list[int], fine: int = FINE) -> int | None:
@@ -248,34 +291,49 @@ def plan_beat_families(beats_rel: list[list[int]],
 def _render_mixed_measure(voice, segs, beat_ds, part, _add_beat,
                           _fill_rests, _largest_fit, MENUS, apply_fx,
                           n_strings) -> None:
-    """A measure whose beats disagree on family (task 72): straight
-    beats keep the measure grid, triple beats get 3/6 slots. Segments
-    split at every beat line (tied across), then each beat renders as
-    its own gapless mini-measure."""
+    """A measure whose beats disagree on grid (task 72): straight
+    beats keep the measure grid, triple beats get 3/6 slots.
+
+    Durations split ONLY where the grid actually changes (task 73:
+    consecutive beats sharing a grid form one RUN rendered like a
+    uniform measure) — the first version split at EVERY beat line and
+    a half note in a mixed bar came out as four tied 8ths."""
+    from bisect import bisect_right
+
+    runs: list[list[int]] = []            # [start_beat, n_beats, d]
+    for b, db in enumerate(beat_ds):
+        if runs and runs[-1][2] == db:
+            runs[-1][1] += 1
+        else:
+            runs.append([b, 1, db])
+    bounds = [r[0] * FINE for r in runs] + [len(beat_ds) * FINE]
+
     pieces: list[tuple[int, int, object, bool]] = []
     for local, flen, shape, tie in segs:
         pos, rem, first = local, flen, True
         while rem > 0:
-            take = min(rem, (pos // FINE + 1) * FINE - pos)
+            ri = bisect_right(bounds, pos) - 1
+            take = min(rem, bounds[ri + 1] - pos)
             pieces.append((pos, take, shape, tie or not first))
             first = False
             pos += take
             rem -= take
     pieces.sort(key=lambda x: x[0])
-    for b, db in enumerate(beat_ds):
+
+    for (b0, nb, db), start_f, end_f in zip(runs, bounds, bounds[1:]):
         menu = MENUS[db]
         width = FINE // db
-        start_f = b * FINE
-        in_beat = [x for x in pieces if start_f <= x[0] < start_f + FINE]
+        span = nb * db                      # slots in this run
+        in_run = [x for x in pieces if start_f <= x[0] < end_f]
         slots_r = [int(round((local - start_f) / width))
-                   for local, *_ in in_beat]
+                   for local, *_ in in_run]
         cur = 0
-        for si, (local, flen, shape, tie) in enumerate(in_beat):
+        for si, (local, flen, shape, tie) in enumerate(in_run):
             s = max(slots_r[si], cur)
-            if s >= db:
+            if s >= span:
                 continue
-            units = min(max(1, int(round(flen / width))), db - s)
-            if si + 1 < len(in_beat):
+            units = min(max(1, int(round(flen / width))), span - s)
+            if si + 1 < len(in_run):
                 next_s = max(slots_r[si + 1], s + 1)
                 units = min(units, max(1, next_s - s))
             _fill_rests(voice, s - cur, menu)
@@ -287,7 +345,7 @@ def _render_mixed_measure(voice, segs, beat_ds, part, _add_beat,
                 first2 = False
                 rem2 -= used
             cur = s + units
-        _fill_rests(voice, db - cur, menu)
+        _fill_rests(voice, span - cur, menu)
 
 
 def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
@@ -769,17 +827,11 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
     # nested grid is exact); escalation ABOVE the base (32nd solos,
     # triplet bars) still needs the picker's evidence, so the
     # adaptive win survives inside the fixed-choice feel.
-    weight_fine = weight_all = 0
-    for pi in range(len(parts)):
-        for m_idx, d in enumerate(own_d[pi]):
-            if d is None or d in (3, 6):
-                continue
-            w = len(all_segs[pi][m_idx])
-            weight_all += w
-            if d >= 4:
-                weight_fine += w
-    song_base = 4 if (weight_all and weight_fine / weight_all >= 0.25) \
-        else 2
+    song_base = elect_song_base(
+        [[([s[0] for s in all_segs[pi][m_idx] if not s[3]] or None)
+          if own_d[pi][m_idx] is not None else None
+          for m_idx in range(n_measures)]
+         for pi in range(len(parts))])
 
     shared_d: list[list[int]] = []
     for pi in range(len(parts)):

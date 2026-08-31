@@ -1305,3 +1305,46 @@ and 187-188 + bass 187-190 (cross-instrument agreement), attack
 positions sitting on EXACT triplet-grid slots (8 and 20 of 24, 40
 notes, no phase drift — checked against the intro's extrapolated
 grid specifically). Six new unit tests; 266 green.
+
+## DURATIONS AS OPTIMIZATION — 2026-08-31 (task 73)
+
+The metrics deferred from task 70 exist now (scripts/eval_notation.py,
+works on any finished out dir): POSITION ERROR (written slot vs the
+raw event on the run's own fine grid) and NOTATION COMPLEXITY (shares
+of tied/dotted/tuplet beats and rests). Real-grid baselines: Prosto
+pos_err 1.27 fine units (p90 2), ties 13.5%, dotted 3.6%; Hero 0.45
+(p90 1), ties 6.3%, dotted 2.4%.
+
+The user's hypothesis — "part of the breakage is honestly writing
+durations that don't exist in the performance" — dissected on real
+data:
+
+- Positions and durations were ALREADY separate decisions (the grid
+  picker sees onsets only; slots are rounded before durations; the
+  duration can never push an attack). Verified, documented, kept.
+- Intra-measure tie chains on real grids are only ~3% of note beats
+  (64 of 2251 on Prosto) — most ties cross barlines and are correct
+  notation. The measured tie clutter lived elsewhere:
+- **The task-72 mixed renderer split durations at EVERY beat line** —
+  a half note in a family-mixed bar came out as four tied 8ths. Fixed
+  by RUN grouping: consecutive beats sharing a grid render as one
+  uniform stretch, durations split only where the family actually
+  changes. On fixed inputs (constant-grid harness, both sides
+  identical): ties 38.4%->30.7% (Prosto parts) and 21.9%->19.4%
+  (Hero), tuplet beats -46%/-22%, position error BIT-IDENTICAL
+  (26.0/26.3 ms) — durations simplified, positions untouched, which
+  is the whole doctrine.
+- The one-beat gap absorption (anti-staccato) and the 3.6% dotted
+  share were measured fine and kept.
+
+**Song base as a cost balance** (replacing the v0.7.12 25%-note-mass
+heuristic): base 16ths lifts every 8ths measure onto the finer grid
+(paying measure_cost's rent) but removes the 8th<->16th grid flips
+between neighboring bars; a flip is charged _SONG_SWITCH = 4.5 —
+one flip reads as bad as ~4 bars of 16th rent. Calibrated against
+seven blessed decisions and reproduces ALL of them: pure jittered
+8ths -> 2, scattered-5%-fine -> 2, 16th-heavy/alternating/25%
+-> 4, real Prosto -> 2, real Hero -> 4 (Hero is the tight one:
+threshold sits at 4.16, margin 8% — recorded honestly). At 2.0 the
+balance wrongly flipped Hero to base 2 (140 grid flips over 657
+measures would have returned the loose feel v0.7.12 killed).

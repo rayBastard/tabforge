@@ -735,5 +735,62 @@ class TestSwingAndTripleBeats(unittest.TestCase):
                                 "jitter escalated into a tuplet")
 
 
+@unittest.skipUnless(HAVE_GP, "PyGuitarPro is not installed")
+class TestDurationEconomy(unittest.TestCase):
+    """Task 73: durations as optimization — position first."""
+
+    BEAT = 0.5
+
+    def test_song_base_elections(self):
+        # the cost balance must reproduce the blessed v0.7.12 choices
+        import random
+        from tabforge.export.writers import FINE, elect_song_base
+
+        rng = random.Random(3)
+
+        def jit(x, ms):
+            return int(round(x + rng.gauss(0, ms / 1000 * 2 * FINE)))
+
+        def song(fine_every):
+            return [[([jit(k * 6, 10) for k in range(16)]
+                      if fine_every and m % fine_every == 0 else
+                      [jit(k * 12, 10) for k in range(8)])
+                     for m in range(40)]]
+
+        self.assertEqual(elect_song_base(song(None)), 2)   # pure 8ths
+        self.assertEqual(elect_song_base(song(20)), 2)     # scattered
+        self.assertEqual(elect_song_base(song(2)), 4)      # half fine
+
+    def test_mixed_bar_keeps_long_durations_whole(self):
+        # a half note in a family-mixed bar must stay ONE beat: the
+        # first task-72 renderer split at every beat line and wrote it
+        # as tied 8ths
+        notes = [NoteEvent(60, 0.0, 2 * self.BEAT * 0.95)]
+        for j in range(4):
+            notes.append(NoteEvent(64, 2 * self.BEAT
+                                   + j * self.BEAT / 4, 0.1))
+        for j in range(3):
+            notes.append(NoteEvent(67, 3 * self.BEAT
+                                   + j * self.BEAT / 3, 0.15))
+        notes += [NoteEvent(60, (4 + k) * self.BEAT / 4, 0.1)
+                  for k in range(16, 32)]      # weight so bar 0 mixes
+        import tempfile
+        from tabforge.export.writers import export_gp5
+        cfg = TabConfig()
+        shapes = assign_tab(sorted(notes, key=lambda n: n.start), cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "x.gp5"
+            export_gp5(shapes, path, cfg, bpm=120.0)
+            song = gp.parse(str(path))
+        m0 = song.tracks[0].measures[0].voices[0].beats
+        first = [b for b in m0 if b.status == gp.BeatStatus.normal][0]
+        self.assertEqual(first.duration.value, 2,
+                         [f"{b.duration.value}" for b in m0])
+        ties = [b for b in m0 if b.status == gp.BeatStatus.normal
+                and b.notes and all(n.type == gp.NoteType.tie
+                                    for n in b.notes)]
+        self.assertEqual(len(ties), 0, "half note split into ties")
+
+
 if __name__ == "__main__":
     unittest.main()
