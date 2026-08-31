@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.7.17 — 2026-08-31
+
+Swing and triplets became a property of the beat (task 72). A
+shuffled track now reads the way a human writes it: straight 8ths
+with a triplet-feel marking in the score — the feel is detected on
+the whole song's attack histogram (off-beats at ~2/3 of the beat,
+with the guard that real triplet music fills the first third too and
+keeps its tuplets). The straight-or-triple decision moved from the
+measure to the SINGLE BEAT with a Viterbi price for switching: one
+real triplet inside a bar of 16ths renders as a tuplet beat instead
+of being crushed into 16ths with a rest hole, and jittered straight
+playing cannot flip a bar into junk triplets. When virtually every
+beat divides in three the song is written in compound time — 12/8
+(or 9/8) with plain 8ths, not walls of tuplets. Verified on synthetic
+fixtures (clean and jittered) and on two real mixes: no false swing,
+no random triplets, and Prosto's genuine triplet figures land on
+exact triplet-grid slots. Six new tests.
+
 ## v0.7.16 — 2026-08-31
 
 The packaged app can hear meter now. madmom's downbeat models are

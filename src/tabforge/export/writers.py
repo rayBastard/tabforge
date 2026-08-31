@@ -128,16 +128,17 @@ _GRID_RENT = {2: 0.0, 3: 2.0, 4: 1.2, 6: 3.2, 8: 3.5}
 _MERGE_PRICE = 1.2
 
 
-def pick_subdivision(onsets_fine: list[int], fine: int = FINE) -> int:
+def pick_subdivision(onsets_fine: list[int], fine: int = FINE,
+                     candidates: tuple = CANDIDATES) -> int:
     """The display grid a measure's own notes ask for: the score is
     mean onset displacement + the price of merged attacks + the grid's
     rent; the cheapest grid wins, coarse by default."""
     if not onsets_fine:
-        return CANDIDATES[0]
+        return candidates[0]
     onsets = sorted(set(onsets_fine))
     n = len(onsets)
-    best_d, best_score = CANDIDATES[0], None
-    for d in CANDIDATES:
+    best_d, best_score = candidates[0], None
+    for d in candidates:
         width = fine // d
         slots = [int(round(o / width)) for o in onsets]
         merges = sum(1 for i in range(1, n)
@@ -149,6 +150,144 @@ def pick_subdivision(onsets_fine: list[int], fine: int = FINE) -> int:
         if best_score is None or score < best_score - 1e-9:
             best_d, best_score = d, score
     return best_d
+
+
+def detect_swing(offsets: list[int], fine: int = FINE) -> int | None:
+    """Task 72: swing as a property of the beat. `offsets` are attack
+    positions modulo the beat (fine units). A straight track's off-beat
+    mass peaks at the half (12); a shuffled one at ~2/3 (16), with the
+    FIRST triplet third (8) empty — real triplet music fills 8 too and
+    must NOT read as swing (it gets tuplets, not a feel marking).
+    Returns the swing peak position (fine units) or None."""
+    from collections import Counter
+    c = Counter(o % fine for o in offsets)
+    half = sum(c[r] for r in (11, 12, 13))
+    swing_band = {r: c[r] for r in (15, 16, 17)}
+    swing = sum(swing_band.values())
+    third = sum(c[r] for r in (7, 8, 9))
+    offbeat = sum(c[r] for r in range(6, 19))
+    if (swing >= 16 and offbeat and swing >= 0.6 * offbeat
+            and half <= 0.25 * swing and third <= 0.25 * swing):
+        return max(swing_band, key=swing_band.get)
+    return None
+
+
+# Per-beat family economics (task 72): a beat is straight or triple on
+# ITS OWN notes, uniformity bought with a switch price, not forbidden.
+# Rents mirror the measure picker's calibration scaled to one beat;
+# the triple-pattern bonus fires only on the actual triplet signature
+# (both thirds of the beat sounded), which jitter almost never fakes.
+_BEAT_RENT = {2: 0.0, 4: 0.6, 8: 1.8, 3: 1.0, 6: 1.6}
+_FAMILY_SWITCH = 1.2
+_TRIPLE_PATTERN_BONUS = 1.8
+
+
+def _beat_family_cost(rel: list[int], ds: tuple, fine: int = FINE) -> float:
+    best = None
+    for d in ds:
+        width = fine // d
+        slots = [int(round(o / width)) for o in rel]
+        merges = sum(1 for i in range(1, len(rel))
+                     if slots[i] == slots[i - 1]
+                     and rel[i] - rel[i - 1] >= 3)
+        disp = (sum(abs(o - s * width) for o, s in zip(rel, slots))
+                / len(rel))
+        score = disp + _MERGE_PRICE * merges + _BEAT_RENT[d]
+        if best is None or score < best:
+            best = score
+    return best
+
+
+def plan_beat_families(beats_rel: list[list[int]],
+                       fine: int = FINE) -> list[str]:
+    """Per-beat straight/triple decision (task 72): each beat scores
+    both families on its own attack positions (relative to beat start,
+    fine units), a Viterbi walk adds a price for switching family
+    between neighboring beats; empty beats carry the state for free."""
+    n = len(beats_rel)
+    fams = ["s"] * n
+    if n == 0:
+        return fams
+    costs = []
+    for rel in beats_rel:
+        if not rel:
+            costs.append((0.0, 0.0))
+            continue
+        cs = _beat_family_cost(rel, (2, 4, 8), fine)
+        ct = _beat_family_cost(rel, (3, 6), fine)
+        third_w, sixteenth = fine // 3, fine // 4
+        thirds = set()
+        for o in rel:
+            d16 = min(abs(o - k * sixteenth) for k in range(5))
+            for k in (1, 2):
+                if abs(o - k * third_w) <= 2 and abs(o - k * third_w) < d16:
+                    thirds.add(k)
+        if thirds == {1, 2}:
+            ct -= _TRIPLE_PATTERN_BONUS       # both thirds sounded
+        costs.append((cs, ct))
+    INF = float("inf")
+    dp = [(costs[0][0], costs[0][1])]
+    back: list[tuple[int, int]] = [(0, 1)]
+    for i in range(1, n):
+        row, ptr = [], []
+        for f in (0, 1):
+            stay = dp[i - 1][f]
+            move = dp[i - 1][1 - f] + _FAMILY_SWITCH
+            src = f if stay <= move else 1 - f
+            row.append(costs[i][f] + min(stay, move))
+            ptr.append(src)
+        dp.append(tuple(row))
+        back.append(tuple(ptr))
+    f = 0 if dp[-1][0] <= dp[-1][1] else 1
+    for i in range(n - 1, -1, -1):
+        fams[i] = "st"[f]
+        f = back[i][f]
+    return fams
+
+
+def _render_mixed_measure(voice, segs, beat_ds, part, _add_beat,
+                          _fill_rests, _largest_fit, MENUS, apply_fx,
+                          n_strings) -> None:
+    """A measure whose beats disagree on family (task 72): straight
+    beats keep the measure grid, triple beats get 3/6 slots. Segments
+    split at every beat line (tied across), then each beat renders as
+    its own gapless mini-measure."""
+    pieces: list[tuple[int, int, object, bool]] = []
+    for local, flen, shape, tie in segs:
+        pos, rem, first = local, flen, True
+        while rem > 0:
+            take = min(rem, (pos // FINE + 1) * FINE - pos)
+            pieces.append((pos, take, shape, tie or not first))
+            first = False
+            pos += take
+            rem -= take
+    pieces.sort(key=lambda x: x[0])
+    for b, db in enumerate(beat_ds):
+        menu = MENUS[db]
+        width = FINE // db
+        start_f = b * FINE
+        in_beat = [x for x in pieces if start_f <= x[0] < start_f + FINE]
+        slots_r = [int(round((local - start_f) / width))
+                   for local, *_ in in_beat]
+        cur = 0
+        for si, (local, flen, shape, tie) in enumerate(in_beat):
+            s = max(slots_r[si], cur)
+            if s >= db:
+                continue
+            units = min(max(1, int(round(flen / width))), db - s)
+            if si + 1 < len(in_beat):
+                next_s = max(slots_r[si + 1], s + 1)
+                units = min(units, max(1, next_s - s))
+            _fill_rests(voice, s - cur, menu)
+            rem2, first2 = units, True
+            while rem2 > 0:
+                _v, _dt, _tp, used = _largest_fit(rem2, menu)
+                _add_beat(voice, used, menu, shape, n_strings,
+                          apply_fx, tie=tie or not first2)
+                first2 = False
+                rem2 -= used
+            cur = s + units
+        _fill_rests(voice, db - cur, menu)
 
 
 def export_gp5(shapes: Sequence[Shape], path: Path, cfg: TabConfig,
@@ -325,6 +464,14 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
         return tuple(sorted(best.values(), reverse=True))
 
     MENUS = {d: _duration_menu(d) for d in CANDIDATES}
+    # Under a compound signature the triple slots are plain values:
+    # a beat = dotted quarter; d3 slot = 8th, d6 slot = 16th.
+    COMPOUND_MENUS = dict(MENUS)
+    COMPOUND_MENUS[3] = ((3, 4, True, False), (2, 4, False, False),
+                         (1, 8, False, False))
+    COMPOUND_MENUS[6] = ((6, 4, True, False), (4, 4, False, False),
+                         (3, 8, True, False), (2, 8, False, False),
+                         (1, 16, False, False))
 
     def _largest_fit(units: int, menu) -> tuple[int, bool, bool, int]:
         for u, value, dotted, tuplet in menu:
@@ -472,6 +619,32 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
         cluster.append(ev)
     _settle(cluster)
 
+    # ---- swing as a property of the beat (task 72) ----
+    # A shuffled track's off-beats live at ~2/3 of the beat. Notating
+    # that literally produces dotted-pairs / junk triplets; the human
+    # convention is straight 8ths + a triplet-feel marking. Detect the
+    # feel on the whole song's attack histogram, then WARP the timeline
+    # (0 -> 0, peak -> half, beat -> beat) so every grid decision
+    # downstream sees straight positions; the marking is written on the
+    # measure headers at the end.
+    swing_peak = detect_swing([fine_of(t_adj) % FINE
+                               for t_adj, _pi, _s in
+                               ((adjusted[id(s)], pi, s)
+                                for _t0, pi, s in events)])
+    if swing_peak:
+        def slot_of(t: float) -> int:
+            f = fine_of(t)
+            b, r = divmod(f, FINE)
+            if r <= swing_peak:
+                r = int(round(r * (FINE // 2) / swing_peak))
+            else:
+                r = int(round((FINE // 2)
+                              + (r - swing_peak) * (FINE // 2)
+                              / (FINE - swing_peak)))
+            return b * FINE + r
+    else:
+        slot_of = fine_of
+
     # Events land on absolute FINE slots; a collision (two events within
     # a 32nd of each other) pushes the later one a 32nd to the right so
     # neither note is silently swallowed.
@@ -484,7 +657,7 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
         for shape in part.shapes:
             if not shape.placements:
                 continue
-            raw_slot = fine_of(adjusted[id(shape)])
+            raw_slot = slot_of(adjusted[id(shape)])
             slot = raw_slot
             while slot // 3 in cells:
                 slot += 3
@@ -517,7 +690,7 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
                 dur = 1                         # a hit is a transient
             else:
                 longest = max(p.note.duration for p in shape.placements)
-                dur = max(1, fine_of(adjusted[id(shape)] + longest)
+                dur = max(1, slot_of(adjusted[id(shape)] + longest)
                           - slot)
                 if nxt is not None:
                     if dur < nxt - slot <= dur + gap_fill:
@@ -574,7 +747,8 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
         for segs in segs_per_measure:
             segs.sort(key=lambda s: s[0])
         all_segs.append(segs_per_measure)
-        own_d.append([(_pick_subdivision([s[0] for s in segs])
+        own_d.append([(_pick_subdivision([s[0] for s in segs],
+                                         candidates=(2, 4, 8))
                        if segs else None)
                       for segs in segs_per_measure])
 
@@ -626,6 +800,59 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
                     ((target in (2, 4, 8)) == (cur in (2, 4, 8))):
                 shared_d[pi][m_idx] = target
 
+    # ---- per-beat triple plan (task 72) ----
+    # The triple axis left the measure picker: each track's beats are
+    # classified straight/triple by plan_beat_families (local fit +
+    # switch price), so ONE real triplet inside a 16ths bar renders as
+    # a tuplet beat instead of being crushed — and a jittered straight
+    # bar cannot flip wholesale into triplets any more.
+    n_beats = n_measures * beats_per_measure
+    fams_per_part: list[list[str]] = []
+    triple_d_per_part: list[dict[int, int]] = []
+    for pi in range(len(parts)):
+        beats_rel: list[list[int]] = [[] for _ in range(n_beats)]
+        for m_idx, segs in enumerate(all_segs[pi]):
+            for local, _flen, _shape, tie in segs:
+                if tie:
+                    continue
+                b = min(local // FINE, beats_per_measure - 1)
+                beats_rel[m_idx * beats_per_measure + b].append(
+                    local % FINE if local // FINE == b else FINE - 1)
+        fams = plan_beat_families(beats_rel)
+        td: dict[int, int] = {}
+        for g, fam in enumerate(fams):
+            if fam == "t" and beats_rel[g]:
+                td[g] = (6 if _beat_family_cost(beats_rel[g], (6,))
+                         < _beat_family_cost(beats_rel[g], (3,)) - 1e-9
+                         else 3)
+        fams_per_part.append(fams)
+        triple_d_per_part.append(td)
+
+    # ---- compound meter (task 72 item 3: 6/8 lives HERE) ----
+    # When virtually every sounded beat divides in three, the song is
+    # not "4/4 full of tuplets" — it is compound time. Write the TS as
+    # x/8 (4 beats -> 12/8, 3 -> 9/8, 2 -> 6/8) and notate the triple
+    # slots as PLAIN 8ths/16ths, which is what those values mean under
+    # a compound signature.
+    nonempty = triple = 0
+    for pi in range(len(parts)):
+        for m_idx, segs in enumerate(all_segs[pi]):
+            seen = {min(local // FINE, beats_per_measure - 1)
+                    for local, _f, _s, tie in segs if not tie}
+            for b in seen:
+                nonempty += 1
+                if fams_per_part[pi][m_idx * beats_per_measure + b] == "t":
+                    triple += 1
+    compound = nonempty >= 16 and triple >= 0.8 * nonempty
+    if compound:
+        for pi in range(len(parts)):
+            fams_per_part[pi] = ["t"] * n_beats
+        for header in song.measureHeaders:
+            header.timeSignature = gp.TimeSignature(
+                numerator=3 * beats_per_measure,
+                denominator=gp.Duration(value=8))
+    render_menus = COMPOUND_MENUS if compound else MENUS
+
     for pi, (track, part) in enumerate(zip(song.tracks, parts)):
         apply_fx = _effects_for(part)
         n_strings = len(part.cfg.tuning)
@@ -633,10 +860,22 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
             if not segs:
                 continue                        # _pad_empty_voices covers it
             d = shared_d[pi][m_idx]
+            fams = fams_per_part[pi]
+            beat_ds = [
+                (triple_d_per_part[pi].get(
+                    m_idx * beats_per_measure + b, 3)
+                 if fams[m_idx * beats_per_measure + b] == "t" else d)
+                for b in range(beats_per_measure)]
+            voice = track.measures[m_idx].voices[0]
+            if any(x != d for x in beat_ds):
+                _render_mixed_measure(voice, segs, beat_ds, part,
+                                      _add_beat, _fill_rests,
+                                      _largest_fit, render_menus,
+                                      apply_fx, n_strings)
+                continue
             menu = MENUS[d]
             width = FINE // d
             spm = beats_per_measure * d
-            voice = track.measures[m_idx].voices[0]
             cursor = 0
             # rounded slot of every segment FIRST: a duration that
             # rounds up must never overrun the next attack's slot (the
@@ -689,6 +928,10 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
             idx = min(len(headers) - 1,
                       max(0, round(qticks / ticks_per_measure)))
             headers[idx].marker = gp.Marker(title=str(label)[:40])
+    if swing_peak:
+        # the human convention: straight 8ths + a shuffle marking
+        for header in song.measureHeaders:
+            header.tripletFeel = gp.TripletFeel.eighth
     if _trace is not None:
         import json as _json
         Path(_os.environ["TABFORGE_WRITER_TRACE"]).write_text(

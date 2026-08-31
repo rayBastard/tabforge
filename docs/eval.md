@@ -1253,3 +1253,55 @@ AnalyzeResult.meter carries it, the server passes it as the score's
 time signature, and the bar-phase election runs mod meter. End to
 end on the waltz: "meter: madmom votes 3/4" -> TS 3/4 in the gp5.
 Without the optional madmom install the meter stays 4 — documented.
+
+## SWING & TRIPLETS AS A BEAT PROPERTY — 2026-08-31 (task 72)
+
+Two diseases measured on synthetic fixtures before touching code
+(scratchpad swing_bench.py, 120 bpm):
+
+- A 2:1 shuffle came out as dotted-8th+16th pairs with smeared bar
+  starts — literal notation of the 2/3 positions on a straight grid.
+  The human convention is straight 8ths plus a triplet-feel marking.
+- A bar of straight 16ths with ONE true triplet on beat 4 crushed the
+  triplet into 16ths with a rest hole: the display grid was chosen per
+  MEASURE, and one triplet couldn't outbid twelve 16ths.
+
+**Swing** (writers.detect_swing): histogram of attack positions
+modulo the beat over the whole song. Straight off-beat mass peaks at
+the half (12/24), shuffle at ~2/3 (15-17/24) — and real triplet music
+fills the FIRST third (8/24) too, which is the disambiguator: swing
+requires the 2/3 band to dominate (>=16 attacks, >=60% of off-beat
+mass, half-band <=25% of it, first-third band <=25% of it). On
+detection the fine timeline is WARPED per beat (0->0, peak->half,
+beat->beat) so every downstream grid decision sees straight
+positions, and the gp5 measure headers get tripletFeel=eighth.
+Fixtures: clean and ±15ms-jittered shuffle both read as plain 8ths +
+marking; straight and triplet fixtures never trip the detector.
+
+**Per-beat triple division** (writers.plan_beat_families): the triple
+axis left the measure picker (its candidates are straight-only now).
+Each beat scores both families on its own attacks — the measure
+picker's economics scaled to one beat (rents {2:0, 4:0.6, 8:1.8,
+3:1.0, 6:1.6}) plus a pattern bonus (-1.8) only when BOTH thirds of
+the beat are sounded closer to the triplet grid than to the 16th grid
+(jitter almost never fakes that) — and a Viterbi walk charges 1.2 for
+switching family between neighboring beats: uniformity via price, not
+prohibition. Measures whose beats disagree render beat-by-beat with
+ties at the beat lines (_render_mixed_measure). The mixed-bar fixture
+now writes 12 16ths + a real tuplet beat; ±20-30ms jitter on straight
+8ths/16ths breeds zero triples.
+
+**Compound meter** (task 72 item 3 — 6/8 lives here, not in the
+madmom vote): when >=80% of sounded beats (>=16 of them) divide in
+three, the song is compound time, not "4/4 full of tuplets": TS
+becomes x/8 (4 beats -> 12/8, 3 -> 9/8) and the triple slots are
+written as PLAIN 8ths/16ths, which is what those values mean under a
+compound signature.
+
+**Real-track acceptance** (full pipeline, new writer): Hero — TS 4/4,
+no swing flag, 11 tuplet beats of 4143 (0.3%); Prosto — TS 4/4, no
+swing flag, 91 of 2251, and every cluster is real: guitar bars 2-7
+and 187-188 + bass 187-190 (cross-instrument agreement), attack
+positions sitting on EXACT triplet-grid slots (8 and 20 of 24, 40
+notes, no phase drift — checked against the intro's extrapolated
+grid specifically). Six new unit tests; 266 green.

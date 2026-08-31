@@ -620,5 +620,120 @@ class TestAdaptiveSubdivision(unittest.TestCase):
         self.assertEqual(sorted(pitches), [52 + k for k in range(16)])
 
 
+@unittest.skipUnless(HAVE_GP, "PyGuitarPro is not installed")
+class TestSwingAndTripleBeats(unittest.TestCase):
+    """Task 72: swing and triplets as a property of the beat."""
+
+    BEAT = 0.5                       # 120 bpm
+
+    def _song(self, notes, bpm=120.0):
+        import tempfile
+        from tabforge.export.writers import export_gp5
+        cfg = TabConfig()
+        shapes = assign_tab(notes, cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "x.gp5"
+            export_gp5(shapes, path, cfg, bpm=bpm)
+            return gp.parse(str(path))
+
+    @staticmethod
+    def _beats(song):
+        for m in song.tracks[0].measures:
+            for b in m.voices[0].beats:
+                if b.status == gp.BeatStatus.normal:
+                    yield b
+
+    def test_swing_reads_straight_with_feel_marking(self):
+        # 2:1 shuffle: the human convention is straight 8ths plus a
+        # triplet-feel marking, never dotted pairs or junk tuplets
+        notes = []
+        for k in range(16):
+            notes.append(NoteEvent(60, k * self.BEAT, 0.28))
+            notes.append(NoteEvent(63, k * self.BEAT + self.BEAT * 2 / 3,
+                                   0.14))
+        song = self._song(notes)
+        for b in self._beats(song):
+            self.assertEqual(b.duration.value, 8)
+            self.assertFalse(b.duration.isDotted)
+            self.assertNotEqual(b.duration.tuplet.enters, 3)
+        for m in song.tracks[0].measures:
+            self.assertEqual(m.header.tripletFeel, gp.TripletFeel.eighth)
+
+    def test_straight_track_gets_no_feel_marking(self):
+        notes = [NoteEvent(60, k * self.BEAT / 2, 0.2) for k in range(32)]
+        song = self._song(notes)
+        self.assertEqual(song.tracks[0].measures[0].header.tripletFeel,
+                         gp.TripletFeel.none)
+
+    def test_triplet_music_is_not_swing(self):
+        # real triplets fill BOTH thirds of the beat -> tuplets, no feel
+        notes = []
+        for k in range(8):
+            for j in range(3):
+                notes.append(NoteEvent(60 + j, k * self.BEAT
+                                       + j * self.BEAT / 3, 0.15))
+        song = self._song(notes)
+        self.assertEqual(song.tracks[0].measures[0].header.tripletFeel,
+                         gp.TripletFeel.none)
+        tuplets = [b for b in self._beats(song)
+                   if b.duration.tuplet.enters == 3]
+        self.assertGreaterEqual(len(tuplets), 20)
+
+    def test_lone_triplet_beat_inside_sixteenths(self):
+        # beats 1-3 straight 16ths, beat 4 a true triplet: the triplet
+        # beat must render as a tuplet, the rest stay 16ths (this bar
+        # used to crush the triplet into 16ths with a rest hole)
+        notes = []
+        for bar in range(2):
+            for k in range(3):
+                for j in range(4):
+                    notes.append(NoteEvent(
+                        60 + j, (bar * 4 + k) * self.BEAT
+                        + j * self.BEAT / 4, 0.1))
+            for j in range(3):
+                notes.append(NoteEvent(
+                    67, (bar * 4 + 3) * self.BEAT + j * self.BEAT / 3,
+                    0.15))
+        song = self._song(notes)
+        for m in song.tracks[0].measures[:2]:
+            vals = [(b.duration.value, b.duration.tuplet.enters == 3)
+                    for b in m.voices[0].beats
+                    if b.status == gp.BeatStatus.normal]
+            self.assertEqual(sum(1 for v, tp in vals if tp), 3,
+                             f"triplet beat lost: {vals}")
+            self.assertEqual(sum(1 for v, tp in vals
+                                 if v == 16 and not tp), 12)
+
+    def test_pervasive_triple_division_becomes_compound_meter(self):
+        # 6 bars where EVERY beat divides in three = compound time:
+        # the TS turns 12/8 and the notes are plain 8ths, not tuplets
+        notes = []
+        for k in range(24):
+            for j in range(3):
+                notes.append(NoteEvent(60 + j, k * self.BEAT
+                                       + j * self.BEAT / 3, 0.15))
+        song = self._song(notes)
+        ts = song.tracks[0].measures[0].header.timeSignature
+        self.assertEqual((ts.numerator, ts.denominator.value), (12, 8))
+        for b in self._beats(song):
+            self.assertNotEqual(b.duration.tuplet.enters, 3,
+                                "compound time must use plain values")
+            self.assertEqual(b.duration.value, 8)
+
+    def test_jitter_breeds_no_triples(self):
+        import random
+        random.seed(7)
+        notes = [NoteEvent(60 + k % 4,
+                           k * self.BEAT / 4
+                           + random.uniform(-0.02, 0.02), 0.1)
+                 for k in range(1, 64)]
+        song = self._song(notes)
+        self.assertEqual(song.tracks[0].measures[0].header.tripletFeel,
+                         gp.TripletFeel.none)
+        for b in self._beats(song):
+            self.assertNotEqual(b.duration.tuplet.enters, 3,
+                                "jitter escalated into a tuplet")
+
+
 if __name__ == "__main__":
     unittest.main()
