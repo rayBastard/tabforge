@@ -235,9 +235,16 @@ def _run_analyze(job: Job, audio: Path,
             return
         job.status = "running"
     try:
+        def _on_card(analysis: dict) -> None:
+            # progressive cards (task 76): partial analysis reaches
+            # the poll loop while the arbiter is still listening
+            with job.lock:
+                job.analysis = [a.to_dict() for a in analysis.values()]
+
         analyzed = run_analyze(audio, job.dir / "out", _progress_fn(job),
                                cancel_token=job.id, separator=separator,
-                               use_mt3=use_mt3, solo=solo)
+                               use_mt3=use_mt3, solo=solo,
+                               on_card=_on_card)
         with job.lock:
             job.analyzed = analyzed
             job.bpm = analyzed.bpm

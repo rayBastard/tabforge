@@ -1535,3 +1535,71 @@ the open string). Rates after: Loken rhythm 17/2298, Hero 19/3374,
 Prosto 64/4446 (0.6-1.4%). No truth exists in any owned corpus
 (GuitarSet jams don't mark harmonics) — the user's eye on real
 scores is the calibration loop from here.
+
+## TECHNIQUES TAIL + LAST DEFERRED — 2026-08-31 (v0.7.23)
+
+TRILLS (core/articulation.fold_trills): a maximal run of two
+alternating pitches (interval <=2), every IOI faster than
+min(110 ms, the song's sextuplet) and >=5 notes, folds into ONE note
+with .trill_with -> gp5 TrillEffect. The tempo-relative bar is the
+load-bearing guard: a two-note gallop at 16ths (93 ms at 161.5 BPM)
+does NOT fold, an ornament outrunning the meter does. This also
+retires a rhythm-wars residue: real trills used to render as 32nd
+walls.
+
+SOLO PERCUSSION: kit drums already detected (verified: Drums.mp3 ->
+"solo track detected: drums"); non-kit percussion produced EMPTY
+densities (MT3 names nothing, BP hears nothing pitched) and fell to
+"pick yourself". Fix measured first: the default onset detector
+hears 0.4 onsets/s on real congas, the percussive component with
+delta 0.03 hears 4.5/s. Dense percussive onsets + no pitched content
+= drums card preselected. Safety: solo guitar WITHOUT MT3 keeps its
+BP densities and never enters this branch (verified).
+
+SECOND-GUITAR NOTE ATTRIBUTION (the open half from the timbre
+chapter): prototyped the product-shaped scheme — learn the first
+guitar's harmonic-slice timbre profile from the region BEFORE the
+second enters (the timeline detector provides it), attribute overlap
+notes by distance. The entering electric separates at 90-95%, but
+the acoustic's own overlap notes drift from their profile (median
+distance 0.67 vs 1.03 — the other guitar's energy pollutes their
+attack windows): balanced accuracy 0.67 < the note-only splitter's
+0.73. PARKED with numbers; the remaining road is guitar-guitar
+source separation or an embedding model.
+
+BP FLOOR PRESET (+0.04 Loken, unclaimed since block 52-55):
+consciously closed WITHOUT claiming — BP guitar serves only installs
+without MuScriptor weights; retuning the floor invalidates every
+cached estimate for a win no routed user sees.
+
+## TASK 75 — 2026-09-01: the fast arbiter, measured and buried
+
+Hypothesis (user): MT3 is ONLY the presence arbiter (40-73% of
+analyze wall), presence needs no temporal resolution, and global
+context — which killed the windowed fast-analyze — survives
+acceleration. Gate: not one verdict changes on golden + solo corpus
+(28 checks). Bench: scratchpad fast_arbiter_bench.py; stretched runs
+get their MIDI times rescaled back so every consumer sees the real
+timeline.
+
+- **Time-stretch 2.0x** (librosa phase vocoder): FAIL 2/28 — mixed
+  piano collapses (hero 30.1 -> 4.9 notes/min, prosto 93.5 -> 13.7;
+  threshold 20) while SOLO piano holds (fulgrim 61 -> 60): burying a
+  piano in a mix is exactly where MT3 needs the temporal detail the
+  stretch destroys. Everything else survives; all 8 solo dominants
+  stable.
+- **Time-stretch 1.5x**: FAIL 3/28 — hero/piano again, PLUS two
+  flips TOWARD TRUTH (prosto bass uncertain->found — the bass truth
+  exists; solo Percussion other->drums — correct): slower playback
+  helps low-frequency recall.
+- **Resample 2x** (declared sample rate, octave up): FAIL 6/28, and
+  NOT the predicted breakage — bass does not read as guitar, it
+  flips toward truth THREE times (solo Bass guitar->bass!): MT3's
+  bass weakness is REGISTRAL, the octave lift cures it. But drums
+  break (solo Drums -> other) and mixed piano still dies.
+
+VERDICT: buried at every rate; "analyze halves" is not reachable by
+accelerating MT3's input. DIAGNOSTIC GEMS for later: (1) an
+octave-up pass as a bass-presence booster (3 truth-ward flips);
+(2) mixed-piano presence is the single fragile card — any future
+fast-arbiter idea must protect it specifically.

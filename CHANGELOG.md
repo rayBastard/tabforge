@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.7.24 — 2026-09-01
+
+The speed program (tasks 75-76). The fast-arbiter hypothesis —
+time-stretched or resampled MT3 input for presence-only listening —
+was measured on 28 verdict checks and buried at every rate: mixed
+piano collapses under any acceleration (a 6-7x note loss), though
+the bench left two diagnostic gems (bass presence IMPROVES an octave
+up; slower playback helps low-frequency recall). What did land:
+MT3 and MuScriptor now run in PARALLEL (measured on Hero: 571 s
+serial -> 395 s wall — Metal interleaves the two for free, MuScriptor
+hides entirely in MT3's shadow), whisper lyrics run alongside the
+per-part transcription loop instead of after it, and the analyze
+screen fills INSTRUMENT CARDS PROGRESSIVELY — each card appears the
+moment its facts exist, minutes before the arbiter finishes
+listening. MuScriptor under time-stretch was also measured for
+transcription and buried as predicted (-28% notes).
+
+
+## v0.7.23 — 2026-08-31
+
+The tail of the techniques-and-deferred queue. TRILLS: a run of two
+pitches alternating FASTER than the song's own metric grid (faster
+than sextuplets — a 16th gallop must never fold) collapses into one
+note with the trill marking instead of a wall of 32nds. SOLO
+PERCUSSION: a drum kit track was already auto-detected; non-kit hand
+percussion (congas, shakers) used to fall through to "pick the
+instrument yourself" — dense percussive onsets with no pitched
+content now preselect the drums card (the default onset detector
+barely hears hand percussion: 0.4/s vs 4.5/s through the percussive
+component — measured). SECOND-GUITAR note attribution prototyped and
+honestly parked: the learned-timbre-profile scheme separates the
+entering electric at 90-95% but the acoustic's own notes drift in
+the overlap (mixture pollutes their attack windows) — balanced 0.67,
+below the note-only splitter; a separation model is the road, the
+detection half (timbre timeline) stays ready. The unclaimed +0.04
+Basic-Pitch floor preset is consciously left unclaimed: BP guitar
+only serves installs without MuScriptor, and touching the floor
+invalidates every cached estimate for a win nobody routed sees.
+
+
 ## v0.7.22 — 2026-08-31
 
 Flageolets (natural harmonics) join palm mute in the score — the

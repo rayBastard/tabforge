@@ -119,3 +119,23 @@ identical to the scoreboard (bass 0.63, drums 0.55, guitar 0.41,
 piano 0.65, vocals 0.16). Net effect ~30-40 s off a 4-6 minute
 track's run; the MT3 full pass remains the dominant cost by design
 (see the fast-analyze burial above).
+
+## Fast-arbiter attempt (task 75, 2026-09-01)
+
+Time-stretched / resampled MT3 input measured against the verdict
+gate and buried — see eval.md "TASK 75". MT3 stays full-speed; the
+speed program moves to task 76 (parallelism + progressive cards).
+
+## Task 76 (2026-09-01): what actually shipped for speed
+
+- MT3 || MuScriptor: serial 412+159=571 s on Hero, parallel wall
+  395 s (1.45x; below MT3-alone run variance — Metal interleaves two
+  processes for free). Shipped in _warm_mix_models.
+- Whisper alongside the part loop (CPU vs MPS — disjoint resources):
+  transcribe no longer pays the lyrics tail.
+- Progressive instrument cards: job.analysis fills card-by-card
+  during analyze (on_card hook -> poll payload -> read-only strip on
+  the analyze screen); the user sees instruments minutes before the
+  arbiter finishes. Subjectively the biggest one, per the plan.
+- MuScriptor time-stretch for TRANSCRIPTION: measured and buried
+  (-28% notes, F1 down) — notes need the resolution, as predicted.

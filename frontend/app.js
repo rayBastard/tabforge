@@ -404,6 +404,7 @@ async function poll(id, failures = 0) {
 
     markStage(job.stage, job.stages);
     if (job.log.length) setLog(job.log[job.log.length - 1]);
+    previewCards(job);
 
     if (job.status === "analyzed") return showInstruments(job);
     if (job.status === "done") return finish(job);
@@ -418,6 +419,27 @@ async function poll(id, failures = 0) {
     setLog(`connection hiccup, retrying (${failures + 1}/${MAX_POLL_FAILURES - 1})…`);
     setTimeout(() => poll(id, failures + 1), delay);
   }
+}
+
+/* Progressive cards (task 76): each instrument's facts appear the
+   moment its analysis lands, while the arbiter is still listening —
+   a read-only strip; the real interactive cards come at "analyzed". */
+const CARD_ICON = { found: "\u25cf", quiet: "\u25cb", absent: "\u2013" };
+function previewCards(job) {
+  const box = $("#cardPreview");
+  if (!box) return;
+  const rows = job.status === "running" ? (job.analysis || []) : [];
+  if (!rows.length) { box.hidden = true; box.innerHTML = ""; return; }
+  box.hidden = false;
+  box.innerHTML = rows.map((a) => {
+    const v = a.verdict
+      ? (a.verdict === "found" ? " \u2713" : a.verdict === "absent" ? " \u2717" : " ?")
+      : "";
+    const n = a.note_count != null && a.status !== "absent"
+      ? ` \u00b7 ${a.note_count}` : "";
+    return `<span class="cp ${a.status}">` +
+      `${CARD_ICON[a.status] || ""} ${STEM_NAMES[a.stem] || a.stem}${n}${v}</span>`;
+  }).join("");
 }
 
 function markStage(current, stages = []) {

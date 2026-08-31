@@ -624,6 +624,13 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
             if getattr(src, "harmonic", False) \
                     and getattr(profile, "allow_harmonics", False):
                 gp_note.effect.harmonic = gp.NaturalHarmonic()
+            tw = getattr(src, "trill_with", None)
+            if tw is not None and getattr(profile, "allow_palm_mute",
+                                          False):
+                alt = gp_note.value + (tw - src.pitch)
+                if 0 <= alt <= 29:
+                    gp_note.effect.trill = gp.TrillEffect(
+                        fret=alt, duration=gp.Duration(value=32))
             if id(src) in hammer_ids:
                 gp_note.effect.hammer = True
             kind = classify_articulation(src.bends)

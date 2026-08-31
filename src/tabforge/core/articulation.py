@@ -102,3 +102,54 @@ def classify_articulation(bends: Sequence[float]) -> str:
         return "bend"
 
     return "none"
+
+
+def fold_trills(notes: list, bpm: float,
+                min_notes: int = 5,
+                max_interval: int = 2) -> int:
+    """Trills as ornaments, not note walls (2026-08-31): a maximal run
+    of SINGLE notes alternating between exactly two pitches at most
+    max_interval apart, each IOI faster than the song's own metric
+    grid (sextuplets — an ornament outruns the meter; a two-note
+    gallop at 16ths must NOT fold), becomes ONE note spanning the run
+    with .trill_with set. Mutates `notes` in place (drops the folded
+    partners); returns how many trills were written."""
+    ioi_max = min(0.11, 60.0 / max(bpm, 1e-6) / 6)
+    singles = sorted((n for n in notes if not n.dead),
+                     key=lambda n: n.start)
+    folded = 0
+    drop: set[int] = set()
+    i = 0
+    while i < len(singles):
+        j = i + 1
+        a, b = singles[i].pitch, None
+        run = [singles[i]]
+        while j < len(singles):
+            n = singles[j]
+            if n.start - run[-1].start > ioi_max:
+                break
+            if b is None and n.pitch != a \
+                    and abs(n.pitch - a) <= max_interval:
+                b = n.pitch
+            if n.pitch != (a if len(run) % 2 == 0 else b) and \
+                    n.pitch != (b if len(run) % 2 == 0 else a):
+                break
+            if n.pitch not in (a, b):
+                break
+            run.append(n)
+            j += 1
+        pitches = {n.pitch for n in run}
+        if len(run) >= min_notes and len(pitches) == 2 and b is not None:
+            head = run[0]
+            head.trill_with = b if head.pitch == a else a
+            head.duration = max(head.duration,
+                                run[-1].end - head.start)
+            for n in run[1:]:
+                drop.add(id(n))
+            folded += 1
+            i = j
+        else:
+            i += 1
+    if drop:
+        notes[:] = [n for n in notes if id(n) not in drop]
+    return folded

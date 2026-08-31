@@ -395,12 +395,39 @@ def _analyze_solo(audio: Path, out_dir: Path,
         from .audio.tagging import tag_stem
         a.sounds_like = tag_stem(mix)
     else:
-        # no arbiter: the user KNOWS it's solo — offer every card,
-        # nothing preselected beyond their judgement
+        # no densities at all — either no MT3 install, or the track is
+        # NON-KIT PERCUSSION (congas/shakers: MT3 hears nothing it can
+        # name, BP hears nothing pitched — measured on the solo
+        # corpus). Dense onsets with no pitched content = percussion:
+        # preselect the drums card instead of shrugging.
+        perc = False
+        try:
+            import librosa
+            y_p, sr_p = librosa.load(str(mix), sr=22050, mono=True,
+                                     duration=30)
+            # the default onset detector barely hears hand percussion
+            # (measured 0.4/s on real congas); the percussive
+            # component with a low delta hears 4.5/s
+            env = librosa.onset.onset_strength(
+                y=librosa.effects.percussive(y_p), sr=sr_p)
+            onsets = librosa.onset.onset_detect(
+                onset_envelope=env, sr=sr_p, units="time", delta=0.03)
+            dur_p = len(y_p) / sr_p
+            perc = dur_p > 5 and len(onsets) / dur_p >= 1.0
+        except Exception:  # noqa: BLE001
+            pass
         for card in cards:
-            analysis[card] = StemAnalysis(card, "quiet", 0.5)
-        progress("analyze", "solo mode without MT3: pick the "
-                            "instrument yourself")
+            if perc and card == "drums":
+                analysis[card] = StemAnalysis(card, "found", 1.0)
+            else:
+                analysis[card] = StemAnalysis(card, "quiet", 0.5)
+        if perc:
+            progress("analyze", "solo track detected: percussion "
+                                "(dense onsets, no pitched content)")
+            warnings.append("solo: detected percussion")
+        else:
+            progress("analyze", "solo mode without MT3: pick the "
+                                "instrument yourself")
 
     try:
         from .audio.sections import compute_features
@@ -762,7 +789,8 @@ def run_analyze(audio: Path, out_dir: Path,
                 cancel_token: object | None = None,
                 separator: str = "demucs",
                 use_mt3: bool = True,
-                solo: bool = False) -> AnalyzeResult:
+                solo: bool = False,
+                on_card=None) -> AnalyzeResult:
     """Separate + quick per-stem facts + shared tempo/key. No demucs work
     is ever repeated after this: the stems stay in out_dir/stems.
 
@@ -785,7 +813,22 @@ def run_analyze(audio: Path, out_dir: Path,
     # sum (MT3 alone is ~1x track length)
     import threading
 
+    # Task 76: MT3 and MuScriptor run in PARALLEL, not in sequence —
+    # measured on Hero/MPS: serial 412+159=571 s, parallel wall 395 s
+    # (Metal interleaves the two processes essentially for free;
+    # MuScriptor rides entirely in MT3's shadow).
+    def _warm_muscriptor() -> None:
+        try:
+            from .audio.muscriptor import find_muscriptor, run_muscriptor
+            if find_muscriptor() is not None:
+                run_muscriptor(demucs_input, out_dir, progress)
+        except Exception:  # noqa: BLE001
+            pass
+
     def _warm_mix_models() -> None:
+        mus_thread = threading.Thread(target=_warm_muscriptor,
+                                      daemon=True)
+        mus_thread.start()
         try:
             from .audio import arbiter as _arb
             if use_mt3 and _arb.find_mt3() is not None:
@@ -793,9 +836,7 @@ def run_analyze(audio: Path, out_dir: Path,
         except Exception:  # noqa: BLE001
             pass
         try:
-            from .audio.muscriptor import find_muscriptor, run_muscriptor
-            if find_muscriptor() is not None:
-                run_muscriptor(demucs_input, out_dir, progress)
+            mus_thread.join()
         except Exception:  # noqa: BLE001
             pass
 
@@ -864,6 +905,10 @@ def run_analyze(audio: Path, out_dir: Path,
         progress("analyze",
                  f"{stem}: {status}, {count} notes in the sample"
                  + (f" — sounds like {heard[0]}" if heard else ""))
+        if on_card:
+            # progressive cards (task 76): the UI fills each card the
+            # moment its facts exist instead of waiting for the arbiter
+            on_card(dict(analysis))
 
     # drums are unpitched: no note range, no tuning — just "does the kit
     # sound at all" and roughly how busy it is
@@ -879,6 +924,8 @@ def run_analyze(audio: Path, out_dir: Path,
             analysis["drums"] = StemAnalysis(
                 "drums", status, rms, note_count=len(onsets))
             progress("analyze", f"drums: {status}, {len(onsets)} hits")
+    if on_card:
+        on_card(dict(analysis))
 
     # MT3 arbiter (task 54): optional second opinion on WHAT actually
     # plays — verdicts refine the RMS statuses on the cards. Activates
@@ -898,6 +945,8 @@ def run_analyze(audio: Path, out_dir: Path,
                 for stem, verdict in v.items():
                     if stem in analysis:
                         analysis[stem].verdict = verdict
+                if on_card:
+                    on_card(dict(analysis))
     except Exception:  # noqa: BLE001 — the arbiter must never kill analyze
         progress("analyze", "MT3 arbiter failed — cards keep their "
                             "RMS-based statuses")
@@ -1042,6 +1091,24 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
     spectra = (_StemSpectra(analyzed.stems)
                if opts.leak_margin > 0 and analyzed.stems
                and not analyzed.solo else None)
+
+    # Task 76, thread three: whisper is CPU-bound and depends only on
+    # the vocal stem — it used to run AFTER every part was transcribed;
+    # now it runs alongside the (MPS-bound) per-part loop.
+    lyrics_thread = None
+    vocal_wav = analyzed.stems.get("vocals")
+    if (vocal_wav is not None and opts.with_lyrics
+            and analyzed.midi_source is None):
+        import threading as _threading
+
+        def _lyrics_bg() -> None:
+            try:
+                _run_lyrics(out_dir, vocal_wav, grid, opts, progress)
+            except Exception as e:  # noqa: BLE001 — never fatal
+                progress("transcribe", f"lyrics failed ({e})")
+
+        lyrics_thread = _threading.Thread(target=_lyrics_bg, daemon=True)
+        lyrics_thread.start()
 
     results: list[StemResult] = []
     song_parts: list = []          # writers.SongPart, one per produced part
@@ -1258,6 +1325,16 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
                         or tuning_key
             cfg = TabConfig(tuning=TUNINGS[tuning_key],
                             max_fret=profile.max_fret)
+            if profile.allow_palm_mute:
+                try:
+                    from .core.articulation import fold_trills
+                    tr = fold_trills(part_notes, bpm)
+                    if tr:
+                        progress("fingering",
+                                 f"{part_name}: {tr} trill(s) folded "
+                                 "from note runs")
+                except Exception:  # noqa: BLE001 — decoration only
+                    pass
             legato = (detect_legato_pairs(part_notes)
                       if profile.wants_legato_pairs else [])
             if profile.allow_palm_mute and wav is not None:
@@ -1345,18 +1422,13 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
 
     # synced lyrics (task 60): whisper over the vocal stem — optional,
     # attaches the .lrc to the vocals card and feeds the gp5 channel
-    vocal_wav = analyzed.stems.get("vocals")
-    if (vocal_wav is not None and opts.with_lyrics
-            and analyzed.midi_source is None):
-        try:
-            _run_lyrics(out_dir, vocal_wav, grid, opts, progress)
-            lrc = out_dir / "vocals" / "lyrics.lrc"
-            if lrc.exists():
-                for r in results:
-                    if r.stem == "vocals":
-                        r.files["lrc"] = lrc
-        except Exception as e:  # noqa: BLE001 — decoration, never fatal
-            progress("transcribe", f"lyrics failed ({e})")
+    if lyrics_thread is not None:
+        lyrics_thread.join()
+        lrc = out_dir / "vocals" / "lyrics.lrc"
+        if lrc.exists():
+            for r in results:
+                if r.stem == "vocals":
+                    r.files["lrc"] = lrc
 
     # the whole project as ONE multi-track score: the unified player
     # plays it together, with per-track mute/solo
@@ -1515,7 +1587,7 @@ def _save_part_state(out_dir: Path, part_name: str, notes, legato,
                    "duration": n.duration, "velocity": n.velocity,
                    "bends": list(n.bends), "dead": n.dead,
                    "pm": n.palm_mute, "harm": n.harmonic,
-                   "conf": c}
+                   "trill": n.trill_with, "conf": c}
                   for n, c in zip(notes, conf)],
         "legato": [[index_of[id(a)], index_of[id(b)], kind]
                    for a, b, kind in (legato or [])
@@ -1686,7 +1758,8 @@ def _revive_notes(part: dict) -> list[NoteEvent]:
                       n["velocity"], list(n["bends"]),
                       n.get("dead", False),
                       palm_mute=n.get("pm", False),
-                      harmonic=n.get("harm", False))
+                      harmonic=n.get("harm", False),
+                      trill_with=n.get("trill"))
             for n in part["notes"]]
 
 

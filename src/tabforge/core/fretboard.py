@@ -64,6 +64,10 @@ class NoteEvent:
     # natural harmonic (chimed flageolet): near-pure sustained tone,
     # detected from the same onset features, guitars only
     harmonic: bool = False
+    # trill ornament: this note alternates with trill_with (MIDI pitch)
+    # faster than the metric grid; the alternation partners were folded
+    # into this one note at detection time
+    trill_with: int | None = None
 
     @property
     def end(self) -> float:

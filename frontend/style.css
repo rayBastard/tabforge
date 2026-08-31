@@ -696,3 +696,14 @@ select {
 }
 .toast.show { opacity: 1; }
 .toast.error { border-color: var(--danger); color: var(--danger); }
+
+/* progressive analyze cards (task 76) */
+.card-preview {
+  display: flex; flex-wrap: wrap; gap: .4rem .8rem;
+  margin: .5rem 0 0; font-size: .85rem; opacity: .9;
+}
+.card-preview .cp { padding: .1rem .5rem; border-radius: .6rem;
+  background: rgba(255,255,255,.06); }
+.card-preview .cp.found { color: var(--ok, #7dc87d); }
+.card-preview .cp.quiet { opacity: .75; }
+.card-preview .cp.absent { opacity: .4; }

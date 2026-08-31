@@ -133,6 +133,46 @@ class TestHarmonicDetector(unittest.TestCase):
         self.assertEqual(harm, 2)
 
 
+class TestTrillFolding(unittest.TestCase):
+    def test_fast_alternation_folds_slow_and_gallop_do_not(self):
+        from tabforge.core.articulation import fold_trills
+        trill = [NoteEvent(64 + (k % 2), 1.0 + k * 0.07, 0.06)
+                 for k in range(8)]
+        extra = [NoteEvent(60, 3.0, 0.4)]
+        notes = trill + extra
+        self.assertEqual(fold_trills(notes, bpm=120), 1)
+        self.assertEqual(len(notes), 2)
+        self.assertEqual(notes[0].trill_with, 65)
+        gallop = [NoteEvent(40 + 3 * (k % 2), k * 0.093, 0.08)
+                  for k in range(12)]
+        self.assertEqual(fold_trills(gallop, bpm=161.5), 0)
+        slow = [NoteEvent(64 + (k % 2), k * 0.2, 0.15)
+                for k in range(8)]
+        self.assertEqual(fold_trills(slow, bpm=120), 0)
+
+
+@unittest.skipUnless(HAVE_GP, "PyGuitarPro is not installed")
+class TestPalmMuteInGp5(unittest.TestCase):
+    def test_trill_written(self):
+        import tempfile as tf
+
+        from tabforge.core.fretboard import TabConfig, assign_tab
+        from tabforge.export.writers import export_gp5
+        notes = [NoteEvent(64, 0.0, 0.6, trill_with=65),
+                 NoteEvent(60, 1.0, 0.4)]
+        shapes = assign_tab(notes, TabConfig())
+        with tf.TemporaryDirectory() as td:
+            path = Path(td) / "x.gp5"
+            export_gp5(shapes, path, TabConfig(), bpm=120.0)
+            song = gp.parse(str(path))
+        trills = [n.effect.trill is not None
+                  for m in song.tracks[0].measures
+                  for b in m.voices[0].beats
+                  if b.status == gp.BeatStatus.normal
+                  for n in b.notes]
+        self.assertEqual(trills[0], True)
+        self.assertNotIn(True, trills[1:])
+
 @unittest.skipUnless(HAVE_GP, "PyGuitarPro is not installed")
 class TestPalmMuteInGp5(unittest.TestCase):
     def test_harmonic_flag_written(self):
@@ -153,6 +193,46 @@ class TestPalmMuteInGp5(unittest.TestCase):
               if b.status == gp.BeatStatus.normal
               for n in b.notes]
         self.assertEqual(hs, [True, False])
+
+class TestTrillFolding(unittest.TestCase):
+    def test_fast_alternation_folds_slow_and_gallop_do_not(self):
+        from tabforge.core.articulation import fold_trills
+        trill = [NoteEvent(64 + (k % 2), 1.0 + k * 0.07, 0.06)
+                 for k in range(8)]
+        extra = [NoteEvent(60, 3.0, 0.4)]
+        notes = trill + extra
+        self.assertEqual(fold_trills(notes, bpm=120), 1)
+        self.assertEqual(len(notes), 2)
+        self.assertEqual(notes[0].trill_with, 65)
+        gallop = [NoteEvent(40 + 3 * (k % 2), k * 0.093, 0.08)
+                  for k in range(12)]
+        self.assertEqual(fold_trills(gallop, bpm=161.5), 0)
+        slow = [NoteEvent(64 + (k % 2), k * 0.2, 0.15)
+                for k in range(8)]
+        self.assertEqual(fold_trills(slow, bpm=120), 0)
+
+
+@unittest.skipUnless(HAVE_GP, "PyGuitarPro is not installed")
+class TestPalmMuteInGp5(unittest.TestCase):
+    def test_trill_written(self):
+        import tempfile as tf
+
+        from tabforge.core.fretboard import TabConfig, assign_tab
+        from tabforge.export.writers import export_gp5
+        notes = [NoteEvent(64, 0.0, 0.6, trill_with=65),
+                 NoteEvent(60, 1.0, 0.4)]
+        shapes = assign_tab(notes, TabConfig())
+        with tf.TemporaryDirectory() as td:
+            path = Path(td) / "x.gp5"
+            export_gp5(shapes, path, TabConfig(), bpm=120.0)
+            song = gp.parse(str(path))
+        trills = [n.effect.trill is not None
+                  for m in song.tracks[0].measures
+                  for b in m.voices[0].beats
+                  if b.status == gp.BeatStatus.normal
+                  for n in b.notes]
+        self.assertEqual(trills[0], True)
+        self.assertNotIn(True, trills[1:])
 
 @unittest.skipUnless(HAVE_GP, "PyGuitarPro is not installed")
 class TestPalmMuteInGp5(unittest.TestCase):
