@@ -379,6 +379,7 @@ def _analyze_solo(audio: Path, out_dir: Path,
         bpm, beats = _octave_correct(bpm, beats, ioi,
                                      tempo_extras.get("local_votes"),
                                      progress)
+        beats = _select_beat_grid(mix, out_dir, beats, bpm, progress)
         beats = _elect_bar_phase(mix, mix_data, beats, progress)
         from .audio.tagging import tag_stem
         a.sounds_like = tag_stem(mix)
@@ -401,6 +402,86 @@ def _analyze_solo(audio: Path, out_dir: Path,
     return AnalyzeResult(stems=stems, analysis=analysis, bpm=bpm,
                          beats=beats, tempo_reliable=reliable, key=key,
                          warnings=warnings, solo=True)
+
+
+def _select_beat_grid(mix: Path, out_dir: Path, beats: list[float],
+                      bpm: float,
+                      progress: ProgressFn = _noop) -> list[float]:
+    """The beat-grid ensemble (task 71 v2): our tracker against madmom
+    DBN constrained to our tempo +-10%, selected by which grid better
+    EXPLAINS the transcribed notes (mean onset distance to its 16th
+    slots, best constant shift +-80 ms). Conservative: madmom wins
+    only on a DECISIVE margin (fit < 0.55x ours) — the margins are
+    noisy and the stand showed exactly one deserved switch (Loken
+    metal: beat F1 0.27 -> 0.83) with none elsewhere.
+
+    madmom is OPTIONAL and never bundled (its RNN models are
+    CC BY-NC-SA — the MuScriptor yellow zone): without the install
+    the current grid simply stays."""
+    try:
+        import numpy as np
+        from madmom.audio.signal import Signal
+        from madmom.features.downbeats import (
+            DBNDownBeatTrackingProcessor, RNNDownBeatProcessor)
+    except Exception:  # noqa: BLE001 — optional
+        return beats
+    mus = out_dir / "muscriptor.mid"
+    if not mus.exists() or len(beats) < 8:
+        return beats
+    from .audio.arbiter import mt3_card_notes
+
+    notes: list[float] = []
+    for card in ("guitar", "bass", "piano", "other"):
+        notes += [n.start for n in (mt3_card_notes(mus, card) or [])]
+    notes = sorted({round(x, 3) for x in notes})
+    if len(notes) < 50:
+        return beats
+
+    import json
+    cache = out_dir / "madmom_grid.json"
+    if cache.exists():
+        mm = json.loads(cache.read_text())
+    else:
+        import librosa
+        progress("analyze", "beat grid: consulting madmom (alt grid)")
+        y, sr = librosa.load(str(mix), sr=44100, mono=True)
+        act = RNNDownBeatProcessor()(Signal(y, sample_rate=sr))
+        res = DBNDownBeatTrackingProcessor(
+            beats_per_bar=[3, 4], fps=100,
+            min_bpm=bpm * 0.9, max_bpm=bpm * 1.1)(act)
+        mm = [float(a) for a, _b in res]
+        cache.write_text(json.dumps(mm))
+    if len(mm) < 8:
+        return beats
+
+    def fit(grid):
+        b = np.array(grid)
+        slots = []
+        for a, bb in zip(b, b[1:]):
+            for k in range(4):
+                slots.append(a + (bb - a) * k / 4)
+        slots = np.array(slots)
+        step16 = float(np.median(np.diff(slots)))
+        on = np.array([o for o in notes if slots[0] < o < slots[-1]])
+        if not len(on):
+            return 1e9
+        best = 1e9
+        for sh in np.arange(-0.08, 0.081, 0.01):
+            idx = np.clip(np.searchsorted(slots, on + sh),
+                          1, len(slots) - 1)
+            d = np.minimum(np.abs(on + sh - slots[idx - 1]),
+                           np.abs(on + sh - slots[idx]))
+            best = min(best, float(np.mean(d)) / step16)
+        return best
+
+    f_ours, f_mm = fit(beats), fit(mm)
+    if f_mm < 0.55 * f_ours:
+        progress("analyze",
+                 f"beat grid: the alternative explains the notes "
+                 f"decisively better ({f_mm:.3f} vs {f_ours:.3f}) — "
+                 f"switching")
+        return mm
+    return beats
 
 
 def _elect_bar_phase(mix: Path, mix_data, beats: list[float],
@@ -677,6 +758,7 @@ def run_analyze(audio: Path, out_dir: Path,
         bpm, beats = _octave_correct(bpm, beats, min(found_iois),
                                      tempo_extras.get("local_votes"),
                                      progress)
+    beats = _select_beat_grid(demucs_input, out_dir, beats, bpm, progress)
     beats = _elect_bar_phase(audio, mix_data, beats, progress)
 
     # structure features (task 59): beat-synced chroma of the MIX —

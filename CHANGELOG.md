@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.7.14 — 2026-08-31
+
+The beat-grid ensemble: on hard tracks (measured: metal) the built-in
+tracker's grid can sit a whole level off, and madmom constrained to
+our tempo nails it — so analyze now compares the two grids by which
+one better explains the transcribed notes, switching only on a
+decisive margin (one deserved switch on the whole stand: Loken's
+beat F1 0.27 -> 0.83; mean 0.61 -> 0.69). madmom is optional, never
+bundled (CC BY-NC-SA models — the same yellow zone as MuScriptor):
+without it nothing changes. The selector-feature safari that led
+here — two audio-evidence features measured and rejected — is in
+docs/eval.md.
+
 ## v0.7.13 — 2026-08-31
 
 Bar one now starts at a real downbeat. The phase of the bar grid used

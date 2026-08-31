@@ -293,8 +293,82 @@ def est_of_harmonic(audio: Path, work: Path, fresh: bool = False):
     return 4, beats[best::4], beats
 
 
+def _grid_note_fit(beats, onsets):
+    import numpy as np
+    b = np.array(beats)
+    slots = []
+    for a, bb in zip(b, b[1:]):
+        for k in range(4):
+            slots.append(a + (bb - a) * k / 4)
+    slots = np.array(slots)
+    step16 = float(np.median(np.diff(slots)))
+    on = np.array([o for o in onsets if slots[0] < o < slots[-1]])
+    if not len(on):
+        return 1e9
+    best = 1e9
+    for sh in np.arange(-0.08, 0.081, 0.01):
+        idx = np.clip(np.searchsorted(slots, on + sh), 1, len(slots) - 1)
+        d = np.minimum(np.abs(on + sh - slots[idx - 1]),
+                       np.abs(on + sh - slots[idx]))
+        best = min(best, float(np.mean(d)) / step16)
+    return best
+
+
+def est_of_ensemble(audio: Path, work: Path, fresh: bool = False):
+    """71 v2: our grid vs madmom-with-our-tempo, selected by which
+    grid explains the transcribed notes better — switching only on a
+    DECISIVE advantage (fit < 0.55x ours; conservative because the
+    margins are noisy — see eval.md). Phase by harmonic rhythm."""
+    import json
+    import sys as _sys
+
+    _m, _d, ours = est_of(audio, work, fresh)
+    beats = ours
+    mus = work / "muscriptor.mid"
+    try:
+        _mm_m, _mm_d, mm = est_of_madmom(audio, work,
+                                         tempo_informed=True)
+        if mus.exists():
+            _root = str(Path(__file__).resolve().parent.parent / "src")
+            if _root not in _sys.path:
+                _sys.path.insert(0, _root)
+            from tabforge.audio.arbiter import mt3_card_notes
+            notes = []
+            for card in ("guitar", "bass", "piano", "other"):
+                notes += [n.start
+                          for n in (mt3_card_notes(mus, card) or [])]
+            notes = sorted(set(round(x, 3) for x in notes))
+            if len(notes) > 50 and                     _grid_note_fit(mm, notes)                     < 0.55 * _grid_note_fit(ours, notes):
+                beats = mm
+    except Exception:  # noqa: BLE001
+        pass
+    # harmonic phase on the winning grid
+    import numpy as np
+    data = json.loads((work / "chroma_sync.json").read_text())         if (work / "chroma_sync.json").exists() and beats is ours else None
+    if data is None:
+        import librosa
+        y, sr = librosa.load(str(audio), sr=22050, mono=True)
+        C = librosa.feature.chroma_cqt(y=y, sr=sr)
+        frames = np.clip(librosa.time_to_frames(beats, sr=sr),
+                         0, C.shape[1] - 1)
+        sync = librosa.util.sync(C, frames, aggregate=np.median)
+        chroma = sync.T[:len(beats)]
+        chroma = chroma / (np.linalg.norm(chroma, axis=1,
+                                          keepdims=True) + 1e-9)
+    else:
+        chroma = np.array(data)
+    change = np.zeros(len(beats))
+    for i in range(1, min(len(beats), len(chroma))):
+        change[i] = 1.0 - float(np.dot(chroma[i - 1], chroma[i]))
+    ph = max(range(4), key=lambda k: float(np.mean(change[k + 1::4])
+                                           if len(change[k + 1::4])
+                                           else 0.0))
+    return 4, beats[ph::4], beats
+
+
 ENGINES = {
     "current": lambda audio, work, fresh: est_of(audio, work, fresh),
+    "ensemble": est_of_ensemble,
     "harmonic": est_of_harmonic,
     "accent": est_of_accent,
     "beatnet": est_of_beatnet,

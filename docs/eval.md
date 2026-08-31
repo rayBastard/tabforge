@@ -1212,3 +1212,28 @@ Verdict, two halves:
 
 No engine ships in the product; madmom/BeatNet stay as stand-only
 dev dependencies (BeatNet needed a pyaudio stub — realtime-only dep).
+
+### 71 v2 — the grid ensemble (same day)
+
+Selector safari, each feature measured against the stand's truth of
+"which grid is better per track":
+- raw beat salience: never picks madmom (its timeline sits ~50 ms
+  early vs the librosa envelope — a systematic offset, not weakness);
+- shift-invariant salience: picks madmom almost everywhere (1/7) —
+  a locally onset-hugging grid looks great to local evidence while
+  drifting off the composer grid;
+- NOTE FIT (mean onset distance to the grid's 16th slots, best
+  constant shift): the margins finally correlate — decisive where it
+  matters (Loken 0.042 vs 0.088) and marginal elsewhere.
+
+Shipped rule, deliberately conservative against feature-fishing on a
+7-track stand: switch to the madmom-with-our-tempo grid only when its
+note fit is DECISIVELY better (< 0.55x ours). On the stand this
+switches exactly Loken and nothing else: mean beat F1 0.61 -> 0.69,
+Loken 0.27 -> 0.83. Loken's bar phase is still poor (0.15) — the
+harmonic election cannot find the composer phase on metal; noted.
+
+madmom stays OPTIONAL and is explicitly EXCLUDED from the app bundle
+(its RNN models are CC BY-NC-SA — the MuScriptor yellow zone, added
+to the license-audit tail); without the install the current grid
+simply stays.

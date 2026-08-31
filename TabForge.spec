@@ -51,7 +51,7 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=["matplotlib", "tkinter", "PyQt5", "PySide6"],
+    excludes=["matplotlib", "tkinter", "PyQt5", "PySide6", 'madmom', 'BeatNet', 'pyaudio'],
     noarchive=False,
 )
 
