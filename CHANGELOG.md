@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.7.22 — 2026-08-31
+
+Flageolets (natural harmonics) join palm mute in the score — the
+same one-pass feature detector, opposite quadrant: a palm mute is
+dull AND falls fast, a harmonic is nearly a pure tone that RINGS.
+Purity alone turned out to be a continuum on synth-guitar material
+(measured — a dark pad rings pure everywhere), so the musical
+constraint carries the split: a natural harmonic must also sound
+well ABOVE the part's texture, the way 12th/7th/5th-fret chimes ring
+over the open string. Conservative rates on real mixes (0.6-1.4%);
+notated as the harmonic diamond in the player and Guitar Pro,
+survives edits and reloads.
+
+
 ## v0.7.21 — 2026-08-31
 
 Palm mute is in the score: a guitar attack that decays fast AND is

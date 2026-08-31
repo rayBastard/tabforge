@@ -36,6 +36,8 @@ class InstrumentProfile:
     # palm-mute detection + P.M. notation (guitars; the detector reads
     # the stem's attack decay and brightness)
     allow_palm_mute: bool = False
+    # flageolet detection + harmonic notation (same feature pass)
+    allow_harmonics: bool = False
     # note source for this stem: "basic_pitch" (polyphonic, default) or
     # "mono" (f0 tracker + onset segmentation — kills octave twins by
     # construction; measured on the golden stand, task 53)
@@ -61,7 +63,7 @@ _GUITAR = InstrumentProfile(
     name="guitar", midi_program=25, tablature=True,   # 25 = steel guitar
     allow_bends=True, allow_vibrato=True, allow_slides=True,
     allow_hammer=True, legato_as_slur=False, tuning=None,
-    allow_palm_mute=True,
+    allow_palm_mute=True, allow_harmonics=True,
     # 0.08: a STRUM spreads a chord's onsets past the 45 ms event
     # window; ungathered, the tail notes read as 32nd clusters and the
     # adaptive grid escalates whole measures into junk (the acoustic

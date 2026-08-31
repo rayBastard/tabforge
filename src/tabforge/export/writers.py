@@ -621,6 +621,9 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
             if getattr(src, "palm_mute", False) \
                     and getattr(profile, "allow_palm_mute", False):
                 gp_note.effect.palmMute = True
+            if getattr(src, "harmonic", False) \
+                    and getattr(profile, "allow_harmonics", False):
+                gp_note.effect.harmonic = gp.NaturalHarmonic()
             if id(src) in hammer_ids:
                 gp_note.effect.hammer = True
             kind = classify_articulation(src.bends)

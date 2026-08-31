@@ -1520,3 +1520,18 @@ the named next design is per-note timbre features (attack
 brightness/embedding) clustered against the window timeline, or a
 guitar-guitar separation model; the detection half (timeline verdict
 + region) is ready for product wiring when the split half exists.
+
+## FLAGEOLETS — 2026-08-31 (the techniques pass grows)
+
+Same one-pass detector as palm mute, opposite quadrant: harmonic =
+nearly pure (brightness < 3 over f0) AND ringing (decay > 0.55,
+duration >= 0.25 s) where PM = dull AND falling. KS-calibrated like
+PM. MEASURED HONESTY: on Suno synth-guitars purity is a CONTINUUM
+(Prosto long-note brightness 1.1..3.4, no cluster — dark pads ring
+pure), so purity alone would speckle 3.5% of notes; the musical
+constraint saves it — a flageolet sounds >= 7 semitones above the
+part's median pitch (12th/7th/5th-fret chimes ring an octave+ over
+the open string). Rates after: Loken rhythm 17/2298, Hero 19/3374,
+Prosto 64/4446 (0.6-1.4%). No truth exists in any owned corpus
+(GuitarSet jams don't mark harmonics) — the user's eye on real
+scores is the calibration loop from here.

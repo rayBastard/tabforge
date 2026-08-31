@@ -1262,12 +1262,16 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
                       if profile.wants_legato_pairs else [])
             if profile.allow_palm_mute and wav is not None:
                 try:
-                    from .audio.palmmute import detect_palm_mutes
-                    pm = detect_palm_mutes(part_notes, wav)
-                    if pm:
+                    from .audio.palmmute import detect_techniques
+                    pm, harm = detect_techniques(part_notes, wav)
+                    if pm or harm:
+                        bits = []
+                        if pm:
+                            bits.append(f"{pm} palm-muted (P.M.)")
+                        if harm:
+                            bits.append(f"{harm} harmonic(s)")
                         progress("fingering",
-                                 f"{part_name}: {pm} palm-muted "
-                                 "attacks (P.M.)")
+                                 f"{part_name}: " + ", ".join(bits))
                 except Exception:  # noqa: BLE001 — decoration only
                     pass
             if legato:
@@ -1510,7 +1514,8 @@ def _save_part_state(out_dir: Path, part_name: str, notes, legato,
         "notes": [{"pitch": n.pitch, "start": n.start,
                    "duration": n.duration, "velocity": n.velocity,
                    "bends": list(n.bends), "dead": n.dead,
-                   "pm": n.palm_mute, "conf": c}
+                   "pm": n.palm_mute, "harm": n.harmonic,
+                   "conf": c}
                   for n, c in zip(notes, conf)],
         "legato": [[index_of[id(a)], index_of[id(b)], kind]
                    for a, b, kind in (legato or [])
@@ -1680,7 +1685,8 @@ def _revive_notes(part: dict) -> list[NoteEvent]:
     return [NoteEvent(n["pitch"], n["start"], n["duration"],
                       n["velocity"], list(n["bends"]),
                       n.get("dead", False),
-                      palm_mute=n.get("pm", False))
+                      palm_mute=n.get("pm", False),
+                      harmonic=n.get("harm", False))
             for n in part["notes"]]
 
 

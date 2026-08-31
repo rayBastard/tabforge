@@ -61,6 +61,9 @@ class NoteEvent:
     # palm-muted attack (P.M. in the score) — detected from the stem's
     # decay/brightness at the onset, guitars only
     palm_mute: bool = False
+    # natural harmonic (chimed flageolet): near-pure sustained tone,
+    # detected from the same onset features, guitars only
+    harmonic: bool = False
 
     @property
     def end(self) -> float:

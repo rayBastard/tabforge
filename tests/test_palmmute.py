@@ -96,6 +96,64 @@ class TestPalmMuteDetector(unittest.TestCase):
         self.assertTrue(all(not n.palm_mute for n in notes))
 
 
+class TestHarmonicDetector(unittest.TestCase):
+    def test_flageolet_detected_pluck_untouched(self):
+        import soundfile as sf
+
+        from tabforge.audio.palmmute import detect_techniques
+        # plucked notes (KS), then two chimed harmonics: nearly pure
+        # slowly-decaying tones an octave up
+        notes, flags = [], []
+        for k in range(6):
+            notes.append(NoteEvent(45, k * 0.4, 0.3))
+            flags.append("pluck")
+        for k in range(2):
+            notes.append(NoteEvent(57, 2.6 + k * 0.8, 0.6))
+            flags.append("harm")
+        total = int(5.0 * SR)
+        y = np.zeros(total)
+        for n, fl in zip(notes, flags):
+            i0 = int(n.start * SR)
+            if fl == "pluck":
+                s = _ks(n.pitch, 0.6, muted=False)
+            else:
+                f0 = 440.0 * 2 ** ((n.pitch - 69) / 12)
+                tt = np.arange(int(0.9 * SR)) / SR
+                s = (0.4 * np.sin(2 * np.pi * f0 * tt)
+                     * np.exp(-tt * 1.2)
+                     * np.minimum(1.0, tt / 0.01))
+            y[i0:i0 + len(s)] += s[:max(0, total - i0)]
+        with tempfile.TemporaryDirectory() as td:
+            wav = Path(td) / "g.wav"
+            sf.write(str(wav), y, SR)
+            _pm, harm = detect_techniques(notes, wav)
+        got = [n.harmonic for n in notes]
+        self.assertEqual(got[6:], [True, True], got)
+        self.assertEqual(got[:6], [False] * 6, got)
+        self.assertEqual(harm, 2)
+
+
+@unittest.skipUnless(HAVE_GP, "PyGuitarPro is not installed")
+class TestPalmMuteInGp5(unittest.TestCase):
+    def test_harmonic_flag_written(self):
+        import tempfile as tf
+
+        from tabforge.core.fretboard import TabConfig, assign_tab
+        from tabforge.export.writers import export_gp5
+        notes = [NoteEvent(57, 0.0, 0.5, harmonic=True),
+                 NoteEvent(57, 0.5, 0.5)]
+        shapes = assign_tab(notes, TabConfig())
+        with tf.TemporaryDirectory() as td:
+            path = Path(td) / "x.gp5"
+            export_gp5(shapes, path, TabConfig(), bpm=120.0)
+            song = gp.parse(str(path))
+        hs = [n.effect.harmonic is not None
+              for m in song.tracks[0].measures
+              for b in m.voices[0].beats
+              if b.status == gp.BeatStatus.normal
+              for n in b.notes]
+        self.assertEqual(hs, [True, False])
+
 @unittest.skipUnless(HAVE_GP, "PyGuitarPro is not installed")
 class TestPalmMuteInGp5(unittest.TestCase):
     def test_pm_flag_written(self):

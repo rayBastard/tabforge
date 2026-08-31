@@ -29,17 +29,35 @@ DUR_MAX = 0.5             # a palm-muted chug is short
 MIN_RUN = 3               # consecutive muted attacks to mark a run
 MAX_GAP = 0.6             # a run tolerates this much silence inside
 
+# Natural harmonics (flageolets) live in the OPPOSITE quadrant of the
+# same two features: a chimed harmonic is nearly a pure tone
+# (brightness ~1-3 — the fundamental carries almost everything) that
+# RINGS (decay high), where a palm mute is dull AND falls fast. Lone
+# harmonics are musically normal — no run requirement, but the purity
+# bar is strict so ordinary plucked notes (brightness 10-24 measured)
+# never qualify.
+HARM_BRIGHT_MAX = 3.0
+HARM_DECAY_MIN = 0.55
+HARM_DUR_MIN = 0.25       # a chime that dies instantly is not one
+# Purity alone is a CONTINUUM on synth-guitar material (measured on
+# Prosto: brightness 1.1..3.4 with no cluster) — a dark pad rings
+# pure everywhere. The musical constraint carries the split: a
+# natural harmonic sounds ABOVE the texture it decorates (12th/7th/
+# 5th-fret flageolets ring an octave or more over the open string).
+HARM_PITCH_LIFT = 7       # semitones above the part's median pitch
 
-def detect_palm_mutes(notes: Sequence, wav: Path) -> int:
-    """Set .palm_mute on the notes (in place); returns how many."""
+
+def detect_techniques(notes: Sequence, wav: Path) -> tuple[int, int]:
+    """Set .palm_mute and .harmonic on the notes (in place, one audio
+    pass); returns (palm_muted, harmonics)."""
     if not notes:
-        return 0
+        return 0, 0
     import librosa
     import numpy as np
 
     y, sr = librosa.load(str(wav), sr=22050, mono=True)
     if not len(y):
-        return 0
+        return 0, 0
 
     def _rms(a: "np.ndarray") -> float:
         return float(np.sqrt(np.mean(a * a))) if len(a) else 0.0
@@ -48,6 +66,9 @@ def detect_palm_mutes(notes: Sequence, wav: Path) -> int:
     order_t = sorted(n.start for n in notes)
     import bisect
     cand: list[bool] = []
+    harmonics = 0
+    pitches = sorted(n.pitch for n in notes)
+    pitch_floor = pitches[len(pitches) // 2] + HARM_PITCH_LIFT
     for n in notes:
         s0 = int(n.start * sr)
         # windows adapt to the gap before the NEXT attack, or a dense
@@ -71,9 +92,15 @@ def detect_palm_mutes(notes: Sequence, wav: Path) -> int:
         freqs = np.fft.rfftfreq(len(head), 1 / sr)
         centroid = float((spec * freqs).sum() / (spec.sum() + 1e-9))
         f0 = 440.0 * 2 ** ((n.pitch - 69) / 12)
+        bright = centroid / f0
         cand.append(decay < DECAY_MAX
-                    and centroid / f0 < BRIGHT_MAX
+                    and bright < BRIGHT_MAX
                     and n.duration < DUR_MAX)
+        if (bright < HARM_BRIGHT_MAX and decay > HARM_DECAY_MIN
+                and n.duration >= HARM_DUR_MIN
+                and n.pitch >= pitch_floor):
+            n.harmonic = True
+            harmonics += 1
 
     order = sorted(range(len(notes)), key=lambda i: notes[i].start)
     marked = 0
@@ -99,4 +126,9 @@ def detect_palm_mutes(notes: Sequence, wav: Path) -> int:
             run = []
         prev_t = notes[i].start
     _flush()
-    return marked
+    return marked, harmonics
+
+
+def detect_palm_mutes(notes: Sequence, wav: Path) -> int:
+    """Back-compat name: the palm-mute half of detect_techniques."""
+    return detect_techniques(notes, wav)[0]
