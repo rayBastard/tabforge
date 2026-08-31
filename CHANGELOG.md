@@ -11,6 +11,16 @@ madmom install the app quietly stays 4/4 as before. Non-wav inputs
 are decoded to a temp wav first (madmom has no ffmpeg), temp files
 are cleaned up, TABFORGE_MADMOM_PYTHON overrides the probe.
 
+Caught live on the first packaged run (the waltz rendered 4/4): the
+app's decoded wav is 48 kHz stereo, and madmom's loader resamples
+only via ffmpeg — absent in its venv — so the runner died and the
+code fell back to 4/4 in silence. The runner now decodes, downmixes
+and resamples with scipy itself, and every madmom failure branch
+writes out/madmom_error.txt plus a progress warning instead of
+swallowing the trace (that silence cost the whole diagnosis).
+Verified inside the rebuilt app end-to-end: the analyze log says
+"madmom votes 3/4" and the waltz's gp5 carries a 3/4 time signature.
+
 ## v0.7.15 — 2026-08-31
 
 Time signatures are real now: a waltz renders in 3/4. The meter is

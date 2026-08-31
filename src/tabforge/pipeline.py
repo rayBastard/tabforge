@@ -425,6 +425,16 @@ def _find_madmom_python() -> Path | None:
     return None
 
 
+def _madmom_log(out_dir: Path, msg: str) -> None:
+    """Every silent madmom failure burned us once (the packaged app
+    fell back to 4/4 with no trace) — so failures leave a file."""
+    try:
+        with (out_dir / "madmom_error.txt").open("a") as f:
+            f.write(msg + "\n")
+    except OSError:
+        pass
+
+
 def _run_madmom(mix: Path, out_dir: Path, bpm: float,
                 progress: ProgressFn = _noop) -> list | None:
     """madmom RNN+DBN rows [[time, bar_pos], ...]: in-process when the
@@ -445,10 +455,13 @@ def _run_madmom(mix: Path, out_dir: Path, bpm: float,
         return [[float(a), int(b)] for a, b in res]
     except ImportError:
         pass
-    except Exception:  # noqa: BLE001
-        return None
+    except Exception as e:  # noqa: BLE001 — broken in-process install:
+        _madmom_log(out_dir, f"in-process madmom failed: {e!r}")
+        # fall through and try the external venv instead
     python = _find_madmom_python()
     if python is None:
+        _madmom_log(out_dir, "no madmom: TABFORGE_MADMOM_PYTHON unset "
+                             "and ~/madmom/venv/bin/python missing")
         return None
     import json
     import os
@@ -460,6 +473,7 @@ def _run_madmom(mix: Path, out_dir: Path, bpm: float,
         base = Path(getattr(_sys, "_MEIPASS", ""))
         runner = base / "tabforge" / "audio" / "_madmom_run.py"
     if not runner.exists():
+        _madmom_log(out_dir, f"runner script missing: {runner}")
         return None
     # madmom reads wav only (no ffmpeg dependency) — hand it one
     wav = mix
@@ -480,7 +494,14 @@ def _run_madmom(mix: Path, out_dir: Path, bpm: float,
                        check=True, capture_output=True, timeout=600,
                        env=env)
         return json.loads(out.read_text())
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        detail = ""
+        stderr = getattr(e, "stderr", None)
+        if stderr:
+            detail = "\n" + stderr.decode("utf-8", "replace")[-2000:]
+        _madmom_log(out_dir, f"external madmom failed: {e!r}{detail}")
+        progress("analyze", "meter: madmom run failed — keeping 4/4 "
+                            "(details in madmom_error.txt)")
         return None
     finally:
         if wav is not mix:

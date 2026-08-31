@@ -23,10 +23,32 @@ AUDIO = Path(sys.argv[1]).resolve()
 OUT = Path(sys.argv[2]).resolve()
 BPM = float(sys.argv[3])
 
+import numpy as np  # noqa: E402
+from scipy.io import wavfile  # noqa: E402
+from scipy.signal import resample_poly  # noqa: E402
+
+from madmom.audio.signal import Signal  # noqa: E402
 from madmom.features.downbeats import (  # noqa: E402
     DBNDownBeatTrackingProcessor, RNNDownBeatProcessor)
 
-act = RNNDownBeatProcessor()(str(AUDIO))
+# madmom's own loader handles only what its net wants (44.1k mono) and
+# shells out to ffmpeg for everything else — this venv has no ffmpeg,
+# so decode + downmix + resample here with scipy instead
+sr, data = wavfile.read(str(AUDIO))
+orig = data.dtype
+data = data.astype(np.float32)
+if np.issubdtype(orig, np.integer):
+    data /= np.iinfo(orig).max
+if data.ndim > 1:
+    data = data.mean(axis=1)
+if sr != 44100:
+    from fractions import Fraction
+    fr = Fraction(44100, int(sr)).limit_denominator(1000)
+    data = resample_poly(data, fr.numerator, fr.denominator)
+    sr = 44100
+sig = Signal(data.astype(np.float32), sample_rate=sr, num_channels=1)
+
+act = RNNDownBeatProcessor()(sig)
 res = DBNDownBeatTrackingProcessor(
     beats_per_bar=[3, 4], fps=100,
     min_bpm=BPM * 0.9, max_bpm=BPM * 1.1)(act)
