@@ -1,5 +1,6 @@
 """Task 74: meter changes within a track."""
 import unittest
+from pathlib import Path
 
 from tabforge.pipeline import AnalyzeResult, _measure_meters, meter_segments
 
@@ -53,6 +54,42 @@ class TestMeasureMeters(unittest.TestCase):
     def test_meters_cover_all_beats(self):
         meters = _measure_meters(self._analyzed([(10.0, 3)]))
         self.assertEqual(sum(meters) >= 40, True)
+
+
+class TestGridSwitchReturns(unittest.TestCase):
+    def test_switch_path_returns_three_values(self):
+        # the ensemble's DECISIVE-SWITCH branch crashed analyze with
+        # "not enough values to unpack" after the task-74 refactor —
+        # no corpus track exercised it in acceptance (only hard
+        # tracks switch), the user's calibration session did
+        import json
+        import tempfile
+
+        import pretty_midi
+
+        from tabforge.pipeline import _select_beat_grid
+        step = 0.5
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td)
+            # madmom grid: clean 0.5s beats, bars of 4
+            rows = [[i * step, (i % 4) + 1] for i in range(120)]
+            (out / "madmom_grid.json").write_text(json.dumps(rows))
+            # 60 guitar notes sitting EXACTLY on that grid
+            pm = pretty_midi.PrettyMIDI()
+            inst = pretty_midi.Instrument(program=27)
+            for i in range(60):
+                inst.notes.append(pretty_midi.Note(
+                    velocity=90, pitch=52 + i % 12,
+                    start=i * step, end=i * step + 0.3))
+            pm.instruments.append(inst)
+            pm.write(str(out / "muscriptor.mid"))
+            bad = [i * 0.777 for i in range(80)]   # our grid: junk
+            res = _select_beat_grid(out, out, bad, 120.0,
+                                    lambda *_: None)
+            self.assertEqual(len(res), 3)
+            beats, meter, changes = res
+            self.assertNotEqual(len(beats), len(bad))  # switched
+            self.assertEqual(meter, 4)
 
 
 if __name__ == "__main__":

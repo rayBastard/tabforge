@@ -677,7 +677,7 @@ def _select_beat_grid(mix: Path, out_dir: Path, beats: list[float],
                  f"beat grid: the alternative explains the notes "
                  f"decisively better ({f_mm:.3f} vs {f_ours:.3f}) — "
                  f"switching")
-        return mm, meter
+        return mm, meter, changes
     return beats, meter, changes
 
 

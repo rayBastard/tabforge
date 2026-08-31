@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.7.28 — 2026-09-01
+
+Hotfix from the calibration session: analyze crashed with "not
+enough values to unpack" on tracks where the beat-grid ensemble
+DECISIVELY SWITCHES to the alternative grid — the rarest branch of
+the meter-changes refactor (task 74) still returned two values where
+every other path returned three, and no corpus track exercised it in
+the acceptance (only hard tracks switch). Fixed and pinned with a
+forced-switch replay that also covers the legacy grid-cache format.
+
+
 ## v0.7.27 — 2026-09-01
 
 Calibration flag #1, fixed the same day: with two detected guitars,
