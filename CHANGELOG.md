@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.7.27 — 2026-09-01
+
+Calibration flag #1, fixed the same day: with two detected guitars,
+one rang bright and loud while the other sat muffled and quiet. A
+three-reader audit traced it to a single deliberate line from the
+lead/rhythm split's birth — the lead voice was patched as a clean
+electric (program 27) while rhythm stayed steel acoustic (25), and
+in a real SoundFont those presets differ in both loudness and
+timbre. Both guitar voices now share one patch — equal sound, the
+score tells them apart, not the mixer (verified in the gp5: same
+program, volume and balance on both tracks). The audit also caught
+the editor's click-to-hear piano sitting ~5 dB under the guitar
+pluck — level-matched.
+
+
 ## v0.7.26 — 2026-09-01
 
 Playback you can trust your ears to (task 80) — after two honest

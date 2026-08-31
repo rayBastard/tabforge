@@ -1384,7 +1384,9 @@ function playTone(midi, dur = 0.6) {
   const t = ctx.currentTime;
   const f0 = 440 * Math.pow(2, (midi - 69) / 12);
   const out = ctx.createGain();
-  out.gain.value = 0.28;
+  // 0.45: level-matched to the guitar pluck (was 0.28 — the piano
+  // click read ~5 dB quieter; audit alongside calibration flag #1)
+  out.gain.value = 0.45;
   out.connect(ctx.destination);
   [[1, 1, 1.6], [2, 0.5, 1.0], [3, 0.25, 0.6], [4.01, 0.1, 0.4]]
     .forEach(([mult, amp, dec]) => {

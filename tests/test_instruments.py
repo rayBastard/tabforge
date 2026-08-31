@@ -23,7 +23,9 @@ class TestProfiles(unittest.TestCase):
 
     def test_midi_programs(self):
         self.assertEqual(profile_for("guitar").midi_program, 25)
-        self.assertEqual(profile_for("guitar_lead").midi_program, 27)
+        # calibration flag #1: both guitar voices share one patch —
+        # equal loudness and timbre in playback
+        self.assertEqual(profile_for("guitar_lead").midi_program, 25)
         self.assertEqual(profile_for("guitar_rhythm").midi_program, 25)
         self.assertEqual(profile_for("bass").midi_program, 33)
         self.assertEqual(profile_for("piano").midi_program, 0)

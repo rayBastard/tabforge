@@ -107,8 +107,13 @@ _VOCALS = InstrumentProfile(
 
 PROFILES: dict[str, InstrumentProfile] = {
     "guitar": _GUITAR,
-    # same family, different voices: the lead speaks as a clean electric
-    "guitar_lead": replace(_GUITAR, name="guitar_lead", midi_program=27),
+    # calibration flag #1 (2026-09-01): the lead used to speak as a
+    # clean electric (program 27) while rhythm stayed steel acoustic —
+    # in a real SoundFont the two presets differ in loudness AND
+    # timbre, and the user hears one guitar ringing and one muffled.
+    # Both guitar voices now share ONE patch; telling them apart is
+    # the score's job, not the mixer's.
+    "guitar_lead": replace(_GUITAR, name="guitar_lead"),
     "guitar_rhythm": replace(_GUITAR, name="guitar_rhythm"),
     "bass": _BASS,
     "piano": _PIANO,
