@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.7.15 — 2026-08-31
+
+Time signatures are real now: a waltz renders in 3/4. The meter is
+detected by madmom's bar-length vote constrained to our tempo (8/8
+on the stand — 3 on the user's new waltz track, 4 on every straight
+track), carried through analyze into the score's time signature, and
+the bar-phase election runs modulo the detected meter. Without the
+optional madmom install nothing changes (4/4 stays). The waltz's
+MIDI stubs proved unusable as timing truth (14 arbitrary notes), so
+the stand scores that track meter-only — honestly noted.
+
 ## v0.7.14 — 2026-08-31
 
 The beat-grid ensemble: on hard tracks (measured: metal) the built-in

@@ -1237,3 +1237,19 @@ madmom stays OPTIONAL and is explicitly EXCLUDED from the app bundle
 (its RNN models are CC BY-NC-SA — the MuScriptor yellow zone, added
 to the license-audit tail); without the install the current grid
 simply stays.
+
+### Meter lands in the product (same day — the user's waltz)
+
+The user added a 3/4 track ("Waltz of the Moon") — the first
+non-trivial meter truth. Its Suno MIDI stubs are unusable as TIMING
+truth (14 notes with 12.0 s and 5.3 s gaps that fit no bar length,
+nominal tempo 79 vs the render) — the stand scores it METER-ONLY.
+
+The verdict that shipped: madmom's DBN bar-length vote with our
+tempo constraint is the meter detector — **8/8 on the stand** (3 on
+the waltz, 4 on every 4/4 track; BeatNet got 4/8 and called straight
+tracks triple). Wired through: _select_beat_grid returns the meter,
+AnalyzeResult.meter carries it, the server passes it as the score's
+time signature, and the bar-phase election runs mod meter. End to
+end on the waltz: "meter: madmom votes 3/4" -> TS 3/4 in the gp5.
+Without the optional madmom install the meter stays 4 — documented.

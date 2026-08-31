@@ -50,7 +50,20 @@ TRACKS = [
      TM / "Only instruments/Keyboard (Keyboard).mid"),
     ("solo-synth", TM / "Only instruments/Synth.mp3",
      TM / "Only instruments/Synth (Synth Pad).mid"),
+    ("waltz", TM / "Waltz of the Moon.mp3",
+     TM / "Waltz of the Moon (Bass).mid"),
 ]
+
+# Suno writes no TS meta anywhere; the waltz's 3/4 is user-attested.
+# Its MIDI stubs hold 14 notes total, so its truth BEATS are built
+# from the tempo meta (79 BPM) over the audio length instead of
+# pretty_midi's note-bounded grid.
+METER_TRUTH = {"waltz": 3}
+# the waltz MIDI stubs (14 notes, gaps of 12.0 s and 5.3 s that fit
+# no bar length, nominal tempo 79 vs the render) are unusable as
+# TIMING truth — the track scores ONLY the meter metric
+METER_ONLY = {"waltz"}
+SPARSE_TRUTH = {"waltz"}
 
 # frozen MIDI->audio offsets, seconds (onset xcorr, 2026-08-31)
 OFFSETS: dict[str, float] = {
@@ -62,12 +75,23 @@ OFFSETS: dict[str, float] = {
 TOL = 0.070
 
 
-def truth_of(mid: Path):
+def truth_of(name: str, mid: Path, audio: Path):
     import pretty_midi
 
     pm = pretty_midi.PrettyMIDI(str(mid))
     ts = pm.time_signature_changes
-    meter = ts[0].numerator if ts else 4      # Suno writes no TS meta
+    meter = METER_TRUTH.get(
+        name, ts[0].numerator if ts else 4)   # Suno writes no TS meta
+    if name in SPARSE_TRUTH:
+        import librosa
+        _t, tempi = pm.get_tempo_changes()
+        step = 60.0 / float(tempi[0])
+        dur = librosa.get_duration(path=str(audio))
+        beats, x = [], 0.0
+        while x < dur:
+            beats.append(x)
+            x += step
+        return meter, beats[0::meter], beats
     return meter, list(pm.get_downbeats()), list(pm.get_beats())
 
 
@@ -400,7 +424,7 @@ def main() -> None:
 
     rows = []
     for name, audio, mid in TRACKS:
-        t_meter, t_down, t_beats = truth_of(mid)
+        t_meter, t_down, t_beats = truth_of(name, mid, audio)
         e_meter, e_down, e_beats = ENGINES[args.engine](
             audio, args.work / name, args.fresh)
 
@@ -413,17 +437,22 @@ def main() -> None:
 
         td = [t + off for t in t_down]
         tb = [t + off for t in t_beats]
-        rows.append((name, t_meter, e_meter == t_meter,
-                     f1_times(e_beats, tb), f1_times(e_down, td)))
+        if name in METER_ONLY:
+            rows.append((name, t_meter, e_meter == t_meter, None, None))
+        else:
+            rows.append((name, t_meter, e_meter == t_meter,
+                         f1_times(e_beats, tb), f1_times(e_down, td)))
 
     print(f"\n[{args.engine}]")
     print(f"{'track':12s} meter  meter-ok  beatF1  downbeatF1")
     for name, m, ok, bf, df in rows:
-        print(f"{name:12s} {m}/4    {'yes' if ok else 'NO ':>3s}    "
-              f"{bf:5.2f}   {df:5.2f}")
+        cells = ("  (meter-only)" if bf is None
+                 else f"    {bf:5.2f}   {df:5.2f}")
+        print(f"{name:12s} {m}/4    {'yes' if ok else 'NO ':>3s}{cells}")
+    timed = [r for r in rows if r[3] is not None]
     print(f"{'MEAN':12s}              "
-          f"{np.mean([r[3] for r in rows]):5.2f}   "
-          f"{np.mean([r[4] for r in rows]):5.2f}   "
+          f"{np.mean([r[3] for r in timed]):5.2f}   "
+          f"{np.mean([r[4] for r in timed]):5.2f}   "
           f"meter acc {np.mean([r[2] for r in rows]):.2f}")
 
 

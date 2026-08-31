@@ -124,6 +124,9 @@ class AnalyzeResult:
     # solo mode (task 62): stems all point at the ORIGINAL mix — no
     # separation ran, no leak spectra or backing make sense
     solo: bool = False
+    # bars per measure (task 71: madmom's DBN votes 3 vs 4 when the
+    # optional install is present — 8/8 on the stand; 4 otherwise)
+    meter: int = 4
 
 
 @dataclass(slots=True)
@@ -339,6 +342,7 @@ def _analyze_solo(audio: Path, out_dir: Path,
 
     cards = (*PITCHED_STEMS, "drums")
     analysis: dict[str, StemAnalysis] = {}
+    solo_meter = 4
     densities.pop("vocals", None)     # no vocal note track (see PITCHED_STEMS)
     if densities:
         dominant = max(densities, key=densities.get)
@@ -379,8 +383,10 @@ def _analyze_solo(audio: Path, out_dir: Path,
         bpm, beats = _octave_correct(bpm, beats, ioi,
                                      tempo_extras.get("local_votes"),
                                      progress)
-        beats = _select_beat_grid(mix, out_dir, beats, bpm, progress)
-        beats = _elect_bar_phase(mix, mix_data, beats, progress)
+        beats, solo_meter = _select_beat_grid(mix, out_dir, beats, bpm,
+                                              progress)
+        beats = _elect_bar_phase(mix, mix_data, beats, solo_meter,
+                                 progress)
         from .audio.tagging import tag_stem
         a.sounds_like = tag_stem(mix)
     else:
@@ -401,12 +407,14 @@ def _analyze_solo(audio: Path, out_dir: Path,
              if a.status != "absent"}
     return AnalyzeResult(stems=stems, analysis=analysis, bpm=bpm,
                          beats=beats, tempo_reliable=reliable, key=key,
-                         warnings=warnings, solo=True)
+                         warnings=warnings, solo=True,
+                         meter=solo_meter)
 
 
 def _select_beat_grid(mix: Path, out_dir: Path, beats: list[float],
                       bpm: float,
-                      progress: ProgressFn = _noop) -> list[float]:
+                      progress: ProgressFn = _noop
+                      ) -> tuple[list[float], int]:
     """The beat-grid ensemble (task 71 v2): our tracker against madmom
     DBN constrained to our tempo +-10%, selected by which grid better
     EXPLAINS the transcribed notes (mean onset distance to its 16th
@@ -424,23 +432,23 @@ def _select_beat_grid(mix: Path, out_dir: Path, beats: list[float],
         from madmom.features.downbeats import (
             DBNDownBeatTrackingProcessor, RNNDownBeatProcessor)
     except Exception:  # noqa: BLE001 — optional
-        return beats
-    mus = out_dir / "muscriptor.mid"
-    if not mus.exists() or len(beats) < 8:
-        return beats
+        return beats, 4
+    if len(beats) < 8:
+        return beats, 4
     from .audio.arbiter import mt3_card_notes
 
+    mus = out_dir / "muscriptor.mid"
     notes: list[float] = []
-    for card in ("guitar", "bass", "piano", "other"):
-        notes += [n.start for n in (mt3_card_notes(mus, card) or [])]
+    if mus.exists():
+        for card in ("guitar", "bass", "piano", "other"):
+            notes += [n.start
+                      for n in (mt3_card_notes(mus, card) or [])]
     notes = sorted({round(x, 3) for x in notes})
-    if len(notes) < 50:
-        return beats
 
     import json
     cache = out_dir / "madmom_grid.json"
     if cache.exists():
-        mm = json.loads(cache.read_text())
+        rows = json.loads(cache.read_text())
     else:
         import librosa
         progress("analyze", "beat grid: consulting madmom (alt grid)")
@@ -449,10 +457,16 @@ def _select_beat_grid(mix: Path, out_dir: Path, beats: list[float],
         res = DBNDownBeatTrackingProcessor(
             beats_per_bar=[3, 4], fps=100,
             min_bpm=bpm * 0.9, max_bpm=bpm * 1.1)(act)
-        mm = [float(a) for a, _b in res]
-        cache.write_text(json.dumps(mm))
-    if len(mm) < 8:
-        return beats
+        rows = [[float(a), int(b)] for a, b in res]
+        cache.write_text(json.dumps(rows))
+    mm = [a for a, _b in rows]
+    # the DBN's bar-length vote IS the meter detector: 8/8 on the
+    # stand (3 on the user's waltz, 4 on every 4/4 track)
+    meter = max((b for _a, b in rows), default=4)
+    if meter == 3:
+        progress("analyze", "meter: madmom votes 3/4 (waltz time)")
+    if len(mm) < 8 or len(notes) < 50:
+        return beats, meter
 
     def fit(grid):
         b = np.array(grid)
@@ -480,11 +494,12 @@ def _select_beat_grid(mix: Path, out_dir: Path, beats: list[float],
                  f"beat grid: the alternative explains the notes "
                  f"decisively better ({f_mm:.3f} vs {f_ours:.3f}) — "
                  f"switching")
-        return mm
-    return beats
+        return mm, meter
+    return beats, meter
 
 
 def _elect_bar_phase(mix: Path, mix_data, beats: list[float],
+                     meter: int = 4,
                      progress: ProgressFn = _noop) -> list[float]:
     """Bar 1 must start at a REAL downbeat (task 71). Of the four
     possible bar phases of the beat grid, elect the one whose bar
@@ -521,15 +536,15 @@ def _elect_bar_phase(mix: Path, mix_data, beats: list[float],
         # sync segments sit one step behind the beat list — the change
         # "at" segment i marks the bar line at beat i-1 (the stand
         # found the off-by-one: unshifted scoring inverted every phase)
-        phase = max(range(4),
-                    key=lambda ph: float(np.mean(change[ph + 1::4])
-                                         if len(change[ph + 1::4])
+        phase = max(range(meter),
+                    key=lambda ph: float(np.mean(change[ph + 1::meter])
+                                         if len(change[ph + 1::meter])
                                          else 0.0))
     except Exception:  # noqa: BLE001 — the phase is a refinement
         return beats
     if phase == 0:
         return beats
-    k = (4 - phase) % 4
+    k = (meter - phase) % meter
     step = beats[1] - beats[0]
     prefix = [beats[phase] - (i + 1) * step
               for i in range(phase + k - 1, -1, -1)]
@@ -758,8 +773,9 @@ def run_analyze(audio: Path, out_dir: Path,
         bpm, beats = _octave_correct(bpm, beats, min(found_iois),
                                      tempo_extras.get("local_votes"),
                                      progress)
-    beats = _select_beat_grid(demucs_input, out_dir, beats, bpm, progress)
-    beats = _elect_bar_phase(audio, mix_data, beats, progress)
+    beats, meter = _select_beat_grid(demucs_input, out_dir, beats, bpm,
+                                     progress)
+    beats = _elect_bar_phase(audio, mix_data, beats, meter, progress)
 
     # structure features (task 59): beat-synced chroma of the MIX —
     # cached now, while the mix is at hand; boundaries are detected at
@@ -774,6 +790,7 @@ def run_analyze(audio: Path, out_dir: Path,
     return AnalyzeResult(stems=all_stems, analysis=analysis,
                          bpm=bpm, beats=beats,
                          tempo_reliable=tempo_reliable, key=key,
+                         meter=meter,
                          warnings=warnings)
 
 
@@ -1933,6 +1950,16 @@ def _analyze_mix_only(audio: Path, opts: PipelineOptions,
                          key=key, warnings=warnings)
 
 
+def _apply_meter(opts: PipelineOptions, analyzed) -> PipelineOptions:
+    """The detected meter becomes the score's time signature unless
+    the caller already chose one explicitly."""
+    from dataclasses import replace as _replace
+    m = getattr(analyzed, "meter", 4)
+    if m != 4 and opts.beats_per_measure == 4:
+        return _replace(opts, beats_per_measure=m)
+    return opts
+
+
 def run_pipeline(audio: Path, out_dir: Path,
                  opts: PipelineOptions | None = None,
                  progress: ProgressFn = _noop) -> list[StemResult]:
@@ -1944,4 +1971,5 @@ def run_pipeline(audio: Path, out_dir: Path,
                                separator=opts.separator)
     else:
         analyzed = _analyze_mix_only(audio, opts, progress)
-    return run_transcribe(out_dir, analyzed, opts, progress)
+    return run_transcribe(out_dir, analyzed, _apply_meter(opts, analyzed),
+                          progress)

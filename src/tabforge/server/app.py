@@ -455,6 +455,9 @@ async def transcribe_job(job_id: str, selection: dict) -> dict:
         stems=stems,
         tuning=tuning,
         subdivision=subdivision,
+        # meter detected at analyze (madmom votes 3 vs 4; 4 without
+        # the optional install) — the score's time signature
+        beats_per_measure=getattr(job.analyzed, "meter", 4),
         treat={str(k): str(v) for k, v in treat.items()},
         tempo_scale=tempo_scale,
         guitar_engine=(str(selection.get("guitar_engine", "auto"))
