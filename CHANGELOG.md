@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.7.26 — 2026-09-01
+
+Playback you can trust your ears to (task 80): the player now uses
+MuseScore_General (MIT, ~40MB) instead of alphaTab's tiny default
+synth bank. It lazy-downloads on first use — the same pattern as the
+model weights, nothing added to the bundle — is cached and served
+locally from then on, and the player quietly falls back to the old
+CDN bank until the download lands (or when offline). Verified in a
+real browser: alphaTab loads the SF3 and reports soundFontLoaded.
+By-ear verification of notes and octaves is now a fair judge, which
+is exactly what the calibration sessions needed.
+
+
 ## v0.7.25 — 2026-09-01
 
 The calibration flag (task 77's tool): a 🚩 button in the player —

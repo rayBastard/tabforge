@@ -632,6 +632,59 @@ async def part_notes(job_id: str, part: str) -> dict:
     return {"notes": notes, "threshold": round(threshold, 3)}
 
 
+# ---------------------------------------------------------------------------
+# SoundFont (task 80): the alphaTab default (sonivox) is not good
+# enough to verify notes BY EAR. MuseScore_General.sf3 (MIT, ~40MB)
+# lazy-downloads on first request — the model-weights pattern — and is
+# served locally afterwards; the frontend falls back to the CDN
+# sonivox until the download lands.
+# ---------------------------------------------------------------------------
+SOUNDFONT_URL = ("https://ftp.osuosl.org/pub/musescore/soundfont/"
+                 "MuseScore_General/MuseScore_General.sf3")
+SOUNDFONT_PATH = Path.home() / ".cache" / "tabforge" / "MuseScore_General.sf3"
+_sf_lock = threading.Lock()
+_sf_downloading = False
+
+
+def _fetch_soundfont() -> None:
+    global _sf_downloading
+    try:
+        import urllib.request
+        SOUNDFONT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = SOUNDFONT_PATH.with_suffix(".part")
+        urllib.request.urlretrieve(SOUNDFONT_URL, tmp)
+        if tmp.stat().st_size > 10_000_000:      # sanity: a real sf3
+            tmp.replace(SOUNDFONT_PATH)
+        else:
+            tmp.unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001 — playback falls back to the CDN
+        pass
+    finally:
+        _sf_downloading = False
+
+
+@app.get("/api/soundfont/info")
+async def soundfont_info() -> dict:
+    """Ready flag + kick the lazy download on first ask."""
+    global _sf_downloading
+    ready = SOUNDFONT_PATH.exists()
+    if not ready:
+        with _sf_lock:
+            if not _sf_downloading:
+                _sf_downloading = True
+                threading.Thread(target=_fetch_soundfont,
+                                 daemon=True).start()
+    return {"ready": ready}
+
+
+@app.get("/api/soundfont")
+async def soundfont():
+    if not SOUNDFONT_PATH.exists():
+        raise HTTPException(404, "soundfont not downloaded yet")
+    return FileResponse(SOUNDFONT_PATH,
+                        media_type="application/octet-stream")
+
+
 @app.post("/api/jobs/{job_id}/flags")
 async def add_flag(job_id: str, flag: dict) -> dict:
     """Calibration flags (task 77): the user marks "врёт вот тут"

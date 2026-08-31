@@ -546,7 +546,7 @@ function finish(job) {
     resultsEl.appendChild(card);
   }
 
-  initUnifiedScore(job);
+  resolveSoundFont().finally(() => initUnifiedScore(job));
 }
 
 /* ---------- the unified project player (one alphaTab, all tracks) ---- */
@@ -614,6 +614,16 @@ function buildScoreTabs(job) {
   nav.hidden = !job.results.length;
 }
 
+async function resolveSoundFont() {
+  if (unified.soundFontUrl !== undefined) return;   // probed already
+  unified.soundFontUrl = null;
+  try {
+    const res = await apiFetch("/api/soundfont/info");
+    const d = await res.json();
+    if (d.ready) unified.soundFontUrl = withToken("/api/soundfont");
+  } catch { /* offline: CDN fallback */ }
+}
+
 function initUnifiedScore(job) {
   const atEl = $("#unifiedScore");
   const playBtn = $("#transportPlay");
@@ -652,7 +662,10 @@ function initUnifiedScore(job) {
       core: { includeNoteBounds: true },
       player: withPlayer ? {
         enablePlayer: true,
-        soundFont: "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.4.0/dist/soundfont/sonivox.sf2",
+        // task 80: the good SoundFont when the server has it cached
+        // (MuseScore_General, lazy-downloaded); CDN sonivox until then
+        soundFont: unified.soundFontUrl ||
+          "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.4.0/dist/soundfont/sonivox.sf2",
         // alphaTab's own auto-scroll fought the page layout (it kept
         // snapping to the top) — we follow the cursor ourselves from
         // playedBeatChanged, so its scrolling is OFF entirely
