@@ -411,6 +411,83 @@ def _analyze_solo(audio: Path, out_dir: Path,
                          meter=solo_meter)
 
 
+def _find_madmom_python() -> Path | None:
+    """External madmom venv (the RNN models are CC BY-NC-SA — never
+    bundled; same pattern as ~/mt3 and ~/muscriptor).
+    TABFORGE_MADMOM_PYTHON wins; then ~/madmom/venv is probed."""
+    import os
+    env = os.environ.get("TABFORGE_MADMOM_PYTHON")
+    cands = ([Path(env)] if env else []) + [
+        Path("~/madmom/venv/bin/python").expanduser()]
+    for c in cands:
+        if c.exists():
+            return c
+    return None
+
+
+def _run_madmom(mix: Path, out_dir: Path, bpm: float,
+                progress: ProgressFn = _noop) -> list | None:
+    """madmom RNN+DBN rows [[time, bar_pos], ...]: in-process when the
+    library is importable (dev venv), else via the external-venv
+    runner; None when neither exists."""
+    try:
+        import librosa
+        from madmom.audio.signal import Signal
+        from madmom.features.downbeats import (
+            DBNDownBeatTrackingProcessor, RNNDownBeatProcessor)
+
+        progress("analyze", "beat grid: consulting madmom (alt grid)")
+        y, sr = librosa.load(str(mix), sr=44100, mono=True)
+        act = RNNDownBeatProcessor()(Signal(y, sample_rate=sr))
+        res = DBNDownBeatTrackingProcessor(
+            beats_per_bar=[3, 4], fps=100,
+            min_bpm=bpm * 0.9, max_bpm=bpm * 1.1)(act)
+        return [[float(a), int(b)] for a, b in res]
+    except ImportError:
+        pass
+    except Exception:  # noqa: BLE001
+        return None
+    python = _find_madmom_python()
+    if python is None:
+        return None
+    import json
+    import os
+    import subprocess
+    import sys as _sys
+
+    runner = Path(__file__).parent / "audio" / "_madmom_run.py"
+    if not runner.exists():
+        base = Path(getattr(_sys, "_MEIPASS", ""))
+        runner = base / "tabforge" / "audio" / "_madmom_run.py"
+    if not runner.exists():
+        return None
+    # madmom reads wav only (no ffmpeg dependency) — hand it one
+    wav = mix
+    if mix.suffix.lower() != ".wav":
+        import librosa
+        import soundfile as sf
+        y, sr = librosa.load(str(mix), sr=44100, mono=True)
+        wav = out_dir / "_madmom_in.wav"
+        sf.write(str(wav), y, sr)
+    out = out_dir / "_madmom_out.json"
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH",
+                        "PYTHONPATH", "PYTHONHOME", "_MEIPASS2")}
+    progress("analyze", "beat grid: consulting madmom (external venv)")
+    try:
+        subprocess.run([str(python), str(runner), str(wav), str(out),
+                        str(bpm)],
+                       check=True, capture_output=True, timeout=600,
+                       env=env)
+        return json.loads(out.read_text())
+    except Exception:  # noqa: BLE001
+        return None
+    finally:
+        if wav is not mix:
+            wav.unlink(missing_ok=True)
+        out.unlink(missing_ok=True)
+
+
 def _select_beat_grid(mix: Path, out_dir: Path, beats: list[float],
                       bpm: float,
                       progress: ProgressFn = _noop
@@ -426,13 +503,7 @@ def _select_beat_grid(mix: Path, out_dir: Path, beats: list[float],
     madmom is OPTIONAL and never bundled (its RNN models are
     CC BY-NC-SA — the MuScriptor yellow zone): without the install
     the current grid simply stays."""
-    try:
-        import numpy as np
-        from madmom.audio.signal import Signal
-        from madmom.features.downbeats import (
-            DBNDownBeatTrackingProcessor, RNNDownBeatProcessor)
-    except Exception:  # noqa: BLE001 — optional
-        return beats, 4
+    import numpy as np
     if len(beats) < 8:
         return beats, 4
     from .audio.arbiter import mt3_card_notes
@@ -450,14 +521,9 @@ def _select_beat_grid(mix: Path, out_dir: Path, beats: list[float],
     if cache.exists():
         rows = json.loads(cache.read_text())
     else:
-        import librosa
-        progress("analyze", "beat grid: consulting madmom (alt grid)")
-        y, sr = librosa.load(str(mix), sr=44100, mono=True)
-        act = RNNDownBeatProcessor()(Signal(y, sample_rate=sr))
-        res = DBNDownBeatTrackingProcessor(
-            beats_per_bar=[3, 4], fps=100,
-            min_bpm=bpm * 0.9, max_bpm=bpm * 1.1)(act)
-        rows = [[float(a), int(b)] for a, b in res]
+        rows = _run_madmom(mix, out_dir, bpm, progress)
+        if rows is None:
+            return beats, 4          # no madmom anywhere — no ensemble
         cache.write_text(json.dumps(rows))
     mm = [a for a, _b in rows]
     # the DBN's bar-length vote IS the meter detector: 8/8 on the

@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.7.16 — 2026-08-31
+
+The packaged app can hear meter now. madmom's downbeat models are
+CC BY-NC-SA and stay out of the bundle — instead it lives in its own
+venv at ~/madmom/venv (installed on this machine), and the app calls
+it as a subprocess, the same license-clean pattern as MT3 and
+MuScriptor. Dev runs still use the in-process import; without any
+madmom install the app quietly stays 4/4 as before. Non-wav inputs
+are decoded to a temp wav first (madmom has no ffmpeg), temp files
+are cleaned up, TABFORGE_MADMOM_PYTHON overrides the probe.
+
 ## v0.7.15 — 2026-08-31
 
 Time signatures are real now: a waltz renders in 3/4. The meter is

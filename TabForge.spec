@@ -12,7 +12,8 @@ datas = [("frontend", "frontend"),
          # scripts in external venvs — they must exist on disk, not
          # inside the PYZ
          ("src/tabforge/audio/_mt3_run.py", "tabforge/audio"),
-         ("src/tabforge/audio/_muscriptor_run.py", "tabforge/audio")]
+         ("src/tabforge/audio/_muscriptor_run.py", "tabforge/audio"),
+         ("src/tabforge/audio/_madmom_run.py", "tabforge/audio")]
 binaries = []
 hiddenimports = []
 

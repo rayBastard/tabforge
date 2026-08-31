@@ -217,6 +217,20 @@ In solo mode the "auto" guitar engine routes acoustic-sounding tracks
 to GAPS and distorted/electric ones to MuScriptor; the "guitar
 engine" dropdown on the instruments screen overrides the router.
 
+**madmom** (time-signature detection + the beat-grid ensemble on hard
+tracks). Its RNN downbeat models are **CC BY-NC-SA**, so it stays out
+of the app bundle and lives in its own venv, called as a subprocess:
+
+```bash
+python3.11 -m venv ~/madmom/venv
+~/madmom/venv/bin/pip install "cython<3" numpy scipy mido
+~/madmom/venv/bin/pip install "git+https://github.com/CPJKU/madmom.git"
+```
+
+`TABFORGE_MADMOM_PYTHON` overrides the probe. Without it everything
+still works — scores just render in 4/4 and the built-in beat grid is
+used as-is.
+
 ## Running
 
 ```bash
