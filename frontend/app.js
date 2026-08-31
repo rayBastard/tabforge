@@ -1865,8 +1865,9 @@ async function enterReview() {
     const res = await apiFetch(`/api/jobs/${currentJobId}/notes/${part}`);
     if (!res.ok) throw new Error(await errorDetail(res));
     const data = await res.json();
+    review.threshold = data.threshold ?? REVIEW_CONF;
     review.notes = data.notes
-      .filter((n) => !n.dead && n.conf < REVIEW_CONF)
+      .filter((n) => !n.dead && n.conf < review.threshold)
       .sort((a, b) => a.qticks - b.qticks);
   } catch (err) {
     setLog(`Review failed: ${err.message}`, true);
@@ -1874,7 +1875,7 @@ async function enterReview() {
   }
   if (!review.notes.length) {
     setLog(`Review: no disputed notes in ${STEM_NAMES[part] || part} — ` +
-           `everything above ${REVIEW_CONF} confidence`);
+           `everything above ${review.threshold} confidence`);
     return;
   }
   review.on = true;

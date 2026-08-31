@@ -1235,12 +1235,17 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
             from .audio.validate import note_confidences
             _save_part_state(out_dir, part_name, part_notes, legato,
                              tuning_key, profile.name,
-                             # mix-sourced notes must not be judged by
-                             # the stem's spectrum (see the leak-filter
-                             # exemption above)
+                             # spectra go in for mix-sourced notes TOO
+                             # (the leak-filter exemption above stands,
+                             # but confidence without them degenerated
+                             # to a constant 0.91 — MuScriptor MIDI has
+                             # no velocity — and Review mode had
+                             # nothing to show; a routed note weakly
+                             # supported by its own stem is exactly the
+                             # note to review first)
                              conf=note_confidences(
                                  part_notes, name, analyzed.stems,
-                                 None if from_mt3 else spectra))
+                                 spectra))
             results.append(StemResult(
                 stem=part_name, bpm=bpm,
                 key=key.name if key else "unknown key",

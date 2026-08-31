@@ -190,7 +190,7 @@ def detect_sections(features_path: Path, beats: list[float],
     elif repeated:
         verse = repeated[0]
 
-    out = []
+    labeled: list[list] = []                    # [a, b, label]
     for k, (a, b, li) in enumerate(merged):
         if li == chorus:
             label = "Chorus"
@@ -202,8 +202,24 @@ def detect_sections(features_path: Path, beats: list[float],
             label = "Outro"
         else:
             label = "Bridge"
-        out.append({"start": float(beats[a]),
-                    "end": float(beats[b] if b < len(beats)
-                                 else beats[-1]),
-                    "label": label})
-    return out
+        labeled.append([a, b, label])
+
+    # Block-70 tails: a RUN of consecutive one-off segments is not
+    # five different bridges — it is one stretch the clusterer could
+    # not name (measured on Hero: 11 of 16 sections were "Bridge",
+    # up to five in a row). Adjacent Bridges merge across WEAK
+    # boundaries; a strong novelty peak still splits (the riff change
+    # inside one harmonic fabric that the chroma letters can't see).
+    squeezed: list[list] = []
+    for a, b, label in labeled:
+        if (squeezed and label == "Bridge"
+                and squeezed[-1][2] == "Bridge"
+                and bound_score.get(a, 0.0) < strong):
+            squeezed[-1][1] = b
+        else:
+            squeezed.append([a, b, label])
+
+    return [{"start": float(beats[a]),
+             "end": float(beats[b] if b < len(beats) else beats[-1]),
+             "label": label}
+            for a, b, label in squeezed]

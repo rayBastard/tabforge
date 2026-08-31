@@ -609,10 +609,20 @@ async def part_notes(job_id: str, part: str) -> dict:
     if job.status != "done" or job.opts is None:
         raise HTTPException(409, "Transcribe first")
     try:
-        return {"notes": part_note_meta(job.dir / "out", part,
-                                        job.analyzed, job.opts)}
+        notes = part_note_meta(job.dir / "out", part,
+                               job.analyzed, job.opts)
     except ValueError as e:
         raise HTTPException(404, str(e))
+    # Review threshold (block-70 tails): adaptive quantile, not a
+    # constant — with the spectral confidence live, a fixed 0.5 marked
+    # 45-100% of a routed part's notes on golden. Review's job is to
+    # direct attention, so it flags the WORST ~15% of the part, and
+    # never more than the constant used to allow.
+    confs = sorted(n["conf"] for n in notes if not n.get("dead"))
+    threshold = 0.5
+    if len(confs) >= 20:
+        threshold = min(0.5, confs[int(len(confs) * 0.15)])
+    return {"notes": notes, "threshold": round(threshold, 3)}
 
 
 @app.get("/api/jobs/{job_id}/chords")

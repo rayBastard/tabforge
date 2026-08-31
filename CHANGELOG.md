@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.7.19 — 2026-08-31
+
+The block-70 tails. Review mode works again: note confidence had
+silently degenerated to a constant on model-routed parts (no
+velocity in MuScriptor MIDI, no spectral support for mix-sourced
+notes) so nothing was ever "disputed" — routed notes now earn real
+stem-support confidence and Review walks the worst 15% of each part
+instead of a fixed threshold. Song sections stop splintering: runs
+of unrecognized segments merge (Hero went from 16 sections — eleven
+of them "Bridge" — to nine with real structure). A license audit
+landed (docs/licenses.md + scripts/license_audit.sh): nothing
+non-commercial ships in the bundle, the yellow zone is inventoried,
+open verification items are named. Synth pads are documented as a
+transcription dead end in Honest limitations (use the Suno MIDI
+drop for pad lines). The skip-the-arbiter checkbox turned out to be
+shipped already — verified end-to-end and left as is.
+
+
 ## v0.7.18 — 2026-08-31
 
 Durations became an optimization with positions first (task 73).

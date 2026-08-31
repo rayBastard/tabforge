@@ -361,6 +361,13 @@ All behavior lives in `TabConfig` (`src/tabforge/core/fretboard.py`):
   Neither is wrong — check before assuming a transcription error.
 - Guitar sounds an octave lower than written — if the notes seem
   "off", check this first.
+- **Synth pads are a dead end for transcription**: every source we
+  measured (stem transcribers and whole-mix models alike) is blind or
+  half-blind on sustained pad textures, and 61% of the notes they do
+  hear carry an octave twin — that ambiguity is a property of the
+  patches themselves (detuned layers, sub-oscillators), not a bug to
+  fix. If the pad line matters to you, use the Suno MIDI as the
+  source (drop the .mid on the start screen) instead of the audio.
 - Suno tracks are generated, not played: physically unplayable
   voicings do occur. The algorithm finds the closest playable one.
 - Tempo changes within a track are averaged (one grid per track);

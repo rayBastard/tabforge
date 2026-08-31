@@ -1348,3 +1348,41 @@ seven blessed decisions and reproduces ALL of them: pure jittered
 threshold sits at 4.16, margin 8% — recorded honestly). At 2.0 the
 balance wrongly flipped Hero to base 2 (140 grid flips over 657
 measures would have returned the loose feel v0.7.12 killed).
+
+## BLOCK-70 TAILS — 2026-08-31 (v0.7.19)
+
+**Skip-the-arbiter checkbox**: already shipped in task 54 (the "MT3
+arbiter" checkbox on the start screen) — verified end-to-end today:
+use_mt3=0 runs no MT3 at all (no mt3.mid, cards keep RMS+BP
+statuses, keys fall back to muscriptor-medium which beats MT3
+anyway). The cheapest time lever was already in the user's hands.
+
+**Review confidence was DEAD on routed parts**: every note carried
+conf=0.91 exactly — MuScriptor MIDI has no velocity and mix-sourced
+notes were exempted from stem-spectrum support, so the constant-0.5
+threshold flagged 0.0% of notes on both real tracks. Spectra now go
+in for routed notes too (the leak-filter exemption stands; only the
+confidence uses them), and the real distribution appeared: bass p50
+0.96 (healthy), routed guitar/keys 45-100% below 0.5 — so the
+threshold became the tail's prescribed adaptive quantile: the worst
+15% of each part (capped at 0.5), returned by the notes endpoint.
+Old jobs with constant 0.91 confs degrade to zero disputed, as
+before.
+
+**Hero sections**: 16 sections, 11 labeled "Bridge" (up to five in a
+row) — the clusterer's one-off fallback, not real structure.
+Adjacent Bridge segments now merge across weak novelty boundaries
+(strong peaks still split — the metal riff-change case): Hero 16->9
+with zero adjacent Bridges, Prosto's chorus structure intact.
+
+**License audit** (docs/licenses.md + scripts/license_audit.sh):
+nothing non-commercial ships in the bundle — the architecture already
+enforces it (MuScriptor/madmom/MT3 external venvs, BeatNet dev-only).
+Flagged for pre-release verification: PANNs checkpoint record,
+piano-transcription-inference, sphn, YourMT3+ repo license, roformer
+weights; PyGuitarPro is LGPL-3.0 (fine with attribution, noted).
+The script fails on GPL (non-LGPL) or new UNKNOWNs.
+
+**Synth pads** documented in README Honest limitations: all measured
+sources half-blind, 61% octave twins are a property of the patches;
+the recommended source for pad lines is the Suno MIDI drop.
