@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.7.21 — 2026-08-31
+
+Palm mute is in the score: a guitar attack that decays fast AND is
+spectrally dull (both windows adapted to the gap before the next
+attack) gets the P.M. marking — but only in runs of three or more
+(chugging is a texture, one dull note is not), calibrated on
+Karplus-Strong synthesis where the damping is ground truth. Honest
+limit, measured and documented: on heavily distorted mix-separated
+stems the decay cue is physically masked (compression + density), so
+on metal the detector stays nearly silent instead of guessing —
+clean and acoustic material is where it speaks. Palm mute survives
+edits and project reloads (parts.json), renders in the player and
+Guitar Pro.
+
+
 ## v0.7.20 — 2026-08-31
 
 Meter changes within a track (task 74, the block-70 finale). One

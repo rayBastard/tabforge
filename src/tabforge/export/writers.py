@@ -618,6 +618,9 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
         def apply(gp_note, src) -> None:
             if profile.let_ring:               # sustain-pedal feel on keys
                 gp_note.effect.letRing = True
+            if getattr(src, "palm_mute", False) \
+                    and getattr(profile, "allow_palm_mute", False):
+                gp_note.effect.palmMute = True
             if id(src) in hammer_ids:
                 gp_note.effect.hammer = True
             kind = classify_articulation(src.bends)

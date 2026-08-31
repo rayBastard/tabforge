@@ -1467,3 +1467,56 @@ override disables the changes (they chose a signature). 9 new tests.
 
 BLOCK 70-74 CLOSED: stand -> downbeat/meter -> swing/triples ->
 durations -> meter changes, every step measured, every burial named.
+
+## PALM MUTE — 2026-08-31 (techniques block opens)
+
+Physics-based detector (audio/palmmute.py): a palm-muted attack
+decays fast (RMS late/early) and is dull (spectral centroid over the
+note's f0); both windows adapt to the gap before the next attack (a
+dense riff's next chug otherwise lands inside the decay window —
+measured). Marks only RUNS of >=3 muted attacks (chugging), so one
+dull note in a ringing passage stays plain. Calibrated on
+Karplus-Strong synthesis where damping IS the truth (open notes:
+brightness ~23-24, decay ~0.6; muted: ~10-14, ~0.1); P.M. flows
+NoteEvent.palm_mute -> parts.json ("pm") -> gp5 noteEffect.palmMute,
+guitar profiles only.
+
+HONEST LIMIT, measured: on distorted MIX-SEPARATED stems the decay
+cue is destroyed — Loken's 16th chugging shows decay median 1.23
+(compression + density + bleed; the stem never gets quieter inside a
+note), and brightness alone cannot split PM from low-tuned
+distortion without a truth set. So on metal the detector stays
+nearly silent (1-2% marked) instead of guessing. Named prerequisite
+for going further: PM truth (user-marked passages or GP files).
+
+## BENDS MEASURED — 2026-08-31 (the ruler lands, the rescue dies)
+
+scripts/eval_bends.py on 20 GuitarSet solos (audio downloaded, ~2GB;
+bent = >=quartertone contour deviation, 782 of 1811 truth notes):
+muscriptor plain recall 0.899 vs BENT 0.854 (gap +0.045); GAPS
+0.903 vs 0.854 (+0.049); exact-pitch matching moves it to +0.051.
+VERDICT: in the transcribers' home domain bent notes do NOT vanish —
+the user's "куски с бендами упущены" lives in the mix/distortion
+domain where OVERALL recall is 0.15-0.5 and a bend-specific effect
+cannot be isolated without marked passages from the user's track.
+The f0-glide rescue pass is NOT justified by this evidence — parked
+until a real marked example exists. (Bend NOTATION for notes that do
+carry contour data already works: only Basic Pitch supplies it.)
+
+## SECOND-GUITAR TIMBRE SPLIT — 2026-08-31 (one signal lives, one dies)
+
+Fixture: GuitarSet acoustic comp + the solo-corpus electric guitar
+overlaid from 15 s (both with note truth). PANNs WINDOW TIMELINE
+(5 s windows, the existing distortion-family gate): acoustic windows
+0.06-0.09, overlap windows 0.45-0.62, acoustic-tag falls 0.7 -> 0.2
+— the "second guitar enters" moment is trivially detectable with the
+existing 0.30 threshold. ENGINE-DIFFERENTIAL separation (GAPS deaf
+to distortion hears only the acoustic; second guitar = MuScriptor
+minus GAPS) BURIED with numbers, twice: clean overlay — GAPS recall
+on the electric solo 0.85 (not deaf); tanh-distorted overlay — GAPS
+0.87 (task-64 deafness was a property of dense Suno MIXES, not of
+distortion per se). Note-level attribution therefore remains open:
+the named next design is per-note timbre features (attack
+brightness/embedding) clustered against the window timeline, or a
+guitar-guitar separation model; the detection half (timeline verdict
++ region) is ready for product wiring when the split half exists.

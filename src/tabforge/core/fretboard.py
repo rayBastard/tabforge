@@ -58,6 +58,9 @@ class NoteEvent:
     # rhythmic event with no reliable pitch (recitative vocals): written
     # as a dead note (x) — the pitch only picks the staff position
     dead: bool = False
+    # palm-muted attack (P.M. in the score) — detected from the stem's
+    # decay/brightness at the onset, guitars only
+    palm_mute: bool = False
 
     @property
     def end(self) -> float:
