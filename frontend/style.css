@@ -707,3 +707,12 @@ select {
 .card-preview .cp.found { color: var(--ok, #7dc87d); }
 .card-preview .cp.quiet { opacity: .75; }
 .card-preview .cp.absent { opacity: .4; }
+
+/* calibration flag box (task 77) */
+.flag-box {
+  position: fixed; top: 3.2rem; right: 1rem; z-index: 60;
+  display: flex; gap: .4rem; align-items: center;
+  background: var(--panel, #222); padding: .5rem .7rem;
+  border-radius: .6rem; box-shadow: 0 4px 18px rgba(0,0,0,.4);
+}
+.flag-box input { min-width: 22rem; }

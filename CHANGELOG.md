@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.7.25 — 2026-09-01
+
+The calibration flag (task 77's tool): a 🚩 button in the player —
+hit it the moment something reads wrong, type five words ("тут
+триоль, а не 16-е"), and the flag lands in the project with the bar,
+tick, active part and timestamp. Flags travel inside the .tabforge
+archive; a calibration session is now listen -> flag -> keep
+listening, no screenshots needed (screenshots still work too). Each
+flag becomes a numbered case on the next pass.
+
+
 ## v0.7.24 — 2026-09-01
 
 The speed program (tasks 75-76). The fast-arbiter hypothesis —

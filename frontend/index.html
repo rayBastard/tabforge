@@ -105,6 +105,13 @@
 
 <!-- ============ SCREEN 2: PROJECT — transport, tracks, score ========= -->
 <section id="screenProject" class="screen" hidden>
+  <div id="flagBox" class="flag-box" hidden>
+    <span id="flagWhere"></span>
+    <input id="flagText" type="text" maxlength="200"
+           placeholder="что не так и как должно быть">
+    <button id="flagSave">🚩 save</button>
+    <button id="flagCancel">✕</button>
+  </div>
   <header class="transport">
     <button id="backBtn" class="transport-btn" title="Back to the track">←</button>
     <span class="project-name" id="projectName">—</span>
@@ -119,6 +126,9 @@
             title="Review mode: step through low-confidence notes">👁 review</button>
     <button id="lyricsBtn" class="transport-btn" hidden
             title="Lyrics: show/hide the segment editor">🗨 lyrics</button>
+    <button id="flagBtn" class="transport-btn" hidden
+            title="Flag this spot: mark 'wrong here' with a short note —
+flags travel with the project and become calibration cases">🚩</button>
     <button id="followBtn" class="transport-btn"
             title="Follow the playback cursor (off = the page is all
 yours; any manual scroll turns it off again)">⤓</button>

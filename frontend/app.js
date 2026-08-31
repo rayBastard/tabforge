@@ -506,6 +506,7 @@ function finish(job) {
   refLink.href = withToken(`/api/jobs/${job.id}/reference`);
   refLink.hidden = false;
   $("#reviewBtn").hidden = false;
+  initFlagButton();
   loadChords(job.id);
   loadSections(job.id);
   loadLyrics(job.id);
@@ -695,6 +696,7 @@ function initUnifiedScore(job) {
         if (!beat) return;
         posEl.textContent =
           `bar ${beat.voice.bar.index + 1} / ${api.score.masterBars.length}`;
+        unified.curBar = beat.voice.bar.index + 1;
         const ci = chordAtTicks(beat.absolutePlaybackStart);
         if (ci >= 0) highlightChord(ci);
         updateLyricLine(beat.absolutePlaybackStart);
@@ -1874,6 +1876,51 @@ $("#bulkClear")?.addEventListener("click", () => {
   if (unified.api) unified.api.playbackRange = null;
   setBulkSelection(null);
 });
+
+/* ---------- calibration flags (task 77) ------------------------------ */
+
+function initFlagButton() {
+  const btn = $("#flagBtn"), box = $("#flagBox");
+  if (!btn || !box) return;
+  btn.hidden = false;
+  const input = $("#flagText"), where = $("#flagWhere");
+  const close = () => { box.hidden = true; input.value = ""; };
+  btn.onclick = () => {
+    const bar = unified.curBar || 0;
+    const q = (unified.api && unified.api.tickPosition) || 0;
+    box.dataset.bar = bar;
+    box.dataset.qticks = q;
+    where.textContent = bar ? `такт ${bar}` : "начало";
+    box.hidden = false;
+    input.focus();
+  };
+  $("#flagCancel").onclick = close;
+  const save = async () => {
+    try {
+      const res = await apiFetch(`/api/jobs/${currentJobId}/flags`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bar: Number(box.dataset.bar) || 0,
+          qticks: Number(box.dataset.qticks) || 0,
+          part: activePart() || "",
+          text: input.value.trim(),
+        }),
+      });
+      if (!res.ok) throw new Error(await errorDetail(res));
+      const d = await res.json();
+      setLog(`🚩 flag #${d.count} saved (bar ${box.dataset.bar})`);
+    } catch (err) {
+      setLog(`flag failed: ${err.message}`, true);
+    }
+    close();
+  };
+  $("#flagSave").onclick = save;
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") save();
+    if (e.key === "Escape") close();
+  });
+}
 
 /* ---------- review mode (task 55): walk the disputed notes ----------- */
 

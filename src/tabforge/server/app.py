@@ -632,6 +632,44 @@ async def part_notes(job_id: str, part: str) -> dict:
     return {"notes": notes, "threshold": round(threshold, 3)}
 
 
+@app.post("/api/jobs/{job_id}/flags")
+async def add_flag(job_id: str, flag: dict) -> dict:
+    """Calibration flags (task 77): the user marks "врёт вот тут"
+    during playback; flags land in out/flags.json, travel inside the
+    project archive, and become numbered cases on the next session."""
+    import json
+    import time as _time
+
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    text = str(flag.get("text", ""))[:500]
+    entry = {
+        "bar": int(flag.get("bar", 0)),
+        "qticks": int(flag.get("qticks", 0)),
+        "part": str(flag.get("part", ""))[:40],
+        "text": text,
+        "ts": _time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    path = job.dir / "out" / "flags.json"
+    flags = json.loads(path.read_text()) if path.exists() else []
+    flags.append(entry)
+    path.write_text(json.dumps(flags, ensure_ascii=False, indent=1))
+    return {"count": len(flags)}
+
+
+@app.get("/api/jobs/{job_id}/flags")
+async def list_flags(job_id: str) -> dict:
+    import json
+
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    path = job.dir / "out" / "flags.json"
+    return {"flags": json.loads(path.read_text())
+            if path.exists() else []}
+
+
 @app.get("/api/jobs/{job_id}/chords")
 async def chords(job_id: str) -> dict:
     """The chord line (task 58): spans with names, positions in
