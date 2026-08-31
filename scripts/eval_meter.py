@@ -145,10 +145,177 @@ def est_of(audio: Path, work: Path, fresh: bool = False):
                                            # from the first grid beat
 
 
+def est_of_madmom(audio: Path, work: Path, use_drum_stem: bool = False,
+                  tempo_informed: bool = False):
+    """madmom RNN+DBN downbeats, beats_per_bar candidates [3, 4].
+    Cached per track. Variants: the demucs DRUM STEM as input, and/or
+    the DBN constrained to OUR calibrated tempo +-10% (madmom left
+    free octave-flipped Hero to 0.17 beat F1)."""
+    import json
+
+    tag = "madmom" + ("_drums" if use_drum_stem else "")         + ("_tempo" if tempo_informed else "")
+    cache = work / f"{tag}.json"
+    if cache.exists():
+        rows = json.loads(cache.read_text())
+    else:
+        import librosa
+        from madmom.audio.signal import Signal
+        from madmom.features.downbeats import (
+            DBNDownBeatTrackingProcessor, RNNDownBeatProcessor)
+
+        src = audio
+        if use_drum_stem:
+            hits = list(work.rglob("drums.wav"))
+            if hits:
+                src = hits[0]
+        kwargs = {}
+        if tempo_informed:
+            beats_cache = work / "beats.json"
+            if beats_cache.exists():
+                import numpy as np
+                b = json.loads(beats_cache.read_text())
+                bpm = 60.0 / float(np.median(np.diff(b)))
+                kwargs = {"min_bpm": bpm * 0.9, "max_bpm": bpm * 1.1}
+        y, sr = librosa.load(str(src), sr=44100, mono=True)
+        act = RNNDownBeatProcessor()(Signal(y, sample_rate=sr))
+        res = DBNDownBeatTrackingProcessor(beats_per_bar=[3, 4],
+                                           fps=100, **kwargs)(act)
+        rows = [[float(a), int(b)] for a, b in res]
+        work.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps(rows))
+    beats = [t for t, _b in rows]
+    downs = [t for t, b in rows if b == 1]
+    from collections import Counter
+    bar_len = Counter(b for _t, b in rows).most_common(1)
+    meter = max(b for _t, b in rows) if rows else 4
+    return meter, downs, beats
+
+
+def est_of_hybrid(audio: Path, work: Path, fresh: bool = False):
+    """OUR beat grid (stronger: 0.61 vs madmom's 0.43 beat F1) with
+    the bar PHASE elected by madmom's downbeat votes: for each of the
+    4 possible bar phases of our grid, count madmom downbeats landing
+    on that phase's beats (70 ms); argmax wins. Meter itself stays 4
+    until the corpus can test otherwise."""
+    _m, _d, beats = est_of(audio, work, fresh)
+    _mm, mm_downs, _mb = est_of_madmom(audio, work,
+                                       tempo_informed=True)
+    best_phase, best_votes = 0, -1
+    for phase in range(4):
+        grid = beats[phase::4]
+        votes = 0
+        for d in mm_downs:
+            if any(abs(d - g) <= 0.07 for g in grid):
+                votes += 1
+        if votes > best_votes:
+            best_phase, best_votes = phase, votes
+    return 4, beats[best_phase::4], beats
+
+
+def est_of_beatnet(audio: Path, work: Path, fresh: bool = False):
+    """BeatNet (joint beat/downbeat, offline DBN mode; the realtime
+    pyaudio dependency is stubbed out — eval-only)."""
+    import json
+
+    cache = work / "beatnet.json"
+    if cache.exists():
+        rows = json.loads(cache.read_text())
+    else:
+        from BeatNet.BeatNet import BeatNet
+        est = BeatNet(1, mode="offline", inference_model="DBN",
+                      plot=[], thread=False)
+        out = est.process(str(audio))
+        rows = [[float(a), int(b)] for a, b in out]
+        work.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps(rows))
+    beats = [t for t, _b in rows]
+    downs = [t for t, b in rows if b == 1]
+    meter = max((b for _t, b in rows), default=4)
+    return meter, downs, beats
+
+
+def est_of_accent(audio: Path, work: Path, fresh: bool = False):
+    """OUR grid; bar phase elected by ACCENTS: of the 4 possible
+    phases, the one whose beats carry the strongest mean onset
+    envelope (cached from the offset calibration) wins."""
+    import json
+
+    import numpy as np
+
+    _m, _d, beats = est_of(audio, work, fresh)
+    data = json.loads((work / "oenv.json").read_text())
+    oenv, hop_s = np.array(data["oenv"]), data["hop_s"]
+
+    def strength(times):
+        idx = np.array([t / hop_s for t in times])
+        idx = idx[(idx >= 0) & (idx < len(oenv) - 1)].astype(int)
+        return float(oenv[idx].mean()) if len(idx) else 0.0
+
+    best = max(range(4), key=lambda ph: strength(beats[ph::4]))
+    return 4, beats[best::4], beats
+
+
+def est_of_harmonic(audio: Path, work: Path, fresh: bool = False):
+    """OUR grid; bar phase elected by HARMONIC RHYTHM: chords change
+    on bar lines, so the phase whose bar boundaries carry the largest
+    beat-to-beat chroma change wins (beat-synchronous chroma cached)."""
+    import json
+
+    import numpy as np
+
+    _m, _d, beats = est_of(audio, work, fresh)
+    cache = work / "chroma_sync.json"
+    if cache.exists():
+        chroma = np.array(json.loads(cache.read_text()))
+    else:
+        import librosa
+        y, sr = librosa.load(str(audio), sr=22050, mono=True)
+        C = librosa.feature.chroma_cqt(y=y, sr=sr)
+        frames = librosa.time_to_frames(beats, sr=sr)
+        frames = np.clip(frames, 0, C.shape[1] - 1)
+        sync = librosa.util.sync(C, frames, aggregate=np.median)
+        chroma = sync.T[:len(beats)]
+        chroma = chroma / (np.linalg.norm(chroma, axis=1,
+                                          keepdims=True) + 1e-9)
+        cache.write_text(json.dumps(chroma.tolist()))
+
+    # chroma distance between consecutive beats; a bar boundary at
+    # beat i means change(i-1 -> i) is large
+    change = np.zeros(len(beats))
+    for i in range(1, min(len(beats), len(chroma))):
+        change[i] = 1.0 - float(np.dot(chroma[i - 1], chroma[i]))
+    # librosa.util.sync segments are offset by one against the beat
+    # list (segment i spans up to frame i), so the change landing "at"
+    # segment i marks the bar line at beat i-1 — score shifted
+    best = max(range(4),
+               key=lambda ph: float(np.mean(change[ph + 1::4])
+                                    if len(change[ph + 1::4]) else 0))
+    return 4, beats[best::4], beats
+
+
+ENGINES = {
+    "current": lambda audio, work, fresh: est_of(audio, work, fresh),
+    "harmonic": est_of_harmonic,
+    "accent": est_of_accent,
+    "beatnet": est_of_beatnet,
+    "hybrid": est_of_hybrid,
+    "madmom": lambda audio, work, fresh: est_of_madmom(audio, work),
+    "madmom-drums": lambda audio, work, fresh:
+        est_of_madmom(audio, work, use_drum_stem=True),
+    "madmom-tempo": lambda audio, work, fresh:
+        est_of_madmom(audio, work, tempo_informed=True),
+    "madmom-drums-tempo": lambda audio, work, fresh:
+        est_of_madmom(audio, work, use_drum_stem=True,
+                      tempo_informed=True),
+}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--calibrate", action="store_true",
                     help="sweep per-track offsets and print them")
+    ap.add_argument("--engine", default="current",
+                    choices=sorted(ENGINES))
     ap.add_argument("--work", type=Path,
                     default=ROOT / "eval_out" / "meter")
     ap.add_argument("--fresh", action="store_true",
@@ -160,7 +327,8 @@ def main() -> None:
     rows = []
     for name, audio, mid in TRACKS:
         t_meter, t_down, t_beats = truth_of(mid)
-        e_meter, e_down, e_beats = est_of(audio, args.work / name, args.fresh)
+        e_meter, e_down, e_beats = ENGINES[args.engine](
+            audio, args.work / name, args.fresh)
 
         if args.calibrate or name not in OFFSETS:
             off = onset_offset(audio, mid, args.work / name)
@@ -174,7 +342,8 @@ def main() -> None:
         rows.append((name, t_meter, e_meter == t_meter,
                      f1_times(e_beats, tb), f1_times(e_down, td)))
 
-    print(f"\n{'track':12s} meter  meter-ok  beatF1  downbeatF1")
+    print(f"\n[{args.engine}]")
+    print(f"{'track':12s} meter  meter-ok  beatF1  downbeatF1")
     for name, m, ok, bf, df in rows:
         print(f"{name:12s} {m}/4    {'yes' if ok else 'NO ':>3s}    "
               f"{bf:5.2f}   {df:5.2f}")

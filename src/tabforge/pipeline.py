@@ -379,6 +379,7 @@ def _analyze_solo(audio: Path, out_dir: Path,
         bpm, beats = _octave_correct(bpm, beats, ioi,
                                      tempo_extras.get("local_votes"),
                                      progress)
+        beats = _elect_bar_phase(mix, mix_data, beats, progress)
         from .audio.tagging import tag_stem
         a.sounds_like = tag_stem(mix)
     else:
@@ -400,6 +401,64 @@ def _analyze_solo(audio: Path, out_dir: Path,
     return AnalyzeResult(stems=stems, analysis=analysis, bpm=bpm,
                          beats=beats, tempo_reliable=reliable, key=key,
                          warnings=warnings, solo=True)
+
+
+def _elect_bar_phase(mix: Path, mix_data, beats: list[float],
+                     progress: ProgressFn = _noop) -> list[float]:
+    """Bar 1 must start at a REAL downbeat (task 71). Of the four
+    possible bar phases of the beat grid, elect the one whose bar
+    lines carry the largest beat-to-beat CHROMA change — chords
+    change on bar lines (harmonic rhythm). Measured on the meter
+    stand: hits the beat-grid's own F1 ceiling wherever the grid is
+    good (Fulgrim .62, Hero .86, keys .93), and unlike the old
+    "first tracked beat" phase it is deterministic — that one flipped
+    0.86 -> 0.01 between runs on separation jitter alone.
+
+    The elected phase is applied by PREPENDING extrapolated beats so
+    the grid still covers the audio from the start (the intro-crush
+    guard, v0.7.9) and beats[0] is a downbeat."""
+    if len(beats) < 8:
+        return beats
+    try:
+        import librosa
+        import numpy as np
+
+        if mix_data is None:
+            from .audio import transcribe as _T
+            mix_data = _T.load_audio(mix)
+        y, sr = mix_data
+        C = librosa.feature.chroma_cqt(y=y, sr=sr)
+        frames = np.clip(librosa.time_to_frames(beats, sr=sr),
+                         0, C.shape[1] - 1)
+        sync = librosa.util.sync(C, frames, aggregate=np.median)
+        chroma = sync.T[:len(beats)]
+        chroma = chroma / (np.linalg.norm(chroma, axis=1,
+                                          keepdims=True) + 1e-9)
+        change = np.zeros(len(beats))
+        for i in range(1, len(chroma)):
+            change[i] = 1.0 - float(np.dot(chroma[i - 1], chroma[i]))
+        # sync segments sit one step behind the beat list — the change
+        # "at" segment i marks the bar line at beat i-1 (the stand
+        # found the off-by-one: unshifted scoring inverted every phase)
+        phase = max(range(4),
+                    key=lambda ph: float(np.mean(change[ph + 1::4])
+                                         if len(change[ph + 1::4])
+                                         else 0.0))
+    except Exception:  # noqa: BLE001 — the phase is a refinement
+        return beats
+    if phase == 0:
+        return beats
+    k = (4 - phase) % 4
+    step = beats[1] - beats[0]
+    prefix = [beats[phase] - (i + 1) * step
+              for i in range(phase + k - 1, -1, -1)]
+    # prefix rebuilds the beats BEFORE the elected downbeat plus one
+    # extrapolated bar, so beats[0::4] are downbeats and the grid
+    # still reaches (before) the start of the audio
+    out = prefix + beats[phase:]
+    progress("analyze",
+             f"bars: phase {phase} elected by harmonic rhythm")
+    return out
 
 
 def _octave_correct(bpm: float, beats: list[float],
@@ -618,6 +677,7 @@ def run_analyze(audio: Path, out_dir: Path,
         bpm, beats = _octave_correct(bpm, beats, min(found_iois),
                                      tempo_extras.get("local_votes"),
                                      progress)
+    beats = _elect_bar_phase(audio, mix_data, beats, progress)
 
     # structure features (task 59): beat-synced chroma of the MIX —
     # cached now, while the mix is at hand; boundaries are detected at

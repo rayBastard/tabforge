@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.7.13 — 2026-08-31
+
+Bar one now starts at a real downbeat. The phase of the bar grid used
+to be whatever beat the tracker happened to emit first — measurably a
+coin toss (it flipped a track's bar structure between two runs of the
+same code). The phase is now elected by harmonic rhythm: chords
+change on bar lines, so the grid rotation whose bar boundaries carry
+the largest chroma change wins. On the meter stand (task 70) the
+election hits the beat grid's own quality ceiling wherever the grid
+is good. The full A/B behind it — madmom, BeatNet, All-In-One,
+accent- and vote-based elections, most of which lost to our own
+grid — is in docs/eval.md.
+
 ## v0.7.12 — 2026-08-31
 
 The crispness of the old fixed precision selector, kept together

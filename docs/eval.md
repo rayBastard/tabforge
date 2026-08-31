@@ -1172,3 +1172,43 @@ MEAN           0.61      0.50     meter acc 1.00 (trivial)
 Exactly the bad phase numbers the block predicted. Task 71's A/B
 (madmom DBN / BeatNet / All-In-One, drum-stem informed) swings at
 these; Fulgrim and Loken are the named regressions.
+
+## DOWNBEAT & METER A/B — 2026-08-31 (task 71, verdict v1)
+
+Every engine from the dictated A/B, measured on the task-70 stand
+(mean beat F1 / downbeat F1; baseline = our grid with "4/4 from the
+first tracked beat"):
+
+```
+current (our grid, first-beat phase)   0.61   0.50   (phase = luck)
+madmom DBN, mix                        0.43   0.40
+madmom + our-tempo constraint          0.45   0.38   (Loken beats 0.83!)
+madmom on the demucs drum stem         0.18   0.08   (phantom drums)
+BeatNet (offline DBN)                  0.38   0.30   meter WRONG 3/7
+All-In-One                             unbuildable: torch 2.13 vs the
+                                       2023 natten API (three patches
+                                       deep it still wants natten1dav);
+                                       the MLX port is the future path
+hybrid (our grid + madmom phase votes) 0.61   0.51
+accent-elected phase (onset envelope)  0.61   0.25   (offbeat snares!)
+harmonic-rhythm phase (chroma change)  0.61   0.51
+```
+
+Verdict, two halves:
+- PHASE IS SOLVED: the harmonic-rhythm election (chords change on
+  bar lines; one off-by-one in librosa's sync segments cost a debug
+  cycle) matches the "lucky" score but is DETERMINISTIC — the lucky
+  phase flipped Hero 0.86 -> 0.01 between two runs on separation
+  jitter alone. Wherever the grid is good, harmonic election hits the
+  grid's own ceiling (Fulgrim .62=ceiling, Hero .86, keys .93).
+  Shipped: pipeline._elect_bar_phase, bar 1 now starts at an elected
+  downbeat, applied by prepending extrapolated beats so the
+  intro-crush guard survives.
+- THE GRID IS THE REMAINING DEFICIT: Loken 0.27, solo-guitar 0.38,
+  solo-bass 0.48 — no external engine fixes them wholesale, but
+  madmom WITH our tempo constraint hits 0.83 on Loken where we sit
+  at 0.27. A per-track grid ensemble (confidence-scored candidates)
+  is the named next lever for 71 v2.
+
+No engine ships in the product; madmom/BeatNet stay as stand-only
+dev dependencies (BeatNet needed a pyaudio stub — realtime-only dep).
