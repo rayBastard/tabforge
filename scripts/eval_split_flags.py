@@ -46,8 +46,12 @@ def main() -> None:
     from tabforge.core.partition import split_lead_rhythm
     from tabforge.pipeline import _revive_notes
 
-    meta = json.loads(zipfile.ZipFile(D / "project.tabforge")
-                      .read("tabforge-project.json"))
+    mj = D / "meta.json"
+    if mj.exists():
+        meta = json.loads(mj.read_text())
+    else:
+        meta = json.loads(zipfile.ZipFile(D / "project.tabforge")
+                          .read("tabforge-project.json"))
     beats = meta["beats"]
     st = json.loads((D / "parts.json").read_text())
     merged = []
