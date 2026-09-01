@@ -834,6 +834,15 @@ def export_song_gp5(parts: Sequence[SongPart], path: Path,
                 m_idx, local = _measure_of(pos)
                 if m_idx >= n_measures:
                     break
+                # a continuation tail SHORTER than a 32nd (3 fine) is
+                # rounding residue, not a held note: an off-grid attack
+                # whose slot straddles the barline by one fine unit
+                # used to spawn a phantom cross-bar tie that occupied
+                # slot 0 and displaced the next bar's whole run one
+                # slot late (calibration case, Casey bars 2-4:
+                # "не должно быть легато между 32-ми")
+                if not first and remaining < 3:
+                    break
                 in_measure = min(remaining,
                                  _meter_of(m_idx) * FINE - local)
                 segs_per_measure[m_idx].append(

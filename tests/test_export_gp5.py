@@ -841,5 +841,32 @@ class TestVariableMeter(unittest.TestCase):
         self.assertEqual(outs[0], outs[1])
 
 
+@unittest.skipUnless(HAVE_GP, "PyGuitarPro is not installed")
+class TestPhantomBarlineTies(unittest.TestCase):
+    def test_offgrid_sixteenths_spawn_no_barline_ties(self):
+        # calibration case (Casey bars 2-4): a 16th run played ~30ms
+        # late makes the last note's slot straddle the barline by one
+        # fine unit; the residue used to become a cross-bar tie that
+        # occupied slot 0 and pushed the whole next bar one slot late
+        from tabforge.export.writers import export_gp5
+        import tempfile
+        notes = [NoteEvent(60 + k % 3, k * 0.125 + 0.03, 0.12)
+                 for k in range(32)]
+        shapes = assign_tab(notes, TabConfig())
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "x.gp5"
+            export_gp5(shapes, path, TabConfig(), bpm=120.0)
+            song = gp.parse(str(path))
+        for mi, m in enumerate(song.tracks[0].measures[:2]):
+            beats = [b for b in m.voices[0].beats
+                     if b.status == gp.BeatStatus.normal]
+            ties = [b for b in beats
+                    if b.notes and all(n.type == gp.NoteType.tie
+                                       for n in b.notes)]
+            self.assertEqual(len(ties), 0,
+                             f"phantom tie in bar {mi + 1}")
+            self.assertEqual(len(beats), 16, f"bar {mi + 1} misaligned")
+
+
 if __name__ == "__main__":
     unittest.main()

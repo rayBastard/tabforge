@@ -27,6 +27,9 @@ def split_lead_rhythm(
     tolerance: float = _DEFAULT_TOLERANCE,
     window: float = 1.0,
     min_part_fraction: float = 0.1,
+    rhythm_threshold: float = 0.6,
+    chord_weight: float = 2.0,
+    register_override: int | None = None,
 ) -> tuple[list[NoteEvent], list[NoteEvent]] | None:
     """Returns (lead_notes, rhythm_notes), or None when the material
     doesn't really contain two parts (one side would be < min_part_fraction
@@ -34,6 +37,24 @@ def split_lead_rhythm(
     events = group_into_events(notes, tolerance)
     if len(events) < 8:
         return None
+
+    # TOP-NOTE PEELING (calibration session 1, Casey): two OVERLAPPING
+    # guitars merge into one event when the solo note strikes within
+    # the chord-gather window of a rhythm power chord — [41,48,68]
+    # with a 20-semitone gap is not a chord, it is a dyad plus a solo
+    # note. A top note sitting >= peel_gap above the rest of its event
+    # peels off into its own single event, free to score as lead.
+    peel_gap = 10
+    peeled: list[list] = []
+    for e in events:
+        if len(e) >= 2:
+            e_sorted = sorted(e, key=lambda n: n.pitch)
+            if e_sorted[-1].pitch - e_sorted[-2].pitch >= peel_gap:
+                peeled.append(e_sorted[:-1])
+                peeled.append([e_sorted[-1]])
+                continue
+        peeled.append(list(e))
+    events = peeled
 
     starts = [e[0].start for e in events]
     sizes = [len(e) for e in events]
@@ -50,15 +71,20 @@ def split_lead_rhythm(
         if sizes[i] == 2:
             raw.append(0.7)
             continue
-        score = 0.5
-        if means[i] >= register_pivot + 4:
-            score -= 0.3          # single note well above the median: lead
-        elif means[i] <= register_pivot - 2:
-            score += 0.2          # low single note: likely rhythm figure
-        # attack density: a fast single-note run is a lick, not strumming
-        nearby = sum(1 for s in starts if abs(s - starts[i]) <= 0.5)
-        if nearby >= 4:
-            score -= 0.2
+        # continuous register ramp (calibration session 1): the old
+        # two-step bonus stranded chordless material — a whole track
+        # drifted to one side and the split died. An octave below the
+        # median reads fully rhythm, an octave above fully lead.
+        lift = (means[i] - register_pivot) / 12.0 * 0.4
+        score = 0.5 + max(-0.4, min(0.4, -lift))
+        # attack density: a fast single-note run ABOVE the texture is
+        # a lick; a fast LOW run is a riff (calibration session 1 —
+        # the unconditional penalty floored dense chordless material
+        # entirely to lead and the split died)
+        if means[i] > register_pivot:
+            nearby = sum(1 for s in starts if abs(s - starts[i]) <= 0.5)
+            if nearby >= 4:
+                score -= 0.2
         raw.append(score)
 
     # Chords are rhythm unconditionally; smoothing only decides the
@@ -77,10 +103,25 @@ def split_lead_rhythm(
                 continue
             if dt > window:
                 break
-            w = 2.0 if sizes[j] >= 3 else 1.0
+            w = chord_weight if sizes[j] >= 3 else 1.0
+            # register-aware smoothing (calibration session 1): a
+            # neighbor influences the vote in proportion to how close
+            # it sits in PITCH — after peeling, interleaved voices
+            # must smooth within themselves, or the solo line is
+            # dragged into the rhythm around it (and chordless
+            # material all drifts to one side)
+            d = (means[j] - means[i]) / 10.0
+            w *= 2.718281828 ** (-d * d)
             acc += raw[j] * w
             weight += w
-        labels.append(acc / weight >= 0.6)
+        if (register_override is not None and sizes[i] == 1
+                and means[i] >= register_pivot + register_override):
+            # a single note far above the texture IS the lead voice,
+            # no matter how chordal its neighborhood (calibration
+            # session 1: "самые высокие ноты — к лид гитаре")
+            labels.append(False)
+            continue
+        labels.append(acc / weight >= rhythm_threshold)
 
     lead = [n for e, is_r in zip(events, labels) if not is_r for n in e]
     rhythm = [n for e, is_r in zip(events, labels) if is_r for n in e]

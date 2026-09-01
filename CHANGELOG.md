@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.7.30 — 2026-09-01
+
+The rest of calibration session 1, all four cases closed. The
+two-guitar SPLIT learned the user's 22 marks: 0.08 -> 0.79 on the
+flag ruler via top-note peeling (a solo note striking inside a power
+chord's window is not part of the chord), a continuous register ramp
+and register-aware smoothing (voices smooth within themselves) — at
+a measured -0.03 on Loken. BEND RESCUE shipped: flat notes read
+their bend/vibrato/slide contours off the stem, and sustained solo
+voices the transcription dropped entirely come back as notes with
+their bends. The bar-39 DISSONANCE was diagnosed to the exact notes
+(a semitone-off cluster confirmed spectrally); the automatic repair
+was measured and buried (double-tracked detune defeats it), and the
+mass editor gained the missing tool instead: semitone +1/-1 on any
+selection. Flags travel with projects; every number is in eval.md.
+
+
+## v0.7.29 — 2026-09-01
+
+Calibration case #2 (the "no legato between the 32nds" flags): a
+16th run played slightly behind the grid made each bar's last note
+straddle the barline by 1/24 of a beat — that rounding residue
+became a phantom cross-bar tie which occupied the next bar's first
+slot and displaced the whole run one slot late (the same spot the
+"first chord should be a pickup" impression came from). A
+continuation tail shorter than a 32nd is now dropped at the split:
+it cannot render as anything but noise, while real held notes keep
+their ties. On the flagged track the lead's phantom ties are gone,
+bars open on the beat, and only three genuine ties remain.
+
+
 ## v0.7.28 — 2026-09-01
 
 Hotfix from the calibration session: analyze crashed with "not

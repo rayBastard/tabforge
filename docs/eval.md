@@ -1603,3 +1603,58 @@ accelerating MT3's input. DIAGNOSTIC GEMS for later: (1) an
 octave-up pass as a bass-presence booster (3 truth-ward flips);
 (2) mixed-piano presence is the single fragile card — any future
 fast-arbiter idea must protect it specifically.
+
+## CALIBRATION SESSION 1 — 2026-09-01 (Casey.mp3, 29 flags -> 4 cases)
+
+The user's first flag session, every case closed the same day
+(materials frozen in calibration/2026-09-01-session1/):
+
+**Case #1 — the split (22 flags), 0.08 -> 0.79.** New ruler
+scripts/eval_split_flags.py scores the splitter against the user's
+own marks. Anatomy: the rhythm plays TWO-note power dyads and the
+solo strikes inside their chord-gather window — [41,48,68] with a
+20-semitone gap read as a chord = unconditional rhythm. Three
+mechanisms landed, each measured: (1) TOP-NOTE PEELING — a note
+>= 10 semitones above the rest of its event peels into its own
+single; (2) CONTINUOUS REGISTER RAMP replacing the two-step bonus
+(an octave below the median reads fully rhythm, above fully lead);
+(3) REGISTER-AWARE SMOOTHING — a neighbor's vote decays with pitch
+distance, so interleaved voices smooth within themselves (and the
+fast-run "lick" penalty now applies only ABOVE the pivot: a fast low
+run is a riff). Prices, honest: Loken voice accuracy 0.73 -> 0.70,
+lead purity 0.57 -> 0.62; Hero still splits; the synthetic
+acoustic+solo fixture now returns "one guitar" instead of the old
+INVERTED split — a fair degradation, the timbre road (task 78) owns
+that case. Pinned in tests/test_partition_calibration.py.
+
+**Case #2 — phantom barline ties (2 flags), fixed in v0.7.29** (see
+that entry): sub-32nd rounding tails at the barline masqueraded as
+cross-bar legato and displaced the next bar's run.
+
+**Case #3 — the bar-39 dissonance: diagnosed to the note, the
+auto-repair honestly buried.** Spectral interrogation says the
+transcribed 40+48+51 cluster is really 39+49+51 (neighbor-semitone
+energy 2-4x for four consecutive notes). A repair pass was built and
+swept: full-window evidence at ratio 2.2-2.5 fixes Casey but costs
+Loken 6-10 exact-pitch matches EVEN with a series-consistency rule —
+double-tracked metal detune structurally inflates neighbor-semitone
+energy and defeats the discriminator. BURIED; repair_semitones stays
+in validate.py as a diagnostic. What shipped instead: SEMITONE SHIFT
+(+1/-1) in the mass editor — the user can close such spots in one
+drag, which the octave-only editor could not.
+
+**Case #4 — "нет бендов" (2 flags): the vanish case, half
+recovered.** The stem at 144.4 s carries a clean sustained voice at
+midi 77 with a bend-up arrival that the routed transcription simply
+does not have. audio/bendrescue.py shipped two passes: (a)
+annotate_bends — existing flat notes read their bend/vibrato/slide
+contour off the stem (pyin in a tight band around the note's own
+pitch; 49 notes gained contours on Casey, 2.3%); (b)
+rescue_missing_notes — sustained voiced runs (>= 0.35 s, stable
+within 0.8 st, excursion <= 2.5 st) with no transcribed note within
+1.5 st come back as notes WITH their contours (23 on Casey, junk
+guarded by the stability rules — the first version glued pyin's
+harmonic hops into 8-12 st "bends"). THE flagged note itself remains
+unrecovered: full-track pyin reads the moment an octave down (65 vs
+77) and the clash guard blocks it — per-segment octave
+disambiguation via harmonic energy is the named next lever.

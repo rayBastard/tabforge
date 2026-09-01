@@ -1299,6 +1299,22 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
                          f"{name}: grand staff — {len(right)} right-hand "
                          f"and {len(left)} left-hand notes")
         if name == "guitar" and role_of(name) == "guitar":
+            # bend rescue (calibration session 1, case #4): the routed
+            # transcribers drop bent/sustained solo notes entirely and
+            # carry no pitch-bend data — recover both from the stem
+            # BEFORE the split, so the high recoveries land in lead
+            if wav is not None:
+                try:
+                    from .audio.bendrescue import (annotate_bends,
+                                                   rescue_missing_notes)
+                    rescue_missing_notes(notes, wav, progress)
+                    nb = annotate_bends(notes, wav)
+                    if nb:
+                        progress("transcribe",
+                                 f"{name}: {nb} bend/vibrato contour(s) "
+                                 "read off the stem")
+                except Exception:  # noqa: BLE001 — decoration only
+                    pass
             # ALWAYS look for a second guitar part: the detector itself
             # says whether the material really carries two (its "no
             # clear second part" answer keeps single guitars whole)
@@ -2030,7 +2046,9 @@ def _insert_notes(part: dict, new_notes: list[dict]) -> None:
                       for a, b, kind in part["legato"]]
 
 
-BULK_OPS = ("octave_up", "octave_down", "delete", "dedup_octaves",
+BULK_OPS = ("octave_up", "octave_down",
+            "semitone_up", "semitone_down",
+            "delete", "dedup_octaves",
             "reassign")
 
 
@@ -2076,8 +2094,10 @@ def apply_bulk_edit(out_dir: Path, part_name: str, start_tick: int,
 
     edited = {part_name}
     affected = len(selected)
-    if op in ("octave_up", "octave_down"):
-        delta = 12 if op == "octave_up" else -12
+    if op in ("octave_up", "octave_down",
+              "semitone_up", "semitone_down"):
+        delta = {"octave_up": 12, "octave_down": -12,
+                 "semitone_up": 1, "semitone_down": -1}[op]
         for i in selected:
             n = part["notes"][i]
             n["pitch"] = max(0, min(127, n["pitch"] + delta))

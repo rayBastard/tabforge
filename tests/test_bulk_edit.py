@@ -126,5 +126,12 @@ class TestReferenceExport(unittest.TestCase):
                 self.assertIn(inst, ("guitar", "bass"))
 
 
+class TestSemitoneOps(unittest.TestCase):
+    def test_semitone_ops_registered(self):
+        from tabforge.pipeline import BULK_OPS
+        self.assertIn("semitone_up", BULK_OPS)
+        self.assertIn("semitone_down", BULK_OPS)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -117,3 +117,50 @@ def filter_leaked_notes(notes: list[NoteEvent], stem: str,
         if strongest < 1e-6 or strongest <= margin * home:
             kept.append(n)
     return kept
+
+
+def repair_semitones(notes: list, stem: str, stems: dict,
+                     spectra: "_StemSpectra | None" = None,
+                     ratio: float = 2.5) -> int:
+    """Calibration case #3 (Casey bar 39, "какой-то диссонанс"): the
+    transcriber lands a semitone off and the chord clashes — the stem
+    spectrum says 39 where the MIDI says 40, at 2-4x the energy. A
+    note moves one semitone when the neighbor pitch DECISIVELY out-
+    powers its own (>= ratio, both halves of the note agreeing).
+    Returns how many notes moved."""
+    if not notes or stem not in stems:
+        return 0
+    spectra = spectra or _StemSpectra(stems)
+    LONE_RATIO = 6.0      # an isolated move needs overwhelming proof
+    desires: list[tuple] = []
+    for n in notes:
+        if n.dead:
+            continue
+        f0 = 440.0 * 2 ** ((n.pitch - 69) / 12)
+        # the FULL note window is the evidence unit: half-windows on a
+        # decaying texture get polluted by the neighbors' tails (the
+        # Casey series' edge notes read 0.7x in one half and 2.9x in
+        # the other while the full window says a clean 2.5x)
+        for shift in (-1, 1):
+            fs = f0 * 2 ** (shift / 12)
+            e0 = spectra.energy(stem, f0, n.start, n.duration)
+            e1 = spectra.energy(stem, fs, n.start, n.duration)
+            if e1 >= ratio * e0:
+                desires.append((n, shift, e1 >= LONE_RATIO * e0))
+    # series consistency (the uniformity-via-price doctrine): a lone
+    # note moves only on overwhelming evidence, but a RUN of
+    # same-pitch notes voting for the SAME shift is systematic — the
+    # calibrated Casey case is five consecutive 40s all reading 39 at
+    # 2.5-2.6x, while golden's false moves were isolated (ratio sweep:
+    # 2.5 cost Loken -6 matches, 6.0 was neutral but missed Casey)
+    moved = 0
+    for n, shift, strong in desires:
+        peers = sum(1 for m, s2, _ in desires
+                    if m is not n and s2 == shift
+                    and m.pitch == n.pitch
+                    and abs(m.start - n.start) <= 1.5)
+        if strong or peers >= 2:
+            n.pitch += shift
+            n.bends and n.bends.clear()
+            moved += 1
+    return moved
