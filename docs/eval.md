@@ -1658,3 +1658,40 @@ harmonic hops into 8-12 st "bends"). THE flagged note itself remains
 unrecovered: full-track pyin reads the moment an octave down (65 vs
 77) and the clash guard blocks it — per-segment octave
 disambiguation via harmonic energy is the named next lever.
+
+## CALIBRATION BATCH v0.7.34 — 2026-09-01 (editor precision + octave
+rescue + the workflow catch)
+
+**Pitch-filtered mass ops**: the bar-39 cluster needs 40 DOWN and 48
+UP inside one range — range-only ops cannot split them. The bulk bar
+gained a pitch filter ("нота": E2 or 40); ops apply to just that
+pitch in the selection.
+
+**Second-look octave rescue**: THE flagged bar-62 note (144.43 s,
+midi 77) is recovered. When a sustained run clashes with a
+transcribed note, pyin re-looks constrained +6..+19 semitones above
+the clash. Two guards, each measured against its own failure: pure
+2nd harmonics are rejected by ONSET INDEPENDENCE (a real voice
+attacks on its own clock — the Casey solo enters 0.11 s before the
+chord; a harmonic rises in lockstep) plus a loudness floor (>= 10%
+of the lower band — spectral leakage fails it). The free-choice
+discriminator was tried and buried: the lower voice legitimately
+dominates an unconstrained tracker even when the upper voice is real.
+
+**The batch-verify workflow caught a live regression** my manual
+spot-check had missed (a sed picked the wrong lines): Loken had
+stopped splitting entirely. Root chain, each link measured: the
+density gate correctly stopped leaking low riffs into lead -> the
+honest lead shrank to 123 notes (4.5%) -> the 10% min-part floor
+killed the split the gate had just enabled; separately, the fixed
+/12 register ramp scored a one-octave metal track flat (scale now
+adapts to the track's own p20-p80 spread). Floor lowered to 4%.
+After: Loken splits at VOICE ACCURACY 0.70 with lead purity 0.62 ->
+0.81, Casey flag score 0.79 holds, Hero and the solo-guitar
+presentational case split as before.
+
+**Split wave-2 tuning consciously deferred**: the string-precise
+session-2 flags were placed against v0.7.30 output, and v0.7.32-33
+changed the material under them (auto-tuning, +97 notes, rescue) —
+tuning against a superseded reference chases a moving target. The
+next flag session runs on current output.

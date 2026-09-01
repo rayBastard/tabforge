@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.7.34 — 2026-09-01
+
+Editor precision and the octave catch. Mass ops gained a PITCH
+filter — fix one wrong note of a repeating chord (the bar-39 case
+needs 40 down and 48 up in the same bars) without touching its
+neighbors. The bend rescue learned a second look: a sustained solo
+ringing an octave above a transcribed note is now recovered (the
+twice-flagged bar-62 note is back), guarded against fake octaves by
+onset independence — a real voice attacks on its own clock, a
+harmonic rises in lockstep with its fundamental. And the parallel
+verification workflow caught a real regression the manual check had
+missed: the metal track had stopped splitting — the honest lead
+turned out to be only 4.5% of the notes once the riff leak was
+gated, and the old 10% floor killed it; the floor is 4% now and the
+register ramp adapts to each track's own spread. Lead purity on the
+metal truth rose from 0.62 to 0.81.
+
+
 ## v0.7.33 — 2026-09-01
 
 The "tapping" flags turned out to be an octave-doubled solo (measured:

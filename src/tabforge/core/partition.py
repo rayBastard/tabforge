@@ -26,7 +26,11 @@ def split_lead_rhythm(
     *,
     tolerance: float = _DEFAULT_TOLERANCE,
     window: float = 1.0,
-    min_part_fraction: float = 0.1,
+    # 0.04 (batch-verify catch): once the density gate stopped
+    # leaking low riffs into lead, a metal track's TRUE lead turned
+    # out to be ~4.5% of the notes — the old 10% floor killed the
+    # honest split it had just enabled
+    min_part_fraction: float = 0.04,
     rhythm_threshold: float = 0.6,
     chord_weight: float = 2.0,
     register_override: int | None = None,
@@ -61,6 +65,9 @@ def split_lead_rhythm(
     means = [sum(n.pitch for n in e) / len(e) for e in events]
     all_pitches = sorted(n.pitch for n in notes)
     register_pivot = all_pitches[len(all_pitches) // 2]  # median pitch
+    _n = len(all_pitches)
+    register_scale = max(
+        4.0, (all_pitches[int(_n * 0.8)] - all_pitches[int(_n * 0.2)]) / 2)
 
     # Raw per-event rhythm score in [0, 1].
     raw: list[float] = []
@@ -73,9 +80,12 @@ def split_lead_rhythm(
             continue
         # continuous register ramp (calibration session 1): the old
         # two-step bonus stranded chordless material — a whole track
-        # drifted to one side and the split died. An octave below the
-        # median reads fully rhythm, an octave above fully lead.
-        lift = (means[i] - register_pivot) / 12.0 * 0.4
+        # drifted to one side and the split died. The ramp's scale
+        # adapts to the TRACK's own spread (batch-verify catch: a
+        # narrow-register metal track sat entirely inside one octave,
+        # the fixed /12 ramp scored everything ~0.5 and the split
+        # died again).
+        lift = (means[i] - register_pivot) / register_scale * 0.4
         score = 0.5 + max(-0.4, min(0.4, -lift))
         # attack density: a fast single-note run ABOVE the texture is
         # a lick; a fast LOW run is a riff (calibration session 1 —

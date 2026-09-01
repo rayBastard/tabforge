@@ -90,6 +90,65 @@ RUN_GAP = 0.12           # unvoiced gap that still continues a run
 MATCH_ST = 1.5           # a transcribed note this close = not missing
 
 
+def _second_look(y, sr, t0: float, t1: float, below_midi: float):
+    """pyin over one run's window, constrained ABOVE a clashing voice
+    (+6..+19 semitones). Returns (pitch, deviations) or None."""
+    import librosa
+    import numpy as np
+
+    seg = y[int(t0 * sr):int(t1 * sr)]
+    if len(seg) < 2048:
+        return None
+    f_lo = 440.0 * 2 ** ((below_midi + 6 - 69) / 12)
+    f_hi = 440.0 * 2 ** ((below_midi + 19 - 69) / 12)
+    try:
+        f0, _v, _p = librosa.pyin(seg, sr=sr, fmin=f_lo, fmax=f_hi,
+                                  frame_length=2048, hop_length=256)
+    except Exception:  # noqa: BLE001
+        return None
+    voiced = ~np.isnan(f0)
+    if voiced.mean() < 0.5:
+        return None
+    midis = 12 * np.log2(f0[voiced] / 440) + 69
+    if np.percentile(midis, 90) - np.percentile(midis, 10) > 2.5:
+        return None                       # unstable — harmonic junk
+    pitch = int(round(float(np.median(midis))))
+    # harmonic guard by ONSET INDEPENDENCE: a real upper voice has
+    # its own attack (the Casey solo enters 0.11 s before the chord
+    # under it); a 2nd harmonic rises in lockstep with its
+    # fundamental. Compare band-energy onset times over the run with
+    # a short pre-roll.
+    pre = int(0.3 * sr)
+    a0 = max(0, int(t0 * sr) - pre)
+    win = y[a0:int(t1 * sr)]
+    if len(win) < 2048:
+        return None
+    hop2 = 256
+    spec = np.abs(librosa.stft(win, n_fft=2048, hop_length=hop2))
+    freqs = np.fft.rfftfreq(2048, 1 / sr)
+
+    def band_env(m):
+        f = 440.0 * 2 ** ((m - 69) / 12)
+        band = (freqs > f * 0.96) & (freqs < f * 1.04)
+        return spec[band].max(axis=0) if band.any() else None
+
+    def onset_of(env):
+        idx = int(np.argmax(env >= 0.5 * env.max()))
+        return a0 / sr + idx * hop2 / sr
+
+    up_env = band_env(pitch)
+    low_env = band_env(below_midi)
+    if up_env is None or low_env is None or low_env.max() < 1e-9:
+        return None
+    if up_env.max() < 0.1 * low_env.max():
+        return None                       # too quiet — leakage, not a voice
+    if abs(onset_of(up_env) - onset_of(low_env)) < 0.06:
+        return None                       # locked attacks = harmonic
+    dev = [round(float(12 * np.log2(f / 440) + 69 - pitch), 3)
+           if not np.isnan(f) else 0.0 for f in f0]
+    return pitch, dev
+
+
 def rescue_missing_notes(notes: list, wav: Path,
                          progress=lambda *_: None) -> int:
     """Case #4 of calibration session 1 ("нет бендов", Casey 144 s):
@@ -158,6 +217,24 @@ def rescue_missing_notes(notes: list, wav: Path,
                     and abs(n.pitch - midi) <= MATCH_ST
                     for n in notes)
         if clash:
+            # the flagged Casey case (bar 62): the full-track tracker
+            # locks onto the LOUD transcribed voice while the solo
+            # rings an octave up — a second look constrained ABOVE the
+            # clash finds it or nothing does
+            up = _second_look(y, sr, t0, t1, midi)
+            if up is None:
+                continue
+            pitch, dev = up
+            still = any(n.start < t1 and t0 < n.end
+                        and abs(n.pitch - pitch) <= MATCH_ST
+                        for n in notes)
+            if still or max(abs(d) for d in dev) > 2.5:
+                continue
+            moving = max(abs(d) for d in dev) >= 0.3
+            notes.append(NoteEvent(pitch, float(t0), float(t1 - t0),
+                                   velocity=96,
+                                   bends=dev if moving else []))
+            added += 1
             continue
         dev = [round(float(12 * np.log2(f / 440) + 69 - pitch), 3)
                if not np.isnan(f) else 0.0 for f in seg]

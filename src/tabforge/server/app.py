@@ -607,7 +607,12 @@ async def bulk_edit(job_id: str, req: dict) -> dict:
             end_tick=round(int(req["to_qticks"]) * sub / 960),
             op=req["op"],
             shared=job.analyzed, opts=job.opts,
-            target_part=req.get("target"))
+            target_part=req.get("target"),
+            # pitch filter (calibration case #3, the bar-39 cluster:
+            # 40 must go DOWN while 48 goes UP in the same range —
+            # a range-only op cannot split them)
+            pitch=(int(req["pitch"])
+                   if req.get("pitch") is not None else None))
     except (KeyError, TypeError):
         raise HTTPException(
             400, "bulk_edit needs part, op, from_qticks, to_qticks")

@@ -1865,6 +1865,18 @@ function setBulkSelection(range) {
   bar.hidden = false;
 }
 
+function parsePitchFilter(v) {
+  if (!v) return null;
+  v = v.trim();
+  if (/^\d+$/.test(v)) return Number(v);           // raw MIDI number
+  const m = v.toUpperCase().match(/^([A-G])([#B♯♭]?)(-?\d)$/);
+  if (!m) return null;
+  const base = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[m[1]];
+  const acc = m[2] === "#" || m[2] === "♯" ? 1
+            : m[2] === "B" || m[2] === "♭" ? -1 : 0;
+  return (Number(m[3]) + 1) * 12 + base + acc;
+}
+
 async function runBulk(op) {
   if (!bulk.range) return;
   const part = activePart();
@@ -1881,6 +1893,7 @@ async function runBulk(op) {
         // endTick points at the first tick AFTER the selection
         to_qticks: Math.max(0, Math.round(bulk.range.endTick) - 1),
         target: $("#bulkTarget")?.value || null,
+        pitch: parsePitchFilter($("#bulkPitch")?.value),
       }),
     });
     if (!res.ok) throw new Error(await errorDetail(res));

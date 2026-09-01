@@ -2083,7 +2083,8 @@ BULK_OPS = ("octave_up", "octave_down",
 def apply_bulk_edit(out_dir: Path, part_name: str, start_tick: int,
                     end_tick: int, op: str, shared: AnalyzeResult,
                     opts: PipelineOptions,
-                    target_part: str | None = None) -> dict:
+                    target_part: str | None = None,
+                    pitch: int | None = None) -> dict:
     """Mass editor operation (task 55) on every note of a part whose
     grid tick falls in [start_tick, end_tick]: octave shift, delete,
     collapse octave doubles (upper wins — the 52.3 verdict: safe only
@@ -2116,7 +2117,8 @@ def apply_bulk_edit(out_dir: Path, part_name: str, start_tick: int,
 
     part = state[part_name]
     selected = [i for i, n in enumerate(part["notes"])
-                if start_tick <= tick_of(n["start"]) <= end_tick]
+                if start_tick <= tick_of(n["start"]) <= end_tick
+                and (pitch is None or n["pitch"] == pitch)]
     if not selected:
         raise ValueError("no notes in the selected range")
 
