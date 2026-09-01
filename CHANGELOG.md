@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.7.32 — 2026-09-01
+
+Calibration session 2's bug report — "ноты пропадают при
+редактировании" — unravelled into a doctrine change: a note must
+NEVER silently vanish. Three mouths closed: (1) a pin that makes a
+chord unsolvable now falls back to ignoring the pin instead of
+eating the whole chord; (2) an in-range cluster no hand can voice is
+written with the stretch relaxed (Suno voicings are honestly
+unplayable sometimes) instead of being skipped; (3) the big one — a
+drop-tuned track rendered in standard tuning silently dropped every
+low riff root (97 notes on the flagged track: pitch 37 has no string
+in standard). Guitars now auto-switch tuning when the material dives
+below the lowest string, exactly like the bass has since task 55 —
+the flagged track's rhythm went from 1632 to 1720 placed notes on
+its own drop-C# tuning. An explicit user tuning choice is never
+overridden.
+
+
 ## v0.7.31 — 2026-09-01
 
 The session-killer, found and fixed: a finished job expired two hours

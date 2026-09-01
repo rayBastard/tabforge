@@ -39,9 +39,12 @@ def main() -> None:
         except Exception:
             time.sleep(0.1)
 
+    import os
     webview.create_window("TabForge", url, width=1100, height=760,
                           min_size=(800, 560))
-    webview.start()
+    # TABFORGE_DEBUG=1: right-click -> Inspect Element in the window —
+    # the only way to see the WebKit console inside the packaged app
+    webview.start(debug=bool(os.environ.get("TABFORGE_DEBUG")))
     server.should_exit = True
 
 

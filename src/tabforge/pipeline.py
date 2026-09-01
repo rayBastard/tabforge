@@ -1339,6 +1339,21 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
                 if pitched:
                     tuning_key = suggest_tuning("bass", min(pitched)) \
                         or tuning_key
+            elif profile.name.startswith("guitar") \
+                    and tuning_key == opts.tuning:
+                # same rule for guitars (calibration session 2: a drop-
+                # C# track rendered in standard silently dropped all 97
+                # low riff roots — pitch 37 has no string in standard);
+                # an explicit user tuning choice is never overridden
+                pitched = [n.pitch for n in part_notes if not n.dead]
+                low = min(pitched) if pitched else 99
+                if low < TUNINGS[tuning_key][0]:
+                    sug = suggest_tuning("guitar", low)
+                    if sug:
+                        tuning_key = sug
+                        progress("fingering",
+                                 f"{part_name}: material dives to "
+                                 f"{low} — tuning switched to {sug}")
             cfg = TabConfig(tuning=TUNINGS[tuning_key],
                             max_fret=profile.max_fret)
             if profile.allow_palm_mute:

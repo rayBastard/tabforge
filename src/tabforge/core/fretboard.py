@@ -170,6 +170,21 @@ def shapes_for_event(event: Sequence[NoteEvent], cfg: TabConfig,
 
     pinned: {id(note): string} — a user-pinned note may ONLY sit on that
     string; every other note re-arranges around it."""
+    n_strings = len(cfg.tuning)
+    if len(event) > n_strings:
+        # overlapping voices gathered into one cluster: 7+ notes have
+        # NO combination on 6 strings and the whole event used to
+        # vanish (97 notes on one calibration track). Dedup repeated
+        # pitches, then drop inner voices — bass and melody survive.
+        seen: set[int] = set()
+        uniq = []
+        for n in sorted(event, key=lambda x: x.pitch):
+            if n.pitch not in seen:
+                seen.add(n.pitch)
+                uniq.append(n)
+        while len(uniq) > n_strings:
+            uniq.pop(len(uniq) // 2)
+        event = sorted(uniq, key=lambda x: x.start)
     per_note = []
     for n in event:
         cands = candidates_for_pitch(n.pitch, cfg)
@@ -184,20 +199,36 @@ def shapes_for_event(event: Sequence[NoteEvent], cfg: TabConfig,
         event = [n for n, _ in keep]
         per_note = [c for _, c in keep]
 
-    shapes: list[Shape] = []
-    for combo in itertools.product(*per_note):
-        strings = [s for s, _ in combo]
-        if len(set(strings)) != len(strings):
-            continue  # two notes on one string — impossible
-        frets = [f for _, f in combo if f > 0]
-        if frets and max(frets) - min(frets) > cfg.max_stretch:
-            continue  # the hand can't stretch that far
-        shapes.append(
-            Shape(
+    def _combos(cands_per_note, stretch):
+        out: list[Shape] = []
+        for combo in itertools.product(*cands_per_note):
+            strings = [s for s, _ in combo]
+            if len(set(strings)) != len(strings):
+                continue  # two notes on one string — impossible
+            frets = [f for _, f in combo if f > 0]
+            if frets and max(frets) - min(frets) > stretch:
+                continue  # the hand can't stretch that far
+            out.append(Shape(
                 start=event[0].start,
-                placements=[Placement(n, s, f) for n, (s, f) in zip(event, combo)],
-            )
-        )
+                placements=[Placement(n, s, f)
+                            for n, (s, f) in zip(event, combo)]))
+        return out
+
+    shapes = _combos(per_note, cfg.max_stretch)
+    # A note must NEVER silently vanish (calibration session 2: "при
+    # редактировании ноты пропадают"). The degradation ladder:
+    if not shapes and pinned and any(id(n) in pinned for n in event):
+        # 1) the pin made the event unsolvable — better to ignore the
+        #    pin than to eat the whole chord
+        unpinned = [candidates_for_pitch(n.pitch, cfg) for n in event]
+        unpinned = [c for c in unpinned if c]
+        if len(unpinned) == len(event):
+            shapes = _combos(unpinned, cfg.max_stretch)
+    if not shapes:
+        # 2) jointly unplayable (a rescued high note over a low chord):
+        #    write it anyway — Suno voicings are honestly unplayable
+        #    sometimes, and the score must still show every note
+        shapes = _combos(per_note, 24)
     return shapes
 
 
@@ -215,7 +246,10 @@ def positions_for_shape(shape: Shape, cfg: TabConfig) -> list[int]:
         return list(range(0, max_pos + 1))       # all open — the hand can be anywhere
     lo, hi = min(frets), max(frets)
     if hi - lo > cfg.max_stretch:
-        return []
+        # only the no-vanish fallback shapes ever get here (normal
+        # combos are pre-filtered): give them ONE position instead of
+        # killing the event downstream
+        return [max(0, min(lo, max_pos))]
     first = max(0, hi - cfg.max_stretch)
     last = min(lo, max_pos)
     return list(range(first, last + 1)) or [max(0, min(lo, max_pos))]

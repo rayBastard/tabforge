@@ -102,16 +102,19 @@ class TestAssign(unittest.TestCase):
         got = [p.note.pitch for s in shapes for p in s.placements]
         self.assertEqual(sorted(got), [48, 50, 52])
 
-    def test_unvoiceable_first_chord_is_skipped(self):
-        # Real-world case: a transcription-noise cluster at t=0 that no hand
-        # can voice on a 4-string bass, followed by a normal line.
+    def test_unvoiceable_first_chord_is_written_not_eaten(self):
+        # DOCTRINE CHANGE (calibration session 2, "ноты пропадают"):
+        # an in-range cluster no hand can voice is WRITTEN with the
+        # stretch relaxed rather than silently dropped — the score
+        # must show every note; only out-of-range pitches still go.
         cfg = TabConfig(tuning=TUNINGS["bass_4"], max_fret=20)
         cluster = [NoteEvent(p, 0.0, 0.2) for p in (34, 57, 41, 37)]
         line = [NoteEvent(p, 1.0 + i * 0.5, 0.4)
                 for i, p in enumerate((28, 31, 33, 35))]
         shapes = assign_tab(cluster + line, cfg)
         got = sorted(p.note.pitch for s in shapes for p in s.placements)
-        self.assertEqual(got, [28, 31, 33, 35])
+        self.assertEqual(got, [28, 31, 33, 34, 35, 37, 41, 57])
+        self.assertEqual(len(shapes), 5)      # the cluster is ONE shape
 
 
 class TestPins(unittest.TestCase):
