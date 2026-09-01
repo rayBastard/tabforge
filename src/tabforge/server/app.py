@@ -84,6 +84,10 @@ class Job:
     opts: object | None = None        # PipelineOptions of the last transcribe
     created_at: float = field(default_factory=time.time)
     finished_at: float | None = None
+    # refreshed by the touch middleware on ANY /api/jobs/{id}/* call:
+    # an open session must never expire under the user (calibration
+    # session 2 lost two hours of flags to the TTL sweeper)
+    last_access: float = field(default_factory=time.time)
     lock: threading.Lock = field(default_factory=threading.Lock)
     cancel: threading.Event = field(default_factory=threading.Event)
 
@@ -139,7 +143,9 @@ def cleanup_jobs(now: float | None = None) -> int:
         with job.lock:
             done = job.status in ("done", "error", "canceled")
             stamp = job.finished_at
-        if done and stamp is not None and now - stamp > JOB_TTL_S:
+        with job.lock:
+            stamp = max(stamp or 0, job.last_access)
+        if done and stamp and now - stamp > JOB_TTL_S:
             expired.append(job_id)
     for job_id in expired:
         _drop_job(job_id)
@@ -165,6 +171,16 @@ def _cleanup_loop() -> None:
     while True:
         time.sleep(CLEANUP_INTERVAL_S)
         cleanup_jobs()
+
+
+@app.middleware("http")
+async def _touch_job_middleware(request, call_next):
+    parts = request.url.path.split("/")
+    if len(parts) > 3 and parts[1] == "api" and parts[2] == "jobs":
+        job = JOBS.get(parts[3])
+        if job:
+            job.last_access = time.time()
+    return await call_next(request)
 
 
 @app.on_event("startup")
@@ -713,7 +729,17 @@ async def add_flag(job_id: str, flag: dict) -> dict:
     path = job.dir / "out" / "flags.json"
     flags = json.loads(path.read_text()) if path.exists() else []
     flags.append(entry)
-    path.write_text(json.dumps(flags, ensure_ascii=False, indent=1))
+    payload = json.dumps(flags, ensure_ascii=False, indent=1)
+    path.write_text(payload)
+    # durable mirror: flags must survive job expiry and app death —
+    # calibration session 2 lost its marks with the swept job dir
+    try:
+        name = job.audio.stem if job.audio else job_id
+        mirror = Path.home() / ".cache" / "tabforge" / "flags"
+        mirror.mkdir(parents=True, exist_ok=True)
+        (mirror / f"{name}.json").write_text(payload)
+    except OSError:
+        pass
     return {"count": len(flags)}
 
 

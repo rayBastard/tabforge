@@ -371,6 +371,7 @@ class TestJobLifecycle(ServerTestCase):
         job.status = status
         if status in ("done", "error"):
             job.finished_at = time.time() - age_s
+        job.last_access = time.time() - age_s
         srv.JOBS[job.id] = job
         return job
 
@@ -385,6 +386,16 @@ class TestJobLifecycle(ServerTestCase):
         self.assertFalse(old.dir.exists(), "expired job dir must be deleted")
         self.assertIn(fresh.id, srv.JOBS)
         self.assertIn(running.id, srv.JOBS)
+
+    def test_recently_touched_job_survives_expiry(self):
+        # calibration session 2: a two-hour listening session lost its
+        # flags when the sweeper hit the finished_at clock — ANY api
+        # access (the touch middleware / UI heartbeat) must reset it
+        self.set("JOB_TTL_S", 100.0)
+        job = self._fake_job(age_s=1000.0)
+        job.last_access = __import__("time").time()   # just touched
+        self.assertEqual(srv.cleanup_jobs(), 0)
+        self.assertIn(job.id, srv.JOBS)
 
     @unittest.skipUnless(HAVE_AUDIO, "numpy/soundfile are not installed")
     def test_full_store_of_running_jobs_is_429(self):

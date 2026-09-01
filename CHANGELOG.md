@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.7.31 — 2026-09-01
+
+The session-killer, found and fixed: a finished job expired two hours
+after transcription ended — the sweeper deleted its whole directory,
+so a long calibration listening session suddenly could not edit,
+could not save ("job not found"), and its freshly placed flags died
+with the dir (playback makes no API calls, so nothing kept the job
+alive). Three layers now: any API touch of a job resets its clock
+(middleware), the open project screen heartbeats every four minutes,
+and every flag is mirrored to a durable per-track file in
+~/.cache/tabforge/flags the moment it is saved — flags can no longer
+die with anything.
+
+
 ## v0.7.30 — 2026-09-01
 
 The rest of calibration session 1, all four cases closed. The

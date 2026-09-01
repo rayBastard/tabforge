@@ -507,6 +507,14 @@ function finish(job) {
   refLink.hidden = false;
   $("#reviewBtn").hidden = false;
   initFlagButton();
+  // heartbeat: a project screen left open for hours (a calibration
+  // listening session) must keep its job alive — playback makes no
+  // API calls, so ping the status every 4 minutes
+  clearInterval(window._jobHeartbeat);
+  window._jobHeartbeat = setInterval(() => {
+    if (currentJobId)
+      apiFetch(`/api/jobs/${currentJobId}`).catch(() => {});
+  }, 240000);
   loadChords(job.id);
   loadSections(job.id);
   loadLyrics(job.id);
