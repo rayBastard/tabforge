@@ -25,7 +25,10 @@ class InstrumentProfile:
     allow_hammer: bool      # hammer-on/pull-off as a string technique
     legato_as_slur: bool    # legato pairs become notation slurs instead
     tuning: str | None      # fixed tuning key; None = the user's choice
-    max_fret: int = 22
+    # 24: the editor's virtual neck has gone to 24 frets since task
+    # 39, and the octave-solo calibration case needs fret 23 on the
+    # top string — a 22-fret ceiling silently ate those notes
+    max_fret: int = 24
     # rolled-chord gathering window, seconds (0 = off): sustained-keyboard
     # transcription smears one chord's onsets across neighboring ticks
     chord_gather_window: float = 0.0

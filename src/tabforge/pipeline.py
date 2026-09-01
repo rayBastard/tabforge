@@ -1339,21 +1339,34 @@ def run_transcribe(out_dir: Path, analyzed: AnalyzeResult,
                 if pitched:
                     tuning_key = suggest_tuning("bass", min(pitched)) \
                         or tuning_key
-            elif profile.name.startswith("guitar") \
-                    and tuning_key == opts.tuning:
-                # same rule for guitars (calibration session 2: a drop-
-                # C# track rendered in standard silently dropped all 97
-                # low riff roots — pitch 37 has no string in standard);
-                # an explicit user tuning choice is never overridden
+            elif profile.name.startswith("guitar"):
+                # per-part RANGE-FIT (calibration session 2, twice):
+                # a drop-C# track in standard silently dropped 97 low
+                # riff roots, and the octave-solo's top notes (86) had
+                # no fret in the card's blanket eb suggestion. Each
+                # guitar part now takes the least-detuned tuning that
+                # holds BOTH its ends; the switch only ever happens
+                # when the current tuning provably loses notes.
                 pitched = [n.pitch for n in part_notes if not n.dead]
-                low = min(pitched) if pitched else 99
-                if low < TUNINGS[tuning_key][0]:
-                    sug = suggest_tuning("guitar", low)
-                    if sug:
-                        tuning_key = sug
-                        progress("fingering",
-                                 f"{part_name}: material dives to "
-                                 f"{low} — tuning switched to {sug}")
+                if pitched:
+                    lo, hi = min(pitched), max(pitched)
+                    cur = TUNINGS[tuning_key]
+                    if lo < cur[0] or hi > cur[-1] + profile.max_fret:
+                        ladder = ("standard", "eb_standard", "drop_d",
+                                  "d_standard", "drop_db", "c_standard",
+                                  "drop_c", "b_standard", "drop_b",
+                                  "drop_bb", "drop_a", "seven_string",
+                                  "seven_drop_a")
+                        for cand in ladder:
+                            tt = TUNINGS[cand]
+                            if lo >= tt[0] \
+                                    and hi <= tt[-1] + profile.max_fret:
+                                tuning_key = cand
+                                progress(
+                                    "fingering",
+                                    f"{part_name}: range {lo}-{hi} — "
+                                    f"tuning refit to {cand}")
+                                break
             cfg = TabConfig(tuning=TUNINGS[tuning_key],
                             max_fret=profile.max_fret)
             if profile.allow_palm_mute:

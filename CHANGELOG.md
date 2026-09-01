@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.7.33 — 2026-09-01
+
+The "tapping" flags turned out to be an octave-doubled solo (measured:
++12 energy at 3-30x over the melody, thirds weak) — and chasing it
+exposed two ceilings that ate the doubled voice's top notes. Guitar
+parts now RANGE-FIT their tuning: each part takes the least-detuned
+tuning that holds both its lowest and highest note (the blanket
+per-track suggestion had parked a 41-87 lead in eb while the rhythm
+needed drop-C#), and the guitar fretboard grew from 22 to 24 frets to
+match the editor's virtual neck — fret 23 existed on screen but not
+in the placement engine. The flagged track's lead now places 399 of
+399 notes. Automatic restoration of a missing octave VOICE was
+measured and parked: on this distorted timbre the second harmonic of
+single notes is just as loud as real octave doubling — the spectral
+discriminator cannot tell them apart.
+
+
 ## v0.7.32 — 2026-09-01
 
 Calibration session 2's bug report — "ноты пропадают при
