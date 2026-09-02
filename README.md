@@ -38,6 +38,29 @@ at the server's address, on a phone — as a PWA. The logic is never rewritten.
 └──────────────────────────────────────────────────────────────────┘
 ```
 
+## What it does today
+
+- **Understands the song, not just the notes**: tempo (with octave-error
+  correction), key, time signature — 3/4 waltzes and even mid-track
+  meter changes land in the score; bar 1 starts on a real downbeat;
+  swing is written as straight 8ths with a shuffle marking, real
+  triplets get tuplets per beat, compound time becomes 12/8.
+- **Per-instrument transcription with routing**: each instrument goes
+  to the best available engine (MuScriptor, YourMT3+, GAPS, Basic
+  Pitch, a mono-f0 path for bass) — measured on a golden corpus with
+  per-note truth; the numbers live in `docs/eval.md`.
+- **Guitar-aware output**: Viterbi fingering over hand positions
+  (tuned on GuitarSet's human players), automatic tuning fit (a
+  drop-C# track gets a drop-C# tab), lead/rhythm split, palm mute,
+  natural harmonics, trills, bends read straight off the audio.
+- **A player you can verify by ear**: a real SoundFont, per-track
+  mute/solo, click-to-hear editing, chord line, song sections,
+  synced lyrics.
+- **A calibration loop**: hear something wrong — hit 🚩 and keep
+  listening; edit notes on the virtual fretboard, shift octaves or
+  semitones in bulk, and export your corrected version as reference
+  MIDI that becomes ground truth for the next version.
+
 ## Roadmap
 
 ### Phase 0 — repository skeleton ✅ (done)
