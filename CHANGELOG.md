@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.7.35 — 2026-09-02
+
+The silent-second-track bug, root-caused and fixed. Every time you
+went back and loaded another track, the player destroyed its
+AlphaTabApi and built a new one — and each new one opened a fresh
+AudioContext. WKWebView caps how many a page may hold, so after a
+few tracks in one session the newest player had no working audio
+output and played in silence (the score and cursor looked fine —
+only the sound was gone). Proven in a WebKit harness: destroy-and-
+recreate leaked one context per track (1,2,3,4,5,6…), while reusing
+one player holds a single context forever. The player is now built
+ONCE and a new track just loads its score into it — verified across
+three different tracks, all playing, one AudioContext throughout.
+Editing a note still swaps the score the same way, so nothing else
+changes.
+
+
 ## v0.7.34 — 2026-09-01
 
 Editor precision and the octave catch. Mass ops gained a PITCH

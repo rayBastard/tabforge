@@ -636,21 +636,16 @@ function initUnifiedScore(job) {
   const atEl = $("#unifiedScore");
   const playBtn = $("#transportPlay");
   const posEl = $("#transportPos");
-  // a SECOND track must not inherit the first one's score: the old api
-  // keeps its DOM listeners on the same container, so without destroy
-  // it kept catching clicks and showing the previous track's notes
-  if (unified.api) {
-    try { unified.api.destroy(); } catch { /* half-armed player */ }
-    unified.api = null;
-    unified.armed = false;
-    atEl.innerHTML = "";
-  }
   if (!job.song || !window.alphaTab) {
+    if (unified.api) { try { unified.api.destroy(); } catch { /**/ } }
+    unified.api = null;
     atEl.hidden = true;
     playBtn.disabled = true;
     return;
   }
-  // instrument name -> tablature? (piano/vocals are notation-only)
+  // instrument name -> tablature? (piano/vocals are notation-only).
+  // The handlers below read unified.tabByName (NOT a closure local) so
+  // they stay correct after a score SWAP on the reused api.
   unified.tabByName = Object.fromEntries(
     job.results.map((r) => [r.stem, r.tablature !== false]));
   const tabByName = unified.tabByName;
@@ -661,6 +656,26 @@ function initUnifiedScore(job) {
                           .map((r) => r.stem);
   setBulkSelection(null);
   exitReview();
+
+  // REUSE the one AlphaTabApi across tracks (calibration session 2026-
+  // 09-02: every destroy()+new AlphaTabApi leaked a fresh AudioContext,
+  // and WKWebView caps them — after several tracks the packaged app's
+  // player fell silent; proven 1-context-forever vs 1-per-track in a
+  // WebKit harness). A second track just LOADS its score into the live
+  // player, keeping the single AudioContext alive.
+  if (unified.api) {
+    try {
+      unified.armed = false;
+      playBtn.disabled = true;
+      playBtn.textContent = "…";
+      unified.api.load(withToken(job.song));
+      applyMixer();
+      return;
+    } catch { /* fall through to a fresh api */ }
+    try { unified.api.destroy(); } catch { /**/ }
+    unified.api = null;
+    atEl.innerHTML = "";
+  }
 
   const makeApi = (withPlayer) => {
     const api = new alphaTab.AlphaTabApi(atEl, {
@@ -682,7 +697,9 @@ function initUnifiedScore(job) {
     });
     api.scoreLoaded.on((score) => {
       // fretted instruments read TAB, keys/vocals read notation —
-      // nobody needs both staves at once
+      // nobody needs both staves at once. Reads unified.tabByName so a
+      // score SWAP on the reused api uses the NEW track's mapping.
+      const tbn = unified.tabByName;
       for (const t of score.tracks) {
         // belt and braces: the stave flag, the GM drum channel and the
         // part name — a drums track must NEVER show a tab staff
@@ -693,7 +710,7 @@ function initUnifiedScore(job) {
           if (percussion) {
             stave.showTablature = false;
             stave.showStandardNotation = true;
-          } else if (tabByName[t.name] === false) {
+          } else if (tbn[t.name] === false) {
             stave.showTablature = false;
             stave.showStandardNotation = true;
           } else {
@@ -710,6 +727,14 @@ function initUnifiedScore(job) {
       }
       posEl.textContent = `${score.masterBars.length} bars`;
       renderView();                     // honors the selected tab
+      // re-arm after a SWAP: playerReady fires only on first creation,
+      // but the player stays ready across load()s (same context)
+      if (withPlayer && api.isReadyForPlayback) {
+        unified.armed = true;
+        playBtn.disabled = false;
+        playBtn.textContent = "▶";
+        applyMixer();
+      }
     });
     if (withPlayer) {
       // "where am I": the transport counts bars as playback advances
